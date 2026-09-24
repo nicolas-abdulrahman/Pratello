@@ -19,11 +19,15 @@
             docker
             docker-compose
             git
+            jdk21
+            gradle
           ];
 
           shellHook = ''
             echo "Go: $(go version)"
             echo "Node: $(node --version)"
+            echo "Java: $(java --version | head -n 1)"
+            echo "Gradle: $(gradle --version | head -n 3 | tail -n 1)"
             echo "Git: $(git --version)"
           '';
         };

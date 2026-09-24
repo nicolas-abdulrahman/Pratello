@@ -8,22 +8,28 @@ A full-stack web application with a **Go (standard `net/http`) backend**, **Svel
 
 ```text
 pratello/
-├── flake.nix                # Nix environment (Go, Node.js, Docker, Compose)
+├── flake.nix                # Nix environment (Go, Node.js, Docker, Java 21, Gradle)
 ├── go.mod                   # Go 1.22 module definition
+├── package.json             # Root workspace scripts (npm run dev, test:e2e, server)
 ├── README.md                # Project documentation
 ├── server/
 │   └── main.go              # Go standard net/http server & API routes
-└── frontend/                # Svelte + Tailwind + Vite
-    ├── index.html           # HTML template
-    ├── package.json         # Frontend dependencies
-    ├── vite.config.js       # Vite configuration with API proxy
-    ├── tailwind.config.js   # Tailwind configuration
-    ├── postcss.config.js    # PostCSS configuration
-    └── src/
-        ├── app.css          # Tailwind CSS directives
-        ├── main.js          # Svelte mount entrypoint
-        ├── App.svelte       # Root component
-        └── Home.svelte      # Main / restaurant page component
+├── frontend/                # Svelte + Tailwind + Vite
+│   ├── index.html           # HTML template
+│   ├── package.json         # Frontend dependencies
+│   ├── vite.config.js       # Vite configuration with API proxy
+│   ├── tailwind.config.js   # Tailwind configuration
+│   ├── postcss.config.js    # PostCSS configuration
+│   └── src/
+│       ├── app.css          # Tailwind CSS directives
+│       ├── main.js          # Svelte mount entrypoint
+│       ├── App.svelte       # Root component
+│       └── Home.svelte      # Main / restaurant page component
+└── e2e/                     # Java E2E test suite (Gradle + Playwright)
+    ├── settings.gradle.kts  # Gradle settings
+    ├── build.gradle.kts     # Playwright & JUnit 5 dependencies
+    └── src/test/java/org/pratello/
+        └── PratelloE2ETest.java
 ```
 
 ---
@@ -82,3 +88,20 @@ npm run server
 | `/{restaurant}` | Dynamic restaurant view (e.g. `/bobpizzeria`, `/deliciadeprazeres`) |
 | `/api/health` | Healthcheck endpoint (`{"status":"ok"}`) |
 | `/api/restaurants/{restaurant}` | JSON restaurant details served by Go `net/http` |
+
+---
+
+## 🧪 Running E2E Tests (Java + Playwright + Gradle)
+
+With the app running (e.g. `npm run dev` and `npm run server`):
+
+```bash
+# Run tests with Gradle
+gradle -p e2e test
+
+# Or via npm script from root
+npm run test:e2e
+
+# Run with browser window visible (headed mode)
+HEADLESS=false gradle -p e2e test
+```

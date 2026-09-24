@@ -21,6 +21,12 @@ bin/
 result
 result-*
 
+# Gradle & Java
+.gradle/
+build/
+e2e/build/
+e2e/.gradle/
+
 # Vite & Cache
 .vite/
 .svelte-kit/
