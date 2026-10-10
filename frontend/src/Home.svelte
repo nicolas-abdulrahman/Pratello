@@ -1,14 +1,25 @@
 <script>
   import { onMount } from 'svelte';
 
-
   let currentPath = window.location.pathname;
   let restaurantSlug = currentPath.replace(/^\/+|\/+$/g, '');
   let restaurantData = null;
+  let restaurantsList = [];
   let loading = false;
   let error = null;
 
   let customSlugInput = '';
+
+  async function fetchRestaurantsList() {
+    try {
+      const res = await fetch('/api/restaurants');
+      if (res.ok) {
+        restaurantsList = await res.json();
+      }
+    } catch (e) {
+      console.error('Failed to fetch restaurants:', e);
+    }
+  }
 
   async function fetchRestaurant(slug) {
     if (!slug) {
@@ -32,7 +43,12 @@
     window.history.pushState({}, '', path);
     currentPath = window.location.pathname;
     restaurantSlug = currentPath.replace(/^\/+|\/+$/g, '');
-    fetchRestaurant(restaurantSlug);
+    if (restaurantSlug) {
+      fetchRestaurant(restaurantSlug);
+    } else {
+      restaurantData = null;
+      fetchRestaurantsList();
+    }
   }
 
   function handleCustomSearch() {
@@ -42,10 +58,16 @@
   }
 
   onMount(() => {
+    fetchRestaurantsList();
     window.addEventListener('popstate', () => {
       currentPath = window.location.pathname;
       restaurantSlug = currentPath.replace(/^\/+|\/+$/g, '');
-      fetchRestaurant(restaurantSlug);
+      if (restaurantSlug) {
+        fetchRestaurant(restaurantSlug);
+      } else {
+        restaurantData = null;
+        fetchRestaurantsList();
+      }
     });
 
     if (restaurantSlug) {
@@ -56,7 +78,7 @@
 
 <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
   <!-- Header / Navigation Bar -->
-  <header class="border-b border-slate-800 bg-slate-950/60 backdrop-blur sticky top-0 z-50">
+  <header class="border-b border-x-slate-400 bg-slate-500/60 backdrop-blur sticky top-0 z-50">
     <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
       <div 
         class="flex items-center gap-2 cursor-pointer font-bold text-xl tracking-tight text-white hover:opacity-90 transition"
@@ -66,22 +88,18 @@
         role="button"
       >
         <span class="text-2xl">🍽️</span>
-        <span class="bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Pratello</span>
+        <span class="bg-gradient-to-r from-amber-300 to-orange-500 bg-clip-text text-transparent">Pratello</span>
       </div>
 
       <nav class="flex items-center gap-3">
-        <button
-          onclick={() => navigateTo('/bobpizzeria')}
-          class="px-3 py-1.5 text-sm rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 transition"
-        >
-          🍕 Bob's Pizzeria
-        </button>
-        <button
-          onclick={() => navigateTo('/deliciadeprazeres')}
-          class="px-3 py-1.5 text-sm rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 transition"
-        >
-          🧁 Delícia de Prazeres
-        </button>
+        {#each restaurantsList as r}
+          <button
+            onclick={() => navigateTo('/' + r.slug)}
+            class="px-3 py-1.5 text-sm rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 transition"
+          >
+            🍽️ {r.name}
+          </button>
+        {/each}
       </nav>
     </div>
   </header>
@@ -107,7 +125,7 @@
             type="text"
             bind:value={customSlugInput}
             onkeydown={(e) => e.key === 'Enter' && handleCustomSearch()}
-            placeholder="e.g. bobpizzeria, sushi-central"
+            placeholder="e.g. deliciadeprazeres, sushi-central"
             class="flex-1 px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 transition"
           />
           <button
@@ -119,33 +137,30 @@
         </div>
 
         <!-- Featured Cards -->
-        <div class="grid md:grid-cols-2 gap-6 text-left max-w-3xl mx-auto">
-          <div
-            onclick={() => navigateTo('/bobpizzeria')}
-            onkeydown={(e) => e.key === 'Enter' && navigateTo('/bobpizzeria')}
-            tabindex="0"
-            role="button"
-            class="p-6 bg-slate-800/60 rounded-xl border border-slate-700 hover:border-amber-500/50 cursor-pointer transition group"
-          >
-            <div class="text-3xl mb-2">🍕</div>
-            <h3 class="text-xl font-bold group-hover:text-amber-400 transition">Bob's Pizzeria</h3>
-            <p class="text-sm text-slate-400 mt-1">Crisp wood-fired pizza & artisanal ingredients.</p>
-            <span class="inline-block mt-4 text-xs font-semibold text-amber-400">pratello.org/bobpizzeria →</span>
+        {#if restaurantsList.length > 0}
+          <div class="grid md:grid-cols-2 gap-6 text-left max-w-3xl mx-auto">
+            {#each restaurantsList as r}
+              <div
+                onclick={() => navigateTo('/' + r.slug)}
+                onkeydown={(e) => e.key === 'Enter' && navigateTo('/' + r.slug)}
+                tabindex="0"
+                role="button"
+                class="p-6 bg-slate-800/60 rounded-xl border border-slate-700 hover:border-amber-500/50 cursor-pointer transition group"
+              >
+                <div class="text-3xl mb-2">🍽️</div>
+                <h3 class="text-xl font-bold group-hover:text-amber-400 transition">{r.name}</h3>
+                {#if r.description}
+                  <p class="text-sm text-slate-400 mt-1">{r.description}</p>
+                {/if}
+                <span class="inline-block mt-4 text-xs font-semibold text-amber-400">pratello.org/{r.slug} →</span>
+              </div>
+            {/each}
           </div>
-
-          <div
-            onclick={() => navigateTo('/deliciadeprazeres')}
-            onkeydown={(e) => e.key === 'Enter' && navigateTo('/deliciadeprazeres')}
-            tabindex="0"
-            role="button"
-            class="p-6 bg-slate-800/60 rounded-xl border border-slate-700 hover:border-amber-500/50 cursor-pointer transition group"
-          >
-            <div class="text-3xl mb-2">🧁</div>
-            <h3 class="text-xl font-bold group-hover:text-amber-400 transition">Delícia de Prazeres</h3>
-            <p class="text-sm text-slate-400 mt-1">Authentic sweets, pastries, and savory delights.</p>
-            <span class="inline-block mt-4 text-xs font-semibold text-amber-400">pratello.org/deliciadeprazeres →</span>
+        {:else}
+          <div class="text-slate-400 text-sm max-w-md mx-auto p-6 bg-slate-800/40 rounded-xl border border-slate-800">
+            No restaurants found yet. Add one with <code class="text-amber-300">POST /api/restaurants</code>!
           </div>
-        </div>
+        {/if}
       </section>
     {:else}
       <!-- Restaurant Page (at /{restaurant}) -->

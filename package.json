@@ -5,7 +5,7 @@
     "frontend"
   ],
   "scripts": {
-    "server": "go run ./server",
+    "server": "go run ./server/cmd",
     "dev": "npm run dev --workspace=frontend",
     "build": "npm run build --workspace=frontend",
     "preview": "npm run preview --workspace=frontend",

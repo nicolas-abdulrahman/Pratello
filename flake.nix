@@ -21,6 +21,7 @@
             git
             jdk21
             gradle
+            postgresql
           ];
 
           shellHook = ''
