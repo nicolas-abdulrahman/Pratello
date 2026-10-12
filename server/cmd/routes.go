@@ -33,10 +33,12 @@ type UpdateRestaurantRequest struct {
 	Description string `json:"description"`
 }
 
-// App holds the database connection and in-memory fallback for testing.
+// App holds the stores for business logic and legacy fallback fields for backwards compatibility.
 type App struct {
-	DB            *sql.DB
-	memMu         sync.RWMutex
+	Restaurants    RestaurantStore
+	Dishes         DishStore
+	DB             *sql.DB
+	memMu          sync.RWMutex
 	memRestaurants map[string]Restaurant
 	memDishes      map[int]Dish
 	dishIDCounter  int
@@ -49,6 +51,8 @@ func NewApp(db *sql.DB) *App {
 		memDishes:      make(map[int]Dish),
 	}
 	if db != nil {
+		app.Restaurants = NewSQLRestaurantStore(db)
+		app.Dishes = NewSQLDishStore(db)
 		_ = app.InitSchema()
 	}
 	return app
@@ -155,6 +159,19 @@ func (a *App) RegisterRoutes(mux *http.ServeMux) {
 func (a *App) handleListRestaurants(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	if a.Restaurants != nil {
+		list, err := a.Restaurants.List(r.Context())
+		if err != nil {
+			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+			return
+		}
+		if list == nil {
+			list = make([]Restaurant, 0)
+		}
+		_ = json.NewEncoder(w).Encode(list)
+		return
+	}
+
 	if a.DB != nil {
 		rows, err := a.DB.QueryContext(r.Context(), "SELECT slug, name, COALESCE(description, '') FROM restaurants")
 		if err != nil {
@@ -212,6 +229,21 @@ func (a *App) handleCreateRestaurant(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 	}
 
+	if a.Restaurants != nil {
+		if err := a.Restaurants.Create(r.Context(), &restaurant); err != nil {
+			if errors.Is(err, ErrConflict) {
+				w.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant with this slug already exists"})
+				return
+			}
+			http.Error(w, `{"error":"failed to create restaurant"}`, http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(restaurant)
+		return
+	}
+
 	if a.DB != nil {
 		var existing string
 		err := a.DB.QueryRowContext(r.Context(), "SELECT slug FROM restaurants WHERE slug = $1", slug).Scan(&existing)
@@ -248,6 +280,17 @@ func (a *App) handleGetRestaurant(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	slug := strings.ToLower(r.PathValue("slug"))
 
+	if a.Restaurants != nil {
+		res, err := a.Restaurants.GetBySlug(r.Context(), slug)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(res)
+		return
+	}
+
 	if a.DB != nil {
 		var res Restaurant
 		err := a.DB.QueryRowContext(r.Context(),
@@ -281,6 +324,21 @@ func (a *App) handleUpdateRestaurant(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if a.Restaurants != nil {
+		updated, err := a.Restaurants.Update(r.Context(), slug, req)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
+				return
+			}
+			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(updated)
 		return
 	}
 
@@ -324,6 +382,21 @@ func (a *App) handleUpdateRestaurant(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleDeleteRestaurant(w http.ResponseWriter, r *http.Request) {
 	slug := strings.ToLower(r.PathValue("slug"))
 
+	if a.Restaurants != nil {
+		err := a.Restaurants.Delete(r.Context(), slug)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
+				return
+			}
+			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	if a.DB != nil {
 		res, err := a.DB.ExecContext(r.Context(), "DELETE FROM restaurants WHERE slug = $1", slug)
 		if err != nil {
@@ -362,6 +435,24 @@ func (a *App) handleDeleteRestaurant(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleListDishes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	slug := strings.ToLower(r.PathValue("slug"))
+
+	if a.Dishes != nil {
+		dishes, err := a.Dishes.ListByRestaurant(r.Context(), slug)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
+				return
+			}
+			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+			return
+		}
+		if dishes == nil {
+			dishes = make([]Dish, 0)
+		}
+		_ = json.NewEncoder(w).Encode(dishes)
+		return
+	}
 
 	if a.DB != nil {
 		// Verify restaurant exists
@@ -424,6 +515,22 @@ func (a *App) handleCreateDish(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Name) == "" || req.Price < 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "valid name and non-negative price are required"})
+		return
+	}
+
+	if a.Dishes != nil {
+		dish, err := a.Dishes.Create(r.Context(), slug, req)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
+				return
+			}
+			http.Error(w, `{"error":"failed to create dish"}`, http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(dish)
 		return
 	}
 
@@ -490,6 +597,21 @@ func (a *App) handleUpdateDish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.Dishes != nil {
+		dish, err := a.Dishes.Update(r.Context(), slug, id, req)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
+				return
+			}
+			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(dish)
+		return
+	}
+
 	if a.DB != nil {
 		res, err := a.DB.ExecContext(r.Context(),
 			"UPDATE dishes SET name = $1, price = $2 WHERE id = $3 AND restaurant_slug = $4",
@@ -537,6 +659,21 @@ func (a *App) handleDeleteDish(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid dish ID"})
+		return
+	}
+
+	if a.Dishes != nil {
+		err := a.Dishes.Delete(r.Context(), slug, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
+				return
+			}
+			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
