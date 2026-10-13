@@ -1,5 +1,7 @@
 # Pratello
 
+Banco de dados, caso de teste, e api esta definido em docs!
+
 A full-stack web application with a **Go (standard `net/http`) backend**, **Svelte frontend**, and **Tailwind CSS**, managed with **Nix flakes**.
 
 ---
