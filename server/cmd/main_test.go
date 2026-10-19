@@ -36,14 +36,9 @@ func testAddRestaurant(t *testing.T, router http.Handler, r Restaurant) Restaura
 }
 
 func TestAddRestaurant(t *testing.T) {
-	// Reset restaurants store before test
-	restaurantsMu.Lock()
-	restaurants = make(map[string]Restaurant)
-	restaurantsMu.Unlock()
+	app := NewApp(nil)
+	router := setupRouter(app)
 
-	router := setupRouter()
-
-	// Pass Restaurant struct directly
 	sample := Restaurant{
 		Slug:        "deliciadeprazeres",
 		Name:        "Delícia de Prazeres",
@@ -83,7 +78,8 @@ func TestAddRestaurant(t *testing.T) {
 }
 
 func TestAddRestaurantValidation(t *testing.T) {
-	router := setupRouter()
+	app := NewApp(nil)
+	router := setupRouter(app)
 
 	// Test missing name
 	invalidPayload := map[string]string{
@@ -102,12 +98,8 @@ func TestAddRestaurantValidation(t *testing.T) {
 }
 
 func TestGetNonExistentRestaurant(t *testing.T) {
-	// Reset restaurants store
-	restaurantsMu.Lock()
-	restaurants = make(map[string]Restaurant)
-	restaurantsMu.Unlock()
-
-	router := setupRouter()
+	app := NewApp(nil)
+	router := setupRouter(app)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/restaurants/nonexistent", nil)
 	rec := httptest.NewRecorder()
@@ -120,16 +112,16 @@ func TestGetNonExistentRestaurant(t *testing.T) {
 }
 
 func TestListRestaurants(t *testing.T) {
-	restaurantsMu.Lock()
-	restaurants = make(map[string]Restaurant)
-	restaurants["deliciadeprazeres"] = Restaurant{
+	app := NewApp(nil)
+	router := setupRouter(app)
+
+	// Insert sample restaurant directly using testAddRestaurant
+	sample := Restaurant{
 		Slug:        "deliciadeprazeres",
 		Name:        "Delícia de Prazeres",
 		Description: "Authentic comfort food, sweets, and savory specialties.",
 	}
-	restaurantsMu.Unlock()
-
-	router := setupRouter()
+	_ = testAddRestaurant(t, router, sample)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/restaurants", nil)
 	rec := httptest.NewRecorder()
@@ -218,4 +210,3 @@ func TestDishLifecycle(t *testing.T) {
 		t.Fatalf("Expected 204 No Content for delete dish, got %d", delRec.Code)
 	}
 }
-

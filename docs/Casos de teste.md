@@ -1,1228 +1,1138 @@
-# Plano e Especificação Detalhada de Testes — Pratello
+# Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Classificação:** Suíte de Testes Profunda
-> **Total de Casos de Teste:** 200 
-> **Objetivo:** Fornecer uma suíte exaustiva cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Entradas Maliciosas e Inválidas (*Negative Testing*), Integridade Referencial (*ACID/FK*), Idempotência e Concorrência para o ecossistema Pratello.
+> **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
+> **Total de Casos de Teste:** 200 Casos Rigorosos  
+> **Conformidade de Schema:** Totalmente alinhado ao DBML atual do Pratello.  
+> **Novas Diretrizes de Domínio:**  
+> - **Privacidade do Pedido:** `order` não possui CPF nem chave estrangeira para `account` ou `users`.  
+> - **Ciclo de Vida das Moedas (`user_restaurant`):** O CPF acumula saldo a cada compra (cria o registro se não existir, atualiza se existir). **O resgate exige obrigatoriamente uma conta vinculada (`account_id IS NOT NULL`)**.  
+> - **Enums Padronizados:** Status e tipos em caixa alta (`PENDING`, `COMPLETED`, `LOCAL`, `REMOTE`, `PIX`, etc.).
 
 ---
 
 ## Resumo Executivo e Metodologia de Teste
 
-A arquitetura do Pratello foi dividida em **6 Módulos Coesos de Alta Profundidade (Deep Modules)**, eliminando a dispersão anterior e garantindo que cada endpoint e entidade seja testada com suas variações completas de entrada, restrições SQL e respostas HTTP:
+A suíte está estruturada em **6 Módulos Coesos de Alta Profundidade (Deep Modules)** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência e Concorrência:
 
-1. **Módulo 1: Identidade, Autenticação e Perfis (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Contas globais, hash seguro, validações de formato (CPF, E-mail, Telefone), permissões RBAC (`sysadmin`, `manager`, `users`), sessões e conflitos de unicidade.
-2. **Módulo 2: Estabelecimentos, Filiais e Infraestrutura (TEN)** — Casos `TEN-001` a `TEN-030` (30 testes): Gestão de tenants/marcas (`restaurant`), filiais (`physical_restaurant`), padronização postal (`Address`), canais de contato e isolamento multi-tenant estrito.
-3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-045` (45 testes): Layout visual (`menu`), categorias ordenadas, itens vendáveis, ficha técnica de ingredientes (`item_ingredient`), grupos de adicionais/opcionais (`item_side`, `side_option`), receitas de combos (`combo_item`) e promoções temporárias (`item_sale`).
-4. **Módulo 4: Pedidos, Especialização (Salão vs. Delivery) e Imutabilidade (ORD)** — Casos `ORD-001` a `ORD-040` (40 testes): Máquina de estados de pedidos, congelamento obrigatório de preço (`unit_price_frozen`), especialização exclusiva (`local_order` vs `remote_order`), cálculo de frete, cancelamentos e consistência de itens hierárquicos.
-5. **Módulo 5: Pagamentos, Transações, PIX e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-030` (30 testes): Métodos de pagamento, transações parciais/divididas, idempotência de geração de PIX (`transaction_pix`), cupons de desconto (`coupon`), carteira de cashback/coins (`user_restaurant`) e recibos fiscais imutáveis (`receipt`).
-6. **Módulo 6: Turnos Operacionais, Concorrência e Resiliência (OPS)** — Casos `OPS-001` a `OPS-020` (20 testes): Abertura e fechamento de turnos (`restaurant_staff_session`), validação de token QR de presença (`staff_session`), concorrência em pedidos simultâneos, lock pessimista/otimista e recuperação de falhas.
+1. **Módulo 1: Identidade, Contas e Gestão (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Contas (`account`), documento flexível (`document` para CPF/CNPJ), papéis e tipos em estabelecimentos (`account_restaurant`), endereço de cobrança (`Address`) e proteção contra injeções.
+2. **Módulo 2: Estabelecimentos, Filiais e Infraestrutura (TEN)** — Casos `TEN-001` a `TEN-030` (30 testes): Gestão de tenants/marcas (`restaurant` com `name_slug` e `cnpj`), filiais físicas (`physical_restaurant`), telefones de unidade (`restaurant_phone`) e isolamento multi-tenant.
+3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-045` (45 testes): Layout visual (`menu` com `CLASSICO` / `EXPERIENCIA`), categorias, itens (`menu_item`), ficha técnica com medidas (`item_ingredient`), adicionais (`item_side`, `side_option`), combos vinculados (`combo_item`) e promoções (`item_sale`).
+4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 testes): Pedidos desacoplados de CPF com `customer_name` opcional, especialização estrita (`local_order` com `"table"` vs `remote_order` com `"delivery_fee"`), congelamento de valor (`unit_price`), combos com `parent_order_id` e máquina de estados (`PENDING` -> `COMPLETED`).
+5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-030` (30 testes): Tipos de transação (`PIX`, `CREDIT`, `DEBIT`, `CASH`), geração de PIX com `pix_copy_paste`, recibos em JSONB (`receipt`), cupons com restrição composta `(restaurant_id, code)` e **ciclo de moedas (acúmulo anônimo por CPF vs exigência de `account` para resgate)**.
+6. **Módulo 6: Turnos Operacionais, Concorrência e Resiliência (OPS)** — Casos `OPS-001` a `OPS-020` (20 testes): Sessões de turno (`staff_session` com `shift_code` de 6 dígitos e `qr_token`), concorrência em pedidos e estoque, exaustão de pool de conexões e graceful shutdown.
 
 ---
 
-## Módulo 1: Identidade, Autenticação e Perfis (IDP-001 a IDP-035)
+## Módulo 1: Identidade, Contas e Gestão (IDP-001 a IDP-035)
 
 ### IDP-001: Cadastro de Conta com E-mail e Senha Válidos
-- **Pré-condição:** E-mail `admin@pratello.com` inexistente no banco.
-- **Passos:** Enviar requisição POST para `/auth/register`. Consultar banco `SELECT id, email, password_hash, created_at FROM account WHERE email = ?`.
+- **Pré-condição:** E-mail `admin@pratello.com` não cadastrado na tabela `account`.
+- **Passos:** POST `/auth/register`. Inspecionar `SELECT id, email, password, document, address_id FROM account WHERE email = ?`.
 - **Entradas:**
-  - Válida padrão: `{"email": "admin@pratello.com", "password": "Password123!", "phone": "11987654321"}`
-  - Válida limite mínimo de senha (8 chars): `{"email": "admin2@pratello.com", "password": "Abc1234!", "phone": "11987654322"}`
-  - Válida e-mail com subdomínio: `{"email": "dev.test+qa@corp.pratello.com.br", "password": "Password123!", "phone": "11987654323"}`
-- **Esperado:** HTTP 201 Created. Senha nunca gravada em texto plano (`password_hash` com bcrypt/argon2). `created_at` preenchido.
-- **Critério de Aceite:** O hash decodificado confere com a senha via algoritmo de verificação.
+  - Válida com CPF: `{"email": "admin@pratello.com", "password": "Password123!", "name": "Admin Pratello", "document": "52998224725", "phone": "11987654321"}`
+  - Válida com CNPJ: `{"email": "gestor@corp.com", "password": "Password123!", "name": "Gestor Corp", "document": "12345678000199", "phone": "11987654322"}`
+- **Esperado:** HTTP 201 Created. Senha protegida por hash. Campo `document` persistido sem formatação.
 
-### IDP-002: Rejeição de E-mail Duplicado (Unique Constraint)
-- **Pré-condição:** Conta com e-mail `owner@bela.com` já persistida.
-- **Passos:** Tentar cadastrar nova conta com variações de caixa alta/baixa do mesmo e-mail.
-- **Entradas:**
-  - Exato: `{"email": "owner@bela.com", "password": "DiffPassword99#"}`
-  - Case insensitive: `{"email": "OWNER@BELA.COM", "password": "DiffPassword99#"}`
-  - Com espaços nas pontas: `{"email": "  owner@bela.com  ", "password": "DiffPassword99#"}`
+### IDP-002: Rejeição de E-mail Duplicado (Unique Constraint em `account`)
+- **Pré-condição:** Conta com e-mail `owner@bela.com` já gravada.
+- **Passos:** POST `/auth/register` com variações de caixa alta/baixa do mesmo e-mail.
+- **Entradas:** `{"email": "OWNER@BELA.COM", "password": "OtherPassword99#"}`.
 - **Esperado:** HTTP 409 Conflict. Erro `email already registered`.
-- **Critério de Aceite:** Nenhuma linha adicional inserida na tabela `account`.
 
 ### IDP-003: Validação de Formato de E-mail Inválido
 - **Pré-condição:** Nenhuma.
 - **Passos:** Submeter POST `/auth/register` com e-mails malformados.
-- **Entradas:**
-  - Sem `@`: `"email": "usuario-sem-arroba.com"`
-  - Sem domínio: `"email": "usuario@"`
-  - Sem TLD: `"email": "usuario@dominio"`
-  - Caracteres proibidos: `"email": "user name@dominio.com"`
-  - Vazio: `"email": ""`
-- **Esperado:** HTTP 400 Bad Request. Campo `email` apontado no payload de erro.
+- **Entradas:** `"email": "usuario-sem-arroba.com"`, `"email": "usuario@"`, `"email": ""`
+- **Esperado:** HTTP 400 Bad Request detalhando erro no campo `email`.
 
-### IDP-004: Políticas de Complexidade e Tamanho de Senha
+### IDP-004: Políticas de Segurança e Complexidade de Senha
 - **Pré-condição:** Nenhuma.
-- **Passos:** Testar senhas fora da política de segurança.
-- **Entradas:**
-  - Menor que 8 chars: `{"password": "Ab1!"}`
-  - Sem números: `{"password": "Abcdefgh!"}`
-  - Sem letras maiúsculas: `{"password": "abcdefgh1!"}`
-  - Sem símbolos: `{"password": "Abcdefgh1"}`
-  - Gigante (> 128 chars): `{"password": "<string com 256 caracteres>"}`
-- **Esperado:** HTTP 400 Bad Request com mensagem detalhando a regra violada.
+- **Passos:** Submeter senhas com menos de 8 caracteres ou sem caracteres especiais.
+- **Entradas:** `"password": "123456"`, `"password": "abcdefgh"`.
+- **Esperado:** HTTP 400 Bad Request com violação de requisitos de senha.
 
-### IDP-005: Autenticação / Login com Credenciais Válidas
-- **Pré-condição:** Conta `user@pratello.com` com senha `SecretPass@1`.
-- **Passos:** POST `/auth/login`.
-- **Entradas:**
-  - `{"email": "user@pratello.com", "password": "SecretPass@1"}`
-  - Case-insensitive e-mail: `{"email": "USER@PRATELLO.COM", "password": "SecretPass@1"}`
-- **Esperado:** HTTP 200 OK. Resposta contendo token JWT válido com claims (`sub: account_id`, `exp`) e objeto `account` (sem campo de hash).
-
-### IDP-006: Rejeição de Login com Credenciais Inválidas (Anti-Enumeração)
+### IDP-005: Autenticação de Conta (`/auth/login`)
 - **Pré-condição:** Conta `user@pratello.com` existente.
-- **Passos:** POST `/auth/login` com senha incorreta ou usuário inexistente.
-- **Entradas:**
-  - Senha errada: `{"email": "user@pratello.com", "password": "WrongPassword#9"}`
-  - E-mail inexistente: `{"email": "inexistente@pratello.com", "password": "SecretPass@1"}`
-  - Payload vazio: `{}`
-- **Esperado:** HTTP 401 Unauthorized com mensagem genérica: `invalid email or password` (sem revelar se o e-mail existe).
+- **Passos:** POST `/auth/login` com credenciais corretas.
+- **Esperado:** HTTP 200 OK retornando token JWT e objeto `account` (sem o campo de senha).
 
-### IDP-007: Promoção e Verificação de Superadministrador (sysadmin)
-- **Pré-condição:** Conta `acc_01` criada sem privilégios.
-- **Passos:** Superadministrador executa POST `/sysadmins` vinculando `acc_01`. Consultar tabela `sysadmin`.
-- **Entradas:** `{"account_id": 1}`.
-- **Esperado:** HTTP 201 Created. Registro inserido com `account_id = 1` e `created_at`.
-- **Critério de Aceite:** `acc_01` agora obtém escopo de permissão global sobre todos os restaurantes.
-
-### IDP-008: Unicidade de Registro de Superadministrador
-- **Pré-condição:** `acc_01` já registrado na tabela `sysadmin`.
-- **Passos:** Tentar promover novamente a mesma conta.
-- **Entradas:** `{"account_id": 1}`.
-- **Esperado:** HTTP 409 Conflict. Chave única violada em `sysadmin.account_id`.
-
-### IDP-009: Associação de Gerente a Restaurante (manager)
-- **Pré-condição:** `account_id = 2` existente e restaurante `slug = 'pizzaria-bela'` existente.
-- **Passos:** POST `/restaurants/pizzaria-bela/managers`.
-- **Entradas:** `{"account_id": 2}`.
-- **Esperado:** HTTP 201 Created. Registro criado na tabela `manager` associando as duas entidades.
-
-### IDP-010: Tentativa de Associar Gerente a Restaurante Inexistente
-- **Pré-condição:** `account_id = 2` existente, slug `'restaurante-fantasma'` não existe.
-- **Passos:** POST `/restaurants/restaurante-fantasma/managers` com `{"account_id": 2}`.
-- **Esperado:** HTTP 404 Not Found (ou violação de Foreign Key no banco).
-
-### IDP-011: Unicidade do Vínculo Gerente × Restaurante
-- **Pré-condição:** `account_id = 2` já é gerente de `'pizzaria-bela'`.
-- **Passos:** Submeter novamente POST com os mesmos parâmetros.
-- **Esperado:** HTTP 409 Conflict. Violação da restrição `UNIQUE(restaurant_slug, account_id)`.
-
-### IDP-012: Suporte a Multi-Gerência (Mesma Conta em Múltiplos Restaurantes)
-- **Pré-condição:** `account_id = 2` é gerente de `'pizzaria-bela'`. Restaurante `'hamburgueria-bela'` cadastrado.
-- **Passos:** POST `/restaurants/hamburgueria-bela/managers` com `{"account_id": 2}`.
-- **Esperado:** HTTP 201 Created. A mesma conta pode gerenciar múltiplos estabelecimentos legítimos.
-
-### IDP-013: Desvinculação de Gerente de Restaurante
-- **Pré-condição:** Vínculo existente entre `account_id = 2` e `'pizzaria-bela'`.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/managers/2`.
-- **Esperado:** HTTP 204 No Content. Registro removido da tabela `manager`. A conta `account` continua existindo no sistema.
-
-### IDP-014: Cadastro de Consumidor Final (users) com CPF Válido
-- **Pré-condição:** CPF sem registro prévio.
-- **Passos:** POST `/users`.
-- **Entradas:**
-  - CPF sem formatação: `{"cpf": "52998224725", "name": "Carlos Silva", "phone": "81999991111"}`
-  - CPF com pontuação: `{"cpf": "529.982.247-25", "name": "Carlos Silva", "phone": "81999991111"}`
-- **Esperado:** HTTP 201 Created. Banco normaliza e grava rigorosamente 11 dígitos numéricos (`52998224725`).
-
-### IDP-015: Rejeição de CPF com Dígito Verificador Inválido (Algoritmo Módulo 11)
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter CPFs matematicamente inválidos para POST `/users`.
-- **Entradas:**
-  - Dígito final errado: `{"cpf": "52998224720", "name": "Teste", "phone": "81999990000"}`
-  - Todos dígitos iguais: `{"cpf": "11111111111", "name": "Teste", "phone": "81999990000"}`
-  - Menos de 11 dígitos: `{"cpf": "12345678", "name": "Teste", "phone": "81999990000"}`
-  - Com letras: `{"cpf": "5299822472A", "name": "Teste", "phone": "81999990000"}`
-- **Esperado:** HTTP 400 Bad Request. `invalid CPF verification digits`.
-
-### IDP-016: Rejeição de CPF Duplicado (Chave Primária de users)
-- **Pré-condição:** CPF `52998224725` cadastrado para "Carlos Silva".
-- **Passos:** Submeter novo cadastro com o mesmo CPF.
-- **Entradas:** `{"cpf": "52998224725", "name": "Outro Nome", "phone": "11988887777"}`.
-- **Esperado:** HTTP 409 Conflict. Dados originais de Carlos Silva intactos.
-
-### IDP-017: Consulta de Cliente por CPF
-- **Pré-condição:** Cliente com CPF `52998224725` existente.
-- **Passos:** GET `/users/52998224725`.
-- **Esperado:** HTTP 200 OK retornando objeto com `cpf`, `name`, `phone` e `created_at`.
-
-### IDP-018: Consulta de Cliente por CPF Inexistente
-- **Pré-condição:** CPF `99999999999` não cadastrado.
-- **Passos:** GET `/users/99999999999`.
-- **Esperado:** HTTP 404 Not Found com payload `{"error": "user not found"}`.
-
-### IDP-019: Atualização de Dados Cadastrais do Cliente (Nome e Telefone)
-- **Pré-condição:** Cliente `52998224725` ("Carlos Silva").
-- **Passos:** PUT `/users/52998224725` com novos dados.
-- **Entradas:** `{"name": "Carlos Silva Santos", "phone": "81988880000"}`.
-- **Esperado:** HTTP 200 OK. Registro alterado. O CPF permanece imutável.
-
-### IDP-020: Sanitização de Nome de Cliente (Valores Limite)
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter PUT/POST com variações de nome.
-- **Entradas:**
-  - Limite mínimo (1 caractere): `{"name": "A"}` -> HTTP 400 (mínimo 2 caracteres exigidos).
-  - Limite máximo (150 caracteres): `{"name": "<150 caracteres>"}` -> HTTP 200.
-  - Acima do limite (151 caracteres): `{"name": "<151 caracteres>"}` -> HTTP 400.
-  - Apenas espaços: `{"name": "    "}` -> HTTP 400.
-- **Esperado:** Validação estrita em conformidade com as regras de schema.
-
-### IDP-021: Formatação e Validação de Número de Telefone
-- **Pré-condição:** Nenhuma.
-- **Passos:** Testar formatos de telefone no cadastro de usuários e contas.
-- **Entradas:**
-  - Padrão DDD + 9 dígitos: `"81999998888"` -> Válido (HTTP 200/201).
-  - Padrão com código de país: `"+5581999998888"` -> Normalizado para 5581999998888.
-  - Fixo DDD + 8 dígitos: `"8133334444"` -> Válido.
-  - Telefone curto: `"12345"` -> HTTP 400.
-  - Telefone com letras: `"8199999ABCD"` -> HTTP 400.
-- **Esperado:** Apenas telefones normalizados são persistidos.
-
-### IDP-022: Obtenção de Perfil Autenticado (`/auth/me`)
-- **Pré-condição:** Token JWT válido emitido para `account_id = 5`.
-- **Passos:** GET `/auth/me` com header `Authorization: Bearer <token>`.
-- **Esperado:** HTTP 200 OK contendo dados da conta e lista de restaurantes gerenciados.
-
-### IDP-023: Rejeição de Token JWT Expirado
-- **Pré-condição:** Token assinado com timestamp de expiração no passado (`exp < now()`).
-- **Passos:** GET `/auth/me` com token expirado.
-- **Esperado:** HTTP 401 Unauthorized com `token has expired`.
-
-### IDP-024: Rejeição de Token JWT com Assinatura Inválida
-- **Pré-condição:** Token alterado manualmente no payload (violação do HMAC).
-- **Passos:** Requisição com token corrompido.
-- **Esperado:** HTTP 401 Unauthorized com `invalid token signature`.
-
-### IDP-025: Controle de Acesso: Bloqueio de Usuário Comum em Rota de Sysadmin
-- **Pré-condição:** Usuário autenticado com perfil apenas de `manager`.
-- **Passos:** Tentar POST `/sysadmins` para promover outra conta.
-- **Esperado:** HTTP 403 Forbidden.
-
-### IDP-026: Controle de Acesso: Gerente Acessando Restaurante de Terceiro
-- **Pré-condição:** Gerente `acc_02` vinculado exclusivamente ao restaurante `slug = 'pizzaria-a'`.
-- **Passos:** `acc_02` tenta atualizar cardápio de `slug = 'pizzaria-b'` via PUT `/restaurants/pizzaria-b/menu`.
-- **Esperado:** HTTP 403 Forbidden com mensagem de tenant não autorizado.
-
-### IDP-027: Logout e Invalidação de Sessão / Token Blacklist
-- **Pré-condição:** Token válido.
-- **Passos:** Executar POST `/auth/logout`. Tentar reutilizar o mesmo token imediatamente.
-- **Esperado:** Primeira chamada HTTP 200 OK. Segunda chamada HTTP 401 Unauthorized.
-
-### IDP-028: Alteração de Senha com Verificação de Senha Atual
-- **Pré-condição:** Conta autenticada com senha `OldPass@123`.
-- **Passos:** POST `/auth/change-password`.
-- **Entradas:**
-  - Incorreta atual: `{"current_password": "Wrong", "new_password": "NewPass@123"}` -> HTTP 400.
-  - Correta atual: `{"current_password": "OldPass@123", "new_password": "NewPass@123"}` -> HTTP 200.
-- **Esperado:** Hash atualizado no banco. Antiga senha não autentica mais.
-
-### IDP-029: Prevenção de SQL Injection no Login e Consultas de Usuário
-- **Pré-condição:** Tabela `account` populada.
-- **Passos:** POST `/auth/login` com injeções SQL clássicas nos campos de entrada.
-- **Entradas:**
-  - `{"email": "' OR '1'='1", "password": "' OR '1'='1"}`
-  - `{"email": "admin@pratello.com'; DROP TABLE account; --", "password": "123"}`
-- **Esperado:** HTTP 401 Unauthorized. Nenhuma instrução SQL maliciosa executada (garantido por queries parametrizadas).
-
-### IDP-030: Tratamento de Caracteres Especiais e UTF-8 em Nomes
-- **Pré-condição:** Nenhuma.
-- **Passos:** Cadastrar usuário com acentos, cedilha, emojis e alfabetos especiais.
-- **Entradas:** `{"name": "João Peña da Silva & Filho 🍕", "cpf": "52998224725", "phone": "11999990000"}`.
-- **Esperado:** HTTP 201 Created. Armazenado e recuperado com encoding UTF-8 preservado.
-
-### IDP-031: Proteção contra Cross-Site Scripting (XSS) em Campos Textuais
-- **Pré-condição:** Nenhuma.
-- **Passos:** Enviar payloads com scripts em campos de texto de usuário.
-- **Entradas:** `{"name": "<script>alert('xss')</script>Carlos", "cpf": "52998224725", "phone": "11999990000"}`.
-- **Esperado:** Strings sanitizadas ou codificadas sem execução no retorno JSON.
-
-### IDP-032: Limite de Requisições de Login (Rate Limiting contra Brute-Force)
+### IDP-006: Rejeição de Credenciais Inválidas com Mensagem Anti-Enumeração
 - **Pré-condição:** Conta existente.
-- **Passos:** Disparar 15 requisições de login falhas consecutivas em menos de 10 segundos para o mesmo IP/e-mail.
-- **Esperado:** As primeiras 5 retornam HTTP 401; a partir da 6ª retorna HTTP 429 Too Many Requests com header `Retry-After`.
+- **Passos:** POST `/auth/login` com senha incorreta ou e-mail inexistente.
+- **Esperado:** HTTP 401 Unauthorized com mensagem neutra: `invalid email or password`.
 
-### IDP-033: Deleção Lógica / Anonimização de Consumidor (LGPD / GDPR)
-- **Pré-condição:** Cliente com CPF cadastrado e histórico de pedidos anteriores.
-- **Passos:** Solicitar exclusão do perfil do usuário.
-- **Esperado:** Dados pessoais (`name`, `phone`) anonimizados para `"Anonimizado"`. CPF desvinculado ou mantido apenas hash irreversível para auditoria fiscal sem expor o titular.
+### IDP-007: Associação de Conta a Estabelecimento (`account_restaurant`)
+- **Pré-condição:** `account_id = 1` e `restaurant_id = 5` existentes.
+- **Passos:** POST `/restaurants/5/staff` associando papel de gerente.
+- **Entradas:** `{"account_id": 1, "account_type": "MANAGER", "document": "52998224725"}`.
+- **Esperado:** HTTP 201 Created. Registro gravado na tabela `account_restaurant`.
 
-### IDP-034: Tentativa de Criar Conta com Payload JSON Corrompido
+### IDP-008: Unicidade Composta da Associação (`account_restaurant`)
+- **Pré-condição:** Vínculo de `account_id = 1` com `restaurant_id = 5` já existente.
+- **Passos:** Repetir a inserção para o mesmo restaurante.
+- **Esperado:** HTTP 409 Conflict violando o índice de chave primária composta `(id, restaurant_id)`.
+
+### IDP-009: Associação da Conta com Endereço de Cobrança (`Address`)
+- **Pré-condição:** Endereço ID 10 cadastrado em `Address`.
+- **Passos:** Atualizar conta associando `address_id = 10`.
+- **Esperado:** HTTP 200 OK. FK referencial em `account.address_id` validada com sucesso.
+
+### IDP-010: Tentativa de Vincular `address_id` Inexistente na Conta
+- **Pré-condição:** Endereço ID 999999 não existe.
+- **Passos:** POST `/auth/register` com `{"address_id": 999999}`.
+- **Esperado:** HTTP 400 Bad Request (Foreign key constraint violation).
+
+### IDP-011: Validação de Campo `document` (CPF de 11 dígitos ou CNPJ de 14 dígitos)
 - **Pré-condição:** Nenhuma.
-- **Passos:** POST `/auth/register` com corpo truncado ou sem fechar chaves (`{"email": "a@b.com"`).
-- **Esperado:** HTTP 400 Bad Request com `invalid JSON syntax`.
+- **Passos:** Testar valores no campo `document` da conta.
+- **Entradas:**
+  - Válido CPF: `"document": "52998224725"` (11 dígitos) -> HTTP 201.
+  - Válido CNPJ: `"document": "12345678000199"` (14 dígitos) -> HTTP 201.
+  - Inválido (tamanho 9): `"document": "123456789"` -> HTTP 400.
+  - Inválido (tamanho 12): `"document": "123456789012"` -> HTTP 400.
+- **Esperado:** Validação estrita de documentos corporativos e pessoais.
 
-### IDP-035: Recuperação de Senha com Token de Vida Curta
-- **Pré-condição:** E-mail cadastrado.
-- **Passos:** POST `/auth/forgot-password`. Receber token de redefinição com validade de 15 minutos. Usar após 16 minutos.
-- **Esperado:** HTTP 400 Bad Request `password reset token expired`.
+### IDP-012: Desvinculação de Conta de um Restaurante
+- **Pré-condição:** Registro em `account_restaurant` para `account_id = 2` e `restaurant_id = 5`.
+- **Passos:** DELETE `/restaurants/5/staff/2`.
+- **Esperado:** HTTP 204 No Content. Registro removido de `account_restaurant`. A tabela `account` permanece inalterada.
+
+### IDP-013: Obtenção de Dados da Própria Conta (`/auth/me`)
+- **Pré-condição:** Token de autenticação válido.
+- **Passos:** GET `/auth/me` com header `Authorization: Bearer <token>`.
+- **Esperado:** HTTP 200 OK com `id`, `name`, `email`, `document`, `phone` e lista de restaurantes associados via `account_restaurant`.
+
+### IDP-014: Rejeição de Token Expirado
+- **Pré-condição:** Token assinado com timestamp de expiração expirado.
+- **Passos:** GET `/auth/me`.
+- **Esperado:** HTTP 401 Unauthorized `token has expired`.
+
+### IDP-015: Rejeição de Token com Assinatura Forjada
+- **Pré-condição:** Token com payload alterado.
+- **Passos:** Requisição com o token adulterado.
+- **Esperado:** HTTP 401 Unauthorized `invalid signature`.
+
+### IDP-016: Controle de Permissão por `account_type`
+- **Pré-condição:** Conta vinculada com `account_type = 'WAITER'`.
+- **Passos:** Tentar alterar configurações fiscais do restaurante.
+- **Esperado:** HTTP 403 Forbidden. Operação permitida apenas para `account_type = 'MANAGER'` ou `'ADMIN'`.
+
+### IDP-017: Prevenção de SQL Injection no Login
+- **Pré-condição:** Tabela `account` com registros ativos.
+- **Passos:** Submeter POST `/auth/login` com strings `' OR '1'='1`.
+- **Esperado:** HTTP 401 Unauthorized. Nenhuma instrução arbitrária executada.
+
+### IDP-018: Sanitização de Nome de Conta contra XSS
+- **Pré-condição:** Nenhuma.
+- **Passos:** Cadastrar conta com `{"name": "<script>alert(1)</script>Carlos"}`.
+- **Esperado:** Caracteres escapados no banco e na resposta JSON.
+
+### IDP-019: Rate Limiting em Tentativas Repetidas de Login
+- **Pré-condição:** Conta existente.
+- **Passos:** 10 tentativas com senha incorreta em 5 segundos.
+- **Esperado:** HTTP 429 Too Many Requests a partir da 5ª tentativa.
+
+### IDP-020: Atualização de Telefone e Nome da Conta
+- **Pré-condição:** Conta cadastrada.
+- **Passos:** PUT `/auth/me` com `{"name": "Novo Nome", "phone": "11988887777"}`.
+- **Esperado:** HTTP 200 OK com os dados atualizados.
+
+### IDP-021: Alteração de Senha com Verificação de Senha Anterior
+- **Pré-condição:** Senha atual `OldPass@123`.
+- **Passos:** Submeter nova senha informando a anterior.
+- **Esperado:** HTTP 200 OK. Hash atualizado; senha antiga invalidada.
+
+### IDP-022: Atualização de Endereço Residencial do Usuário
+- **Pré-condição:** Conta vinculada a um `Address`.
+- **Passos:** PUT no endereço da conta com novo CEP e número.
+- **Esperado:** HTTP 200 OK. Tabela `Address` atualizada.
+
+### IDP-023: Vínculo da Mesma Conta em Diferentes Estabelecimentos
+- **Pré-condição:** `account_id = 3` vinculada a `restaurant_id = 1`.
+- **Passos:** Vincular `account_id = 3` a `restaurant_id = 2` com outro papel.
+- **Esperado:** HTTP 201 Created. A mesma conta pode atuar em múltiplos restaurantes.
+
+### IDP-024: Consulta de Todas as Contas Vinculadas a um Restaurante
+- **Pré-condição:** Restaurante ID 1 com 3 colaboradores.
+- **Passos:** GET `/restaurants/1/staff`.
+- **Esperado:** HTTP 200 OK com lista de 3 colaboradores e seus respectivos `account_type`.
+
+### IDP-025: Tentativa de Vincular `account_id` Inexistente a um Restaurante
+- **Pré-condição:** `account_id = 88888` não cadastrado.
+- **Passos:** POST `/restaurants/1/staff` com ID inexistente.
+- **Esperado:** HTTP 404 Not Found (ou violação de chave estrangeira).
+
+### IDP-026: Tentativa de Vincular Colaborador a `restaurant_id` Inexistente
+- **Pré-condição:** `restaurant_id = 9999` não cadastrado.
+- **Passos:** POST `/restaurants/9999/staff`.
+- **Esperado:** HTTP 404 Not Found.
+
+### IDP-027: Logout com Invalidação de Sessão
+- **Pré-condição:** Token válido.
+- **Passos:** POST `/auth/logout`. Reutilizar o token na sequência.
+- **Esperado:** Segunda chamada rejeitada com HTTP 401 Unauthorized.
+
+### IDP-028: Preservação de Caracteres UTF-8 em `account.name`
+- **Pré-condição:** Nenhuma.
+- **Passos:** Salvar conta com acentuação e caracteres especiais (`"João Peña de Alcântara"`).
+- **Esperado:** HTTP 201 Created com codificação UTF-8 preservada.
+
+### IDP-029: Validação de Payload JSON Vazio ou Truncado
+- **Pré-condição:** Nenhuma.
+- **Passos:** Enviar body `{"email":` sem fechar.
+- **Esperado:** HTTP 400 Bad Request `invalid JSON syntax`.
+
+### IDP-030: Rejeição de E-mail com Mais de 255 Caracteres
+- **Pré-condição:** Nenhuma.
+- **Passos:** POST `/auth/register` com e-mail de 256 caracteres.
+- **Esperado:** HTTP 400 Bad Request violando o limite da coluna `varchar(255)`.
+
+### IDP-031: Consulta de Permissões de um Usuário por Restaurante
+- **Pré-condição:** `account_id = 1` é `MANAGER` no restaurante 10.
+- **Passos:** GET `/restaurants/10/staff/1/role`.
+- **Esperado:** HTTP 200 OK retornando `{"account_type": "MANAGER"}`.
+
+### IDP-032: Exclusão de Conta sem Dependências Fiscais
+- **Pré-condição:** Conta recém-criada sem vínculos operacionais.
+- **Passos:** DELETE `/auth/me`.
+- **Esperado:** HTTP 204 No Content. Registro excluído.
+
+### IDP-033: Bloqueio de Exclusão de Conta Vinculada a Restaurante Ativo
+- **Pré-condição:** Conta vinculada como `MANAGER` em restaurante ativo.
+- **Passos:** Tentar excluir conta.
+- **Esperado:** HTTP 409 Conflict. Exige desvincular ou transferir a gerência previamente.
+
+### IDP-034: Validação de Formato do Campo `phone` na Conta
+- **Pré-condição:** Nenhuma.
+- **Passos:** Cadastrar conta com telefone contendo letras.
+- **Esperado:** HTTP 400 Bad Request `phone must contain only digits`.
+
+### IDP-035: Recuperação de Senha via Token Temporário
+- **Pré-condição:** Conta existente.
+- **Passos:** POST `/auth/forgot-password`. Utilizar token gerado para redefinir senha via POST `/auth/reset-password`.
+- **Esperado:** HTTP 200 OK. Senha redefinida.
 
 ---
 
 ## Módulo 2: Estabelecimentos, Filiais e Infraestrutura (TEN-001 a TEN-030)
 
-### TEN-001: Criação de Restaurante (Tenant) com Slug Automático
-- **Pré-condição:** Slug derivado inexistente.
-- **Passos:** POST `/restaurants` omitindo o campo `slug`.
-- **Entradas:** `{"name": "Pizzaria Bela Napoli", "description": "Autêntica pizza italiana"}`.
-- **Esperado:** HTTP 201 Created. O slug é gerado automaticamente em minúsculas e kebab-case: `"pizzaria-bela-napoli"`.
-
-### TEN-002: Criação de Restaurante com Slug Manual Válido
-- **Pré-condição:** Slug `bela-napoli` disponível.
+### TEN-001: Criação de Restaurante (`restaurant`) com `name_slug` e `cnpj`
+- **Pré-condição:** Slug `pizzaria-bela` disponível.
 - **Passos:** POST `/restaurants`.
-- **Entradas:** `{"name": "Bela Napoli", "slug": "bela-napoli", "description": "Massas e pizzas"}`.
-- **Esperado:** HTTP 201 Created. Chave primária gravada exatamente como `bela-napoli`.
+- **Entradas:** `{"name": "Pizzaria Bela", "name_slug": "pizzaria-bela", "brand": "Bela Alimentos", "cnpj": "12345678000199"}`.
+- **Esperado:** HTTP 201 Created. Registro inserido na tabela `restaurant` com ID autoincremental e `created_at = now()`.
 
-### TEN-003: Validação de Formato de Slug (Regex e Caracteres Proibidos)
+### TEN-002: Validação de Formato de `name_slug`
 - **Pré-condição:** Nenhuma.
-- **Passos:** Tentar criar restaurantes com slugs que violem regras de URL.
-- **Entradas:**
-  - Com espaços: `"slug": "pizzaria bela"` -> HTTP 400.
-  - Com caracteres especiais: `"slug": "pizzaria@bela!"` -> HTTP 400.
-  - Com letras maiúsculas: `"slug": "PizzariaBela"` -> Normalizado para `pizzariabela` ou HTTP 400.
-  - Menor que 3 caracteres: `"slug": "ab"` -> HTTP 400.
-- **Esperado:** Apenas slugs compatíveis com URLs amigáveis (`^[a-z0-9-]+$`) são aceitos.
+- **Passos:** Submeter POST `/restaurants` com slugs inválidos.
+- **Entradas:** `"name_slug": "pizza com espaço"`, `"name_slug": "PIZZA_MAIUSCULA"`.
+- **Esperado:** HTTP 400 Bad Request. Aceito somente `^[a-z0-9-]+$`.
 
-### TEN-004: Conflito de Slug Existente (Unique PK)
-- **Pré-condição:** Restaurante com slug `pratello-burger` já criado.
-- **Passos:** Submeter POST `/restaurants` com mesmo slug.
-- **Entradas:** `{"name": "Outro Pratello Burger", "slug": "pratello-burger"}`.
-- **Esperado:** HTTP 409 Conflict. Mensagem: `restaurant with this slug already exists`.
+### TEN-003: Unicidade de `name_slug` entre Restaurantes
+- **Pré-condição:** Restaurante com `name_slug = 'bela-pizza'` já cadastrado.
+- **Passos:** Submeter outro restaurante com o mesmo `name_slug`.
+- **Esperado:** HTTP 409 Conflict `restaurant slug already exists`.
 
-### TEN-005: Consulta de Restaurante por Slug
-- **Pré-condição:** Restaurante `pratello-burger` cadastrado.
-- **Passos:** GET `/restaurants/pratello-burger`.
-- **Esperado:** HTTP 200 OK contendo `slug`, `name`, `description`, `created_at`.
+### TEN-004: Validação de CNPJ do Estabelecimento (Algoritmo Módulo 11)
+- **Pré-condição:** Nenhuma.
+- **Passos:** Cadastrar restaurante com CNPJ de dígitos verificadores errados.
+- **Entradas:** `"cnpj": "12345678000100"`.
+- **Esperado:** HTTP 400 Bad Request `invalid CNPJ verification digits`.
 
-### TEN-006: Consulta de Restaurante Inexistente
-- **Pré-condição:** Slug `nao-existe` não cadastrado.
-- **Passos:** GET `/restaurants/nao-existe`.
-- **Esperado:** HTTP 404 Not Found com payload padronizado `{"error": "restaurant not found"}`.
+### TEN-005: Consulta de Restaurante por ID e por `name_slug`
+- **Pré-condição:** Restaurante ID 1 com slug `pizzaria-bela`.
+- **Passos:** GET `/restaurants/1` e GET `/restaurants/by-slug/pizzaria-bela`.
+- **Esperado:** Ambas as requisições devolvem HTTP 200 OK com o mesmo payload.
 
-### TEN-007: Atualização Completa de Restaurante
-- **Pré-condição:** Restaurante `bela-napoli` existente.
-- **Passos:** PUT `/restaurants/bela-napoli`.
-- **Entradas:** `{"name": "Bela Napoli Trattoria", "description": "Nova descrição refinada"}`.
-- **Esperado:** HTTP 200 OK. Novos dados persistidos. O slug continua inalterado.
+### TEN-006: Atualização de Dados Cadastrais do Restaurante
+- **Pré-condição:** Restaurante ID 1 existente.
+- **Passos:** PUT `/restaurants/1` com novo `name` e `brand`.
+- **Esperado:** HTTP 200 OK. Dados alterados.
 
-### TEN-008: Tentativa de Modificar Slug via PUT
-- **Pré-condição:** Restaurante `bela-napoli` existente.
-- **Passos:** Enviar body contendo `"slug": "novo-slug"` no PUT `/restaurants/bela-napoli`.
-- **Esperado:** O endpoint ignora a alteração do slug ou retorna erro; a chave primária permanece estritamente `bela-napoli`.
-
-### TEN-009: Deleção de Restaurante e Cascade Referencial
-- **Pré-condição:** Restaurante com cardápios, filiais e categorias associadas.
-- **Passos:** DELETE `/restaurants/slug-antigo`.
-- **Esperado:** HTTP 204 No Content. Ou desativação lógica (soft delete) ou exclusão em cascata controlada, sem deixar registros órfãos no banco de dados.
-
-### TEN-010: Criação de Filial Física (`physical_restaurant`) com Endereço
-- **Pré-condição:** Restaurante `pizzaria-bela` existente.
-- **Passos:** POST `/restaurants/pizzaria-bela/branches`.
+### TEN-007: Criação de Unidade Física (`physical_restaurant`) com Endereço
+- **Pré-condição:** Restaurante ID 1 existente.
+- **Passos:** POST `/restaurants/1/branches`.
 - **Entradas:**
   ```json
   {
-    "name": "Unidade Boa Viagem",
+    "cnpj": "12345678000270",
     "address": {
-      "cep": "51020010",
-      "street": "Av. Boa Viagem",
-      "number": "500",
-      "apt": "Loja 02",
-      "complement": "Em frente ao mar"
+      "CEP": "51020010",
+      "number": 500,
+      "apt": "Loja 1",
+      "complementary": "Em frente à praia"
     }
   }
   ```
-- **Esperado:** HTTP 201 Created. Registro inserido em `Address` e chave estrangeira vinculada em `physical_restaurant.address_id`.
+- **Esperado:** HTTP 201 Created. Linha inserida em `Address`, e chave primária composta `(id, restaurant_id, address_id)` criada em `physical_restaurant`.
 
-### TEN-011: Validação de Formato e Obrigatoriedade de CEP no Endereço
+### TEN-008: Validação de Número Inteiro Obrigatório em `Address.number`
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter endereços com CEPs inválidos.
-- **Entradas:**
-  - Com 7 dígitos: `"cep": "5102001"` -> HTTP 400.
-  - Com 9 dígitos: `"cep": "510200100"` -> HTTP 400.
-  - Com letras: `"cep": "5102001A"` -> HTTP 400.
-  - Com máscara: `"cep": "51020-010"` -> Normalizado para `51020010`.
-- **Esperado:** Apenas 8 caracteres numéricos são persistidos na coluna `Address.cep`.
+- **Passos:** Enviar endereço com número ausente ou como texto alfabético (`"number": "S/N"`).
+- **Esperado:** HTTP 400 Bad Request `number must be an integer`. Se não houver número, deve ser convencionado valor `0` com complemento `"S/N"`.
 
-### TEN-012: Listagem de Filiais por Restaurante
-- **Pré-condição:** Restaurante com 3 filiais cadastradas.
-- **Passos:** GET `/restaurants/pizzaria-bela/branches`.
-- **Esperado:** HTTP 200 OK com array de 3 objetos, cada qual contendo seu endereço completo aninhado.
-
-### TEN-013: Consulta de Filial por ID
-- **Pré-condição:** Filial ID 10 cadastrada.
-- **Passos:** GET `/restaurants/pizzaria-bela/branches/10`.
-- **Esperado:** HTTP 200 OK com detalhes da filial.
-
-### TEN-014: Consulta de Filial Pertencente a Outro Restaurante (Tenant Mismatch)
-- **Pré-condição:** Filial ID 10 pertence a `pizzaria-bela`.
-- **Passos:** GET `/restaurants/hamburgueria-x/branches/10`.
-- **Esperado:** HTTP 404 Not Found (ou 403 Forbidden). A rota não deve vazar dados de outro tenant.
-
-### TEN-015: Atualização de Endereço de Filial Existente
-- **Pré-condição:** Filial com endereço cadastrado.
-- **Passos:** PUT `/restaurants/pizzaria-bela/branches/10/address`.
-- **Entradas:** `{"cep": "52050000", "street": "Rua Nova", "number": "123", "apt": null, "complement": null}`.
-- **Esperado:** HTTP 200 OK. Tabela `Address` atualizada com os novos valores.
-
-### TEN-016: Cadastro de Telefone de Filial (`p_restaurant_phone`)
-- **Pré-condição:** Filial ID 10 existente.
-- **Passos:** POST `/restaurants/pizzaria-bela/branches/10/phones`.
-- **Entradas:**
-  - Válido WhatsApp: `{"phone_number": "81999990001", "phone_type": "whatsapp"}`
-  - Válido Fixo: `{"phone_number": "8134567890", "phone_type": "landline"}`
-- **Esperado:** HTTP 201 Created. Registros inseridos com chave estrangeira `branch_id = 10`.
-
-### TEN-017: Validação de Tipo de Telefone (`phone_type`)
+### TEN-009: Validação do Campo `Address.CEP`
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter tipos de telefone não permitidos.
-- **Entradas:** `{"phone_number": "81999990001", "phone_type": "invalido_tipo"}`.
-- **Esperado:** HTTP 400 Bad Request informando tipos aceitos (`whatsapp`, `landline`, `delivery`).
+- **Passos:** Submeter CEPs inválidos.
+- **Entradas:** `"CEP": "123"` (3 dígitos), `"CEP": "510200101"` (9 dígitos).
+- **Esperado:** HTTP 400 Bad Request.
 
-### TEN-018: Remoção de Telefone de Filial
-- **Pré-condição:** Telefone ID 5 vinculado à filial ID 10.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/branches/10/phones/5`.
-- **Esperado:** HTTP 204 No Content. Registro excluído de `p_restaurant_phone`.
+### TEN-010: Cadastro de Telefone de Unidade Física (`restaurant_phone`)
+- **Pré-condição:** Unidade física ID 10 existente.
+- **Passos:** POST `/branches/10/phones`.
+- **Entradas:** `{"phone": "81999990000", "label": "Delivery WhatsApp"}`.
+- **Esperado:** HTTP 201 Created. Registro inserido em `restaurant_phone` com `physical_restaurant_id = 10`.
 
-### TEN-019: Listagem de Todos os Telefones de uma Filial
-- **Pré-condição:** Filial com 2 telefones.
-- **Passos:** GET `/restaurants/pizzaria-bela/branches/10/phones`.
-- **Esperado:** HTTP 200 OK retornando array com os dois números cadastrados.
+### TEN-011: Telefone com Label Padrão (`label = 'Principal'`)
+- **Pré-condição:** Unidade física existente.
+- **Passos:** POST `/branches/10/phones` omitindo `label`.
+- **Esperado:** HTTP 201 Created. Coluna `label` persistida com valor default `'Principal'`.
 
-### TEN-020: Desativação de Filial Física
-- **Pré-condição:** Filial ID 10 ativa.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/branches/10`.
-- **Esperado:** HTTP 204 No Content. Filial marcada como inativa ou removida sem afetar os dados da matriz do restaurante.
+### TEN-012: Listagem de Unidades Físicas por Restaurante
+- **Pré-condição:** Restaurante ID 1 possui 2 filiais cadastradas.
+- **Passos:** GET `/restaurants/1/branches`.
+- **Esperado:** HTTP 200 OK com array contendo as 2 unidades e seus respectivos endereços.
 
-### TEN-021: Múltiplas Filiais com Nomes Iguais em Cidades Diferentes
-- **Pré-condição:** Filial "Centro" cadastrada no Recife.
-- **Passos:** Cadastrar outra filial "Centro" em Olinda para o mesmo restaurante.
-- **Esperado:** HTTP 201 Created. Permitido, pois o identificador único é o `id` da filial e os endereços são distintos.
+### TEN-013: Remoção de Unidade Física sem Histórico de Pedidos
+- **Pré-condição:** Unidade física recém-criada sem pedidos.
+- **Passos:** DELETE `/branches/10`.
+- **Esperado:** HTTP 204 No Content. Unidade e telefones associados removidos.
 
-### TEN-022: Atualização de Dados Comerciais da Filial
-- **Pré-condição:** Filial ID 10 existente.
-- **Passos:** PUT `/restaurants/pizzaria-bela/branches/10`.
-- **Entradas:** `{"name": "Unidade Boa Viagem - Reformada"}`.
-- **Esperado:** HTTP 200 OK com o novo nome refletido na consulta.
+### TEN-014: Bloqueio de Exclusão de Unidade Física com Pedidos Associados
+- **Pré-condição:** Unidade física possui registros em `order`.
+- **Passos:** DELETE `/branches/10`.
+- **Esperado:** HTTP 409 Conflict violando integridade referencial com a tabela `order`.
 
-### TEN-023: Prevenção de Criação de Filial com Dados de Endereço Faltantes
+### TEN-015: Atualização de Dados da Unidade Física (CNPJ da Filial)
+- **Pré-condição:** Unidade física existente.
+- **Passos:** PUT `/branches/10` atualizando o CNPJ da filial.
+- **Esperado:** HTTP 200 OK. CNPJ alterado após validação.
+
+### TEN-016: Consulta de Unidade Física por ID Inexistente
+- **Pré-condição:** ID 99999 inexistente.
+- **Passos:** GET `/branches/99999`.
+- **Esperado:** HTTP 404 Not Found `branch not found`.
+
+### TEN-017: Múltiplos Telefones para a Mesma Unidade Física
+- **Pré-condição:** Unidade física cadastrada.
+- **Passos:** Inserir telefone principal e telefone de suporte.
+- **Esperado:** Registros aceitos e listados corretamente em GET `/branches/10/phones`.
+
+### TEN-018: Atualização de Endereço de Unidade Física
+- **Pré-condição:** Unidade física vinculada a `address_id = 5`.
+- **Passos:** PUT `/branches/10/address` com novos dados de logradouro.
+- **Esperado:** HTTP 200 OK. Registro em `Address` atualizado.
+
+### TEN-019: Isolamento Multi-Tenant em Unidades Físicas
+- **Pré-condição:** Restaurante 1 e Restaurante 2 possuem filiais próprias.
+- **Passos:** Tentar associar uma filial do Restaurante 2 à rota do Restaurante 1.
+- **Esperado:** HTTP 403 Forbidden ou HTTP 404 Not Found.
+
+### TEN-020: Criação de Restaurante com CNPJ em Branco (Opcional no DBML)
 - **Pré-condição:** Nenhuma.
-- **Passos:** POST `/restaurants/pizzaria-bela/branches` omitindo campos obrigatórios de endereço (`street` ou `number`).
-- **Entradas:** `{"name": "Filial Incompleta", "address": {"cep": "51020010"}}`.
-- **Esperado:** HTTP 400 Bad Request detalhando `number is required` e `street is required`.
+- **Passos:** POST `/restaurants` omitindo campo `cnpj`.
+- **Esperado:** HTTP 201 Created com coluna `cnpj` nula (`NULL`).
 
-### TEN-024: Listagem Paginada de Restaurantes da Plataforma
-- **Pré-condição:** 50 restaurantes cadastrados na plataforma.
-- **Passos:** GET `/restaurants?page=1&limit=20` e GET `/restaurants?page=2&limit=20`.
-- **Esperado:** Cada requisição devolve exatamente 20 itens ordenados, com metadados de paginação (`total: 50`, `page: 1`, `pages: 3`).
+### TEN-021: Busca de Restaurantes por Filtro de Nome
+- **Pré-condição:** Restaurantes cadastrados.
+- **Passos:** GET `/restaurants?name=Napoli`.
+- **Esperado:** Retorno filtrado apenas com restaurantes cujo nome contém "Napoli".
 
-### TEN-025: Busca de Restaurante por Termo / Nome (Full-text Search)
-- **Pré-condição:** Restaurantes "Pizzaria Bela Napoli" e "Hamburgueria Bela Vista".
-- **Passos:** GET `/restaurants?search=Napoli`.
-- **Esperado:** HTTP 200 OK retornando apenas "Pizzaria Bela Napoli".
+### TEN-022: Paginação da Listagem de Restaurantes
+- **Pré-condição:** 30 restaurantes cadastrados.
+- **Passos:** GET `/restaurants?limit=10&page=2`.
+- **Esperado:** Retorno exato dos registros 11 a 20.
 
-### TEN-026: Tentativa de Deletar Filial com Pedidos Ativos
-- **Pré-condição:** Filial ID 10 possui comanda em status `preparing`.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/branches/10`.
-- **Esperado:** HTTP 409 Conflict. Ação bloqueada enquanto houver pedidos pendentes de conclusão.
+### TEN-023: Exclusão de Telefone de Unidade Física
+- **Pré-condição:** Telefone cadastrado para a unidade 10.
+- **Passos:** DELETE `/branches/10/phones`.
+- **Esperado:** HTTP 204 No Content.
 
-### TEN-027: Associação de Coordenadas Geográficas (Latitude e Longitude no Endereço)
-- **Pré-condição:** Tabela `Address` estendida com suporte geoespacial.
-- **Passos:** Salvar filial com coordenadas: `{"latitude": -8.123456, "longitude": -34.890123}`.
-- **Esperado:** Coordenadas armazenadas para cálculo de raio de entrega de delivery.
-
-### TEN-028: Isolamento de Tenants na Listagem de Filiais
-- **Pré-condição:** Tenant A tem 2 filiais, Tenant B tem 3 filiais.
-- **Passos:** Consultar filiais de Tenant A.
-- **Esperado:** Retorno contém estritamente as 2 filiais de Tenant A, sem vazamento de dados de Tenant B.
-
-### TEN-029: Inclusão de Telefone com Número Vazio ou Nulo
+### TEN-024: Verificação de CEP Inexistente via Integração de Correios
 - **Pré-condição:** Nenhuma.
-- **Passos:** POST `/branches/1/phones` com `{"phone_number": ""}`.
-- **Esperado:** HTTP 400 Bad Request `phone_number cannot be blank`.
+- **Passos:** Submeter CEP `00000000`.
+- **Esperado:** HTTP 400 Bad Request `unrecognized or invalid CEP`.
 
-### TEN-030: Remoção de Endereço em Cascata com Exclusão da Filial
-- **Pré-condição:** Filial 15 associada ao `Address` 80.
-- **Passos:** Excluir filial 15. Consultar `SELECT * FROM Address WHERE id = 80`.
-- **Esperado:** Endereço da filial removido ou mantido histórico sem quebra de integridade referencial.
+### TEN-025: Sanitização de Nome de Restaurante
+- **Pré-condição:** Nenhuma.
+- **Passos:** Criar restaurante com tags HTML no nome.
+- **Esperado:** Tags removidas ou escapadas no retorno.
+
+### TEN-026: Verificação de Chave Composta de `physical_restaurant`
+- **Pré-condição:** Unidade física com `(id=1, restaurant_id=1, address_id=1)`.
+- **Passos:** Tentar inserir linha com chave primária idêntica.
+- **Esperado:** HTTP 409 Conflict.
+
+### TEN-027: Cadastro de Filial com CNPJ da Matriz
+- **Pré-condição:** Restaurante matriz com CNPJ `12345678000199`.
+- **Passos:** Cadastrar filial com CNPJ `12345678000270` (mesma raiz).
+- **Esperado:** HTTP 201 Created.
+
+### TEN-028: Remoção de Endereço sem Referência Ativa
+- **Pré-condição:** Endereço criado que teve filial excluída.
+- **Passos:** Executar limpeza de endereços órfãos.
+- **Esperado:** Registro em `Address` removido sem impacto em outras entidades.
+
+### TEN-029: Inclusão de `brand` com Tamanho Limite de 500 Caracteres
+- **Pré-condição:** Nenhuma.
+- **Passos:** POST restaurante com `brand` de 500 caracteres.
+- **Esperado:** HTTP 201 Created.
+
+### TEN-030: Rejeição de `brand` Excedendo 500 Caracteres
+- **Pré-condição:** Nenhuma.
+- **Passos:** POST com `brand` de 501 caracteres.
+- **Esperado:** HTTP 400 Bad Request.
 
 ---
 
 ## Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT-001 a CAT-045)
 
-### CAT-001: Obtenção de Configurações Visuais do Cardápio (`menu`)
-- **Pré-condição:** Restaurante `pizzaria-bela` com menu padrão inicializado.
-- **Passos:** GET `/restaurants/pizzaria-bela/menu`.
-- **Esperado:** HTTP 200 OK com `name`, `template_style`, `accent_color` (hex) e `typography`.
+### CAT-001: Criação de Menu com Estilo Válido (`menu_style_enum`)
+- **Pré-condição:** Restaurante ID 1 existente.
+- **Passos:** POST `/restaurants/1/menu`.
+- **Entradas:**
+  - Estilo Clássico: `{"name": "Menu Principal", "style": "CLASSICO", "accent_color": "#FF5722"}`
+  - Estilo Experiência: `{"name": "Menu Degustação", "style": "EXPERIENCIA", "accent_color": "#4CAF50"}`
+- **Esperado:** HTTP 201 Created para ambos. Chave composta `(id, restaurant_id)` criada na tabela `menu`.
 
-### CAT-002: Atualização de Identidade Visual do Cardápio
-- **Pré-condição:** Menu existente.
-- **Passos:** PUT `/restaurants/pizzaria-bela/menu`.
-- **Entradas:** `{"name": "Cardápio Principal", "template_style": "modern", "accent_color": "#FF5722", "typography": "Poppins"}`.
-- **Esperado:** HTTP 200 OK. Novos dados visuais salvos.
-
-### CAT-003: Validação de Cor de Destaque em Hexadecimal (`accent_color`)
+### CAT-002: Rejeição de Menu com Estilo Fora do Enum
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter cores inválidas no PUT `/menu`.
-- **Entradas:**
-  - Sem tralha: `"accent_color": "FF5722"` -> HTTP 400.
-  - Com 5 caracteres: `"accent_color": "#FFF55"` -> HTTP 400.
-  - Com letras inválidas: `"accent_color": "#ZZZZZZ"` -> HTTP 400.
-  - Válido 6 dígitos: `"accent_color": "#00AAFF"` -> HTTP 200.
-- **Esperado:** Apenas padrões regex `^#[0-9A-Fa-f]{6}$` aceitos.
+- **Passos:** Submeter POST `/restaurants/1/menu` com `{"style": "MODERNO"}`.
+- **Esperado:** HTTP 400 Bad Request informando que apenas `CLASSICO` ou `EXPERIENCIA` são aceitos.
 
-### CAT-004: Criação de Categoria com Ordem de Exibição
-- **Pré-condição:** Nenhuma categoria cadastrada.
-- **Passos:** POST `/restaurants/pizzaria-bela/categories`.
-- **Entradas:**
-  - Categoria 1: `{"name": "Pizzas Salgadas", "display_order": 1}`
-  - Categoria 2: `{"name": "Bebidas", "display_order": 2}`
-- **Esperado:** HTTP 201 Created para ambas. Ordenação preservada.
+### CAT-003: Atualização de Cor de Destaque (`accent_color`) do Menu
+- **Pré-condição:** Menu cadastrado.
+- **Passos:** PUT `/restaurants/1/menu/1` com `{"accent_color": "#1A2B3C"}`.
+- **Esperado:** HTTP 200 OK. Cor atualizada.
 
-### CAT-005: Listagem Ordenada de Categorias
-- **Pré-condição:** Categorias cadastradas com `display_order` 3, 1 e 2.
-- **Passos:** GET `/restaurants/pizzaria-bela/categories`.
-- **Esperado:** HTTP 200 OK com array ordenado estritamente por `display_order ASC`.
+### CAT-004: Criação de Categoria (`category`) Vinculada a Restaurante
+- **Pré-condição:** Restaurante ID 1 existente.
+- **Passos:** POST `/restaurants/1/categories` com `{"name": "Pizzas Tradicionais"}`.
+- **Esperado:** HTTP 201 Created. Registro em `category` associado ao `restaurant_id = 1`.
 
-### CAT-006: Atualização de Ordem de Exibição de Categoria
-- **Pré-condição:** Categoria "Sobremesas" com ordem 10.
-- **Passos:** PUT `/restaurants/pizzaria-bela/categories/5` com `{"name": "Sobremesas", "display_order": 1}`.
-- **Esperado:** HTTP 200 OK. Categoria movida para o topo.
+### CAT-005: Listagem de Categorias do Restaurante
+- **Pré-condição:** 3 categorias no Restaurante 1 e 2 categorias no Restaurante 2.
+- **Passos:** GET `/restaurants/1/categories`.
+- **Esperado:** HTTP 200 OK retornando estritamente as 3 categorias do Restaurante 1.
 
-### CAT-007: Exclusão de Categoria Vazia
-- **Pré-condição:** Categoria ID 8 sem nenhum produto associado.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/categories/8`.
-- **Esperado:** HTTP 204 No Content. Categoria removida.
+### CAT-006: Exclusão de Categoria Vazia
+- **Pré-condição:** Categoria sem produtos vinculados.
+- **Passos:** DELETE `/restaurants/1/categories/10`.
+- **Esperado:** HTTP 204 No Content.
 
-### CAT-008: Bloqueio de Exclusão de Categoria com Produtos Vinculados
-- **Pré-condição:** Categoria ID 1 ("Pizzas") possui 10 itens ativos.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/categories/1`.
-- **Esperado:** HTTP 409 Conflict. Mensagem: `cannot delete category containing active items`.
+### CAT-007: Bloqueio de Exclusão de Categoria com Itens
+- **Pré-condição:** Categoria possui itens cadastrados em `menu_item`.
+- **Passos:** DELETE `/restaurants/1/categories/1`.
+- **Esperado:** HTTP 409 Conflict violando FK `menu_item.category_id`.
 
-### CAT-009: Criação de Item do Cardápio (`menu_item`)
-- **Pré-condição:** Categoria ID 1 existente.
-- **Passos:** POST `/restaurants/pizzaria-bela/items`.
+### CAT-008: Criação de Item do Cardápio (`menu_item`)
+- **Pré-condição:** Restaurante 1 e Categoria 1 existentes.
+- **Passos:** POST `/restaurants/1/items`.
 - **Entradas:**
   ```json
   {
     "category_id": 1,
-    "name": "Pizza Margherita",
-    "description": "Molho de tomate artesanal, mussarela de búfala e manjericão",
-    "base_price": 45.00,
-    "photo_url": "https://img.pratello.com/margherita.jpg",
-    "is_combo": false,
-    "is_available": true
+    "name": "Pizza Calabresa",
+    "description": "Molho de tomate, calabresa fatiada e cebola",
+    "price": 42.50,
+    "image_url": "https://cdn.pratello.com/calabresa.png",
+    "is_available": true,
+    "is_combo": false
   }
   ```
-- **Esperado:** HTTP 201 Created. Registro criado com ID numérico auto-incremental.
+- **Esperado:** HTTP 201 Created. Registro inserido em `menu_item`.
 
-### CAT-010: Validação de Preço Base Negativo ou Zero
+### CAT-009: Validação de Preço de Item (`price` Numérico Positivo)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Tentar cadastrar itens com preços anômalos.
-- **Entradas:**
-  - Negativo: `{"base_price": -10.00}` -> HTTP 400 Bad Request.
-  - Zero: `{"base_price": 0.00}` -> Permitido se for cortesia ou brinde, ou HTTP 400 se a regra de negócio exigir preço estritamente positivo (> 0.00).
-- **Esperado:** Erro de validação retornado quando `base_price < 0`.
+- **Passos:** Submeter item com `{"price": -5.00}`.
+- **Esperado:** HTTP 400 Bad Request `price must be greater than zero`.
 
-### CAT-011: Validação de Precisão Decimal de Preço (Máximo 2 Casas Decimais)
+### CAT-010: Alternância de Disponibilidade de Item (`is_available`)
+- **Pré-condição:** Item disponível.
+- **Passos:** PATCH `/restaurants/1/items/5` com `{"is_available": false}`.
+- **Esperado:** HTTP 200 OK. Item não deve mais constar na listagem pública do cardápio.
+
+### CAT-011: Cadastro de Ingrediente Base no Catálogo Global (`Ingredient_item`)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter item com `{"base_price": 19.999}`.
-- **Esperado:** HTTP 400 Bad Request ou arredondamento formal para `20.00` conforme contrato da API.
+- **Passos:** POST `/ingredients` com `{"name": "Orégano Desidratado"}`.
+- **Esperado:** HTTP 201 Created. Registro em `Ingredient_item`.
 
-### CAT-012: Atualização de Disponibilidade de Item (`is_available = false`)
-- **Pré-condição:** Item "Pizza Margherita" ativo.
-- **Passos:** PUT `/restaurants/pizzaria-bela/items/1` com `{"is_available": false}`.
-- **Esperado:** HTTP 200 OK. Item não deve aparecer no cardápio público do cliente, mas continua visível no painel administrativo.
+### CAT-012: Composição de Ficha Técnica (`item_ingredient`) com Medida e Quantidade
+- **Pré-condição:** Item ID 5 e Ingrediente ID 2 existentes.
+- **Passos:** POST `/items/5/ingredients`.
+- **Entradas:** `{"ingredient_id": 2, "is_removable": true, "quantity": 100, "measure": "gramas"}`.
+- **Esperado:** HTTP 201 Created. Chave composta `(item_id, ingredient_id)` gravada com sucesso.
 
-### CAT-013: Cadastro de Ingrediente Base no Catálogo (`Ingredient_item`)
-- **Pré-condição:** Restaurante `pizzaria-bela`.
-- **Passos:** POST `/restaurants/pizzaria-bela/ingredients`.
-- **Entradas:**
-  - `{"name": "Mussarela de Búfala"}`
-  - `{"name": "Cebola Roxa"}`
-  - `{"name": "Bacon Crocante"}`
-- **Esperado:** HTTP 201 Created para cada um. Ingredientes cadastrados na tabela `Ingredient_item`.
+### CAT-013: Ingrediente Não Removível na Ficha Técnica (`is_removable = false`)
+- **Pré-condição:** Ficha técnica configurada com `is_removable = false`.
+- **Passos:** Consultar ficha técnica do produto.
+- **Esperado:** Flag retornada como `false` para que a UI do cliente desabilite a opção de remover.
 
-### CAT-014: Unicidade de Nome de Ingrediente por Restaurante
-- **Pré-condição:** Ingrediente "Bacon Crocante" já existe.
-- **Passos:** Submeter novamente `{"name": "Bacon Crocante"}`.
-- **Esperado:** HTTP 409 Conflict informando ingrediente duplicado para este tenant.
+### CAT-014: Criação de Grupo de Opcionais (`item_side`)
+- **Pré-condição:** Item ID 5 existente.
+- **Passos:** POST `/items/5/sides`.
+- **Entradas:** `{"name": "Borda Recheada", "amount": 1, "price": 8.00}`.
+- **Esperado:** HTTP 201 Created na tabela `item_side`.
 
-### CAT-015: Associação de Ingrediente a Item com Regra de Remoção (`item_ingredient`)
-- **Pré-condição:** Item "Pizza Margherita" e Ingrediente "Cebola Roxa" existentes.
-- **Passos:** POST `/restaurants/pizzaria-bela/items/1/ingredients`.
-- **Entradas:** `{"ingredient_id": 2, "proportion": "50g", "is_removable": true}`.
-- **Esperado:** HTTP 201 Created. Registro inserido com chave composta `(item_id, ingredient_id)`.
+### CAT-015: Associação de Opcional Escolhido ao Pedido (`side_option`)
+- **Pré-condição:** `order_item_id = 20` e `item_side_id = 3` existentes.
+- **Passos:** Inserir seleção do cliente em `side_option`.
+- **Entradas:** `{"order_item_id": 20, "side_id": 3, "additional_price": 8.00}`.
+- **Esperado:** Chave composta `(id, order_item_id, side_id)` gravada.
 
-### CAT-016: Ingrediente Não Removível pelo Cliente (`is_removable = false`)
-- **Pré-condição:** Item "Molho Secreto" configurado com `is_removable = false`.
-- **Passos:** Tentar fazer pedido solicitando remoção do ingrediente.
-- **Esperado:** Pedido rejeitado com erro: `ingredient is not removable`.
-
-### CAT-017: Desvinculação de Ingrediente de Item
-- **Pré-condição:** Ingrediente vinculado.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/items/1/ingredients/2`.
-- **Esperado:** HTTP 204 No Content. Ingrediente desvinculado da ficha técnica do produto.
-
-### CAT-018: Criação de Grupo de Opcionais / Adicionais (`item_side`)
-- **Pré-condição:** Item "X-Burger Artesanal" existente.
-- **Passos:** POST `/restaurants/pizzaria-bela/items/1/sides`.
-- **Entradas:**
-  - Escolha obrigatória única: `{"title": "Ponto da Carne", "min_options": 1, "max_options": 1}`
-  - Escolha opcional múltipla: `{"title": "Adicionais Pagos", "min_options": 0, "max_options": 4}`
-- **Esperado:** HTTP 201 Created para ambos.
-
-### CAT-019: Validação de Invariante de Quantidade em `item_side` (`min <= max`)
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter grupo com `{"min_options": 3, "max_options": 1}`.
-- **Esperado:** HTTP 400 Bad Request `min_options cannot be greater than max_options`.
-
-### CAT-020: Cadastro de Opções Dentro de Grupo de Adicionais (`side_option`)
-- **Pré-condição:** Grupo "Ponto da Carne" (ID 1) e "Adicionais Pagos" (ID 2).
-- **Passos:** POST nas opções de cada grupo.
-- **Entradas:**
-  - Opção gratuita: `{"name": "Ao Ponto", "additional_price": 0.00}` no grupo 1.
-  - Opção gratuita: `{"name": "Bem Passado", "additional_price": 0.00}` no grupo 1.
-  - Opção paga: `{"name": "Bacon Extra", "additional_price": 5.00}` no grupo 2.
-- **Esperado:** HTTP 201 Created com preços associados a cada opção.
-
-### CAT-021: Prevenção de Preço Negativo em `side_option`
-- **Pré-condição:** Grupo de opcionais existente.
-- **Passos:** POST com `{"name": "Desconto", "additional_price": -2.00}`.
-- **Esperado:** HTTP 400 Bad Request `additional_price must be >= 0`.
-
-### CAT-022: Remoção de Opção de Grupo de Adicionais
-- **Pré-condição:** Opção "Bacon Extra" (ID 5) existente.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/sides/options/5`.
-- **Esperado:** HTTP 204 No Content. Opção removida.
-
-### CAT-023: Criação de Item Classificado como Combo (`is_combo = true`)
+### CAT-016: Criação de Item do Tipo Combo (`is_combo = true`)
 - **Pré-condição:** Categoria "Combos" existente.
-- **Passos:** POST `/restaurants/pizzaria-bela/items` com `{"name": "Combo Família", "base_price": 89.90, "is_combo": true}`.
+- **Passos:** POST `/restaurants/1/items` com `{"name": "Combo Casal", "price": 79.90, "is_combo": true}`.
 - **Esperado:** HTTP 201 Created com flag `is_combo = true`.
 
-### CAT-024: Composição de Receita do Combo (`combo_item`)
-- **Pré-condição:** Combo ID 10 ("Combo Família"), Pizza ID 1 ("Margherita") e Refrigerante ID 2 ("Guaraná 2L").
-- **Passos:** Associar sub-itens via POST `/items/10/combo-items`.
+### CAT-017: Composição de Receita do Pacote Combo (`combo_item`)
+- **Pré-condição:** Combo ID 10 ("Combo Casal") e Itens unitários ID 1 ("Pizza") e ID 2 ("Refrigerante").
+- **Passos:** POST `/items/10/combo-items`.
 - **Entradas:**
-  - Sub-item 1: `{"sub_item_id": 1, "quantity": 2}`
-  - Sub-item 2: `{"sub_item_id": 2, "quantity": 1}`
-- **Esperado:** HTTP 201 Created. Registros inseridos em `combo_item` definindo o blueprint do pacote.
+  - `{"included_item_id": 1, "quantity": 1}`
+  - `{"included_item_id": 2, "quantity": 2}`
+- **Esperado:** HTTP 201 Created. Chave composta `(combo_id, included_item_id)` inserida em `combo_item`.
 
-### CAT-025: Prevenção de Auto-Referência Circular em Combos
-- **Pré-condição:** Item ID 10 é um combo.
-- **Passos:** Tentar adicionar o item ID 10 como sub-item dele mesmo (`sub_item_id = 10`).
+### CAT-018: Prevenção de Inclusão do Próprio Combo nele Mesmo
+- **Pré-condição:** Combo ID 10.
+- **Passos:** POST com `{"included_item_id": 10}`.
 - **Esperado:** HTTP 400 Bad Request `a combo cannot contain itself`.
 
-### CAT-026: Prevenção de Quantidade Zero ou Negativa em `combo_item`
-- **Pré-condição:** Combo existente.
-- **Passos:** POST com `{"sub_item_id": 1, "quantity": 0}` e `{"quantity": -1}`.
-- **Esperado:** HTTP 400 Bad Request `quantity must be >= 1`.
-
-### CAT-027: Cadastro de Promoção Temporária de Item (`item_sale`) em Porcentagem
-- **Pré-condição:** Item com preço base de 50.00.
-- **Passos:** POST `/items/1/sales`.
+### CAT-019: Cadastro de Promoção com Desconto Fixo (`item_sale` com `FIXED_AMOUNT`)
+- **Pré-condição:** Item com preço de 50.00.
+- **Passos:** POST `/items/1/sale`.
 - **Entradas:**
   ```json
   {
-    "discount_type": "percent",
-    "discount_value": 20.00,
-    "starts_at": "2026-10-12T10:00:00Z",
-    "ends_at": "2026-10-12T14:00:00Z"
+    "discount_type": "FIXED_AMOUNT",
+    "value": 10.00,
+    "is_active": true,
+    "starts_at": "2026-10-17T10:00:00Z",
+    "ends_at": "2026-10-17T23:59:59Z"
   }
   ```
-- **Esperado:** HTTP 201 Created. Desconto de 20% (R$ 10,00) registrado.
+- **Esperado:** HTTP 201 Created. Registro em `item_sale` 1-para-1 com `item_id`.
 
-### CAT-028: Cadastro de Promoção com Valor Fixo de Desconto
-- **Pré-condição:** Item com preço base de 50.00.
-- **Passos:** POST `/items/1/sales` com `{"discount_type": "fixed", "discount_value": 15.00}`.
-- **Esperado:** HTTP 201 Created. Preço promocional resultante será 35.00.
+### CAT-020: Cadastro de Promoção com Desconto Percentual (`item_sale` com `PERCENTAGE`)
+- **Pré-condição:** Item com preço de 50.00.
+- **Passos:** POST `/items/1/sale` com `{"discount_type": "PERCENTAGE", "value": 20.00}`.
+- **Esperado:** HTTP 201 Created (representando 20% de desconto).
 
-### CAT-029: Validação de Janela de Datas em `item_sale` (`starts_at < ends_at`)
+### CAT-021: Desativação Manual de Promoção (`is_active = false`)
+- **Pré-condição:** Promoção ativa cadastrada.
+- **Passos:** PATCH na promoção com `{"is_active": false}`.
+- **Esperado:** HTTP 200 OK. Promoção não surte mais efeito no cálculo do preço.
+
+### CAT-022: Validação de Janela Temporal de Promoção (`starts_at` e `ends_at`)
+- **Pré-condição:** Promoção expirada no passado.
+- **Passos:** Consultar preço efetivo do produto.
+- **Esperado:** Preço integral do produto retornado, pois a data atual está fora do intervalo.
+
+### CAT-023: Consulta Completa de Detalhes de Item com Ficha e Opcionais
+- **Pré-condição:** Item cadastrado com ingredientes e adicionais.
+- **Passos:** GET `/restaurants/1/items/1`.
+- **Esperado:** HTTP 200 OK com árvore de dados aninhada.
+
+### CAT-024: Atualização de Descrição e Foto do Item
+- **Pré-condição:** Item existente.
+- **Passos:** PUT `/restaurants/1/items/1` com nova URL de imagem.
+- **Esperado:** HTTP 200 OK.
+
+### CAT-025: Exclusão de Item sem Vendas Anteriores
+- **Pré-condição:** Item sem pedidos em `order_item`.
+- **Passos:** DELETE `/restaurants/1/items/99`.
+- **Esperado:** HTTP 204 No Content.
+
+### CAT-026: Bloqueio de Exclusão Física de Item com Pedidos Realizados
+- **Pré-condição:** Item presente em compras na tabela `order_item`.
+- **Passos:** DELETE `/restaurants/1/items/1`.
+- **Esperado:** HTTP 409 Conflict violando FK com `order_item.item_id`.
+
+### CAT-027: Desvinculação de Ingrediente da Ficha Técnica
+- **Pré-condição:** Ingrediente vinculado ao item.
+- **Passos:** DELETE `/items/1/ingredients/2`.
+- **Esperado:** HTTP 204 No Content. Linha em `item_ingredient` excluída.
+
+### CAT-028: Atualização de Quantidade de Sub-Itens no Combo
+- **Pré-condição:** Combo com 1 refrigerante na receita.
+- **Passos:** PUT `/items/10/combo-items/2` com `{"quantity": 3}`.
+- **Esperado:** HTTP 200 OK. Quantidade alterada para 3.
+
+### CAT-029: Remoção de Sub-Item da Receita do Combo
+- **Pré-condição:** Combo cadastrado.
+- **Passos:** DELETE `/items/10/combo-items/2`.
+- **Esperado:** HTTP 204 No Content.
+
+### CAT-030: Consulta Pública do Cardápio Filtrado por Disponibilidade
+- **Pré-condição:** 10 itens no restaurante, 2 com `is_available = false`.
+- **Passos:** GET `/restaurants/1/public-menu`.
+- **Esperado:** Retorno com exatamente os 8 itens disponíveis.
+
+### CAT-031: Validação de Desconto Superior a 100% no Tipo `PERCENTAGE`
 - **Pré-condição:** Nenhuma.
-- **Passos:** POST com data de fim anterior ao início: `{"starts_at": "2026-10-12T15:00:00Z", "ends_at": "2026-10-12T10:00:00Z"}`.
-- **Esperado:** HTTP 400 Bad Request `ends_at must be after starts_at`.
+- **Passos:** POST `item_sale` com `value = 110.00`.
+- **Esperado:** HTTP 400 Bad Request `percentage discount cannot exceed 100%`.
 
-### CAT-030: Validação de Desconto Superior a 100% ou Superior ao Preço Base
-- **Pré-condição:** Item de 50.00.
-- **Passos:** Submeter desconto percentual de 105% ou desconto fixo de 60.00.
-- **Entradas:**
-  - Percentual: `{"discount_type": "percent", "discount_value": 105.00}` -> HTTP 400.
-  - Fixo: `{"discount_type": "fixed", "discount_value": 60.00}` -> HTTP 400.
-- **Esperado:** Preço resultante nunca pode ser negativo.
+### CAT-032: Validação de Desconto Fixo Superior ao Preço do Item
+- **Pré-condição:** Item com preço de 30.00.
+- **Passos:** POST `item_sale` com `FIXED_AMOUNT` e `value = 40.00`.
+- **Esperado:** HTTP 400 Bad Request `discount cannot exceed item price`.
 
-### CAT-031: Obtenção de Detalhes Completos do Item (`MenuItemDetail`)
-- **Pré-condição:** Item com ingredientes, grupos de opcionais e promoções cadastradas.
-- **Passos:** GET `/restaurants/pizzaria-bela/items/1`.
-- **Esperado:** HTTP 200 OK com árvore JSON completa contendo dados base, array de `ingredients` e array de `sides` com suas respectivas `options`.
+### CAT-033: Tentativa de Criar Item Vinculado a Categoria de Outro Restaurante
+- **Pré-condição:** Categoria pertence ao Restaurante 2.
+- **Passos:** Criar item no Restaurante 1 apontando para essa categoria.
+- **Esperado:** HTTP 400 Bad Request informando inconsistência de tenant.
 
-### CAT-032: Exclusão de Item do Catálogo sem Histórico de Pedidos
-- **Pré-condição:** Item recém-criado que nunca foi comprado.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/items/99`.
-- **Esperado:** HTTP 204 No Content. Item removido de `menu_item`.
-
-### CAT-033: Bloqueio de Exclusão Física de Item com Pedidos Anteriores (Soft Delete)
-- **Pré-condição:** Item ID 1 já foi comprado em pedidos históricos.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/items/1`.
-- **Esperado:** O sistema não executa `DELETE` físico para não quebrar a chave estrangeira em `order_item`. O item tem sua flag `is_available` definida como `false` ou é arquivado logicamente.
-
-### CAT-034: Busca de Itens por Filtro de Categoria
-- **Pré-condição:** Categoria 1 tem 5 itens; Categoria 2 tem 3 itens.
-- **Passos:** GET `/restaurants/pizzaria-bela/items?category_id=1`.
-- **Esperado:** HTTP 200 OK retornando exatamente os 5 itens da Categoria 1.
-
-### CAT-035: Comportamento de Item Disponível sem Foto (`photo_url` Nula)
+### CAT-034: Validação do Campo `measure` na Ficha Técnica (Ex: "g", "ml", "unidades")
 - **Pré-condição:** Nenhuma.
-- **Passos:** POST com `{"photo_url": null}`.
-- **Esperado:** HTTP 201 Created. Frontend exibe imagem placeholder padrão.
+- **Passos:** Salvar ingrediente com medida `"gramas"`.
+- **Esperado:** HTTP 201 Created.
 
-### CAT-036: Modificação de Preço Base de Item Não Afeta Pedidos Já Realizados
-- **Pré-condição:** Pedido anterior continha Item 1 comprado por 30.00.
-- **Passos:** Atualizar preço do Item 1 para 45.00 via PUT `/items/1`. Consultar pedido anterior.
-- **Esperado:** Pedido anterior permanece exibindo 30.00 (`unit_price_frozen`).
+### CAT-035: Remoção de Grupo de Opcionais em Cascata
+- **Pré-condição:** Grupo de opcionais cadastrado.
+- **Passos:** DELETE `/items/1/sides/5`.
+- **Esperado:** HTTP 204 No Content.
 
-### CAT-037: Reordenação em Lote de Categorias (Batch Reorder)
-- **Pré-condição:** Categorias 1, 2, 3 existentes.
-- **Passos:** PATCH `/categories/reorder` com payload `[{"id": 3, "order": 1}, {"id": 1, "order": 2}, {"id": 2, "order": 3}]`.
-- **Esperado:** HTTP 200 OK com todas as ordens atualizadas em transação atômica.
-
-### CAT-038: Cadastro de Item com Descrição Longa (Valor Limite de Texto)
+### CAT-036: Validação de Preço de Opcional em `item_side`
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter item com descrição de 1.000 caracteres.
-- **Esperado:** HTTP 201 Created. Campo `TEXT` armazena sem truncamento.
+- **Passos:** POST com `{"price": -3.00}`.
+- **Esperado:** HTTP 400 Bad Request.
 
-### CAT-039: Concorrência na Edição do Mesmo Produto por Dois Gerentes
-- **Pré-condição:** Produto com preço 20.00.
-- **Passos:** Gerente A envia preço 25.00 e Gerente B envia preço 30.00 simultaneamente.
-- **Esperado:** O último commit prevalece de forma consistente, sem corrupção do registro.
+### CAT-037: Concorrência na Atualização de Estoque/Disponibilidade
+- **Pré-condição:** Item disponível.
+- **Passos:** Dois administradores alteram a disponibilidade no mesmo instante.
+- **Esperado:** Ambos os commits são serializados sem conflito de integridade.
 
-### CAT-040: Ativação Simultânea de Múltiplas Promoções para o Mesmo Item
-- **Pré-condição:** Item 1 com promoção A (10% de desconto) ativa.
-- **Passos:** Tentar cadastrar promoção B (15% de desconto) para o mesmo período de datas.
-- **Esperado:** HTTP 409 Conflict. Apenas uma promoção pode vigorar para o mesmo item na mesma janela de tempo.
+### CAT-038: Consulta de Cardápio com Estilo `EXPERIENCIA`
+- **Pré-condição:** Menu configurado com `style = 'EXPERIENCIA'`.
+- **Passos:** GET no menu público.
+- **Esperado:** Metadados retornam o estilo configurado para direcionar a renderização da UI.
 
-### CAT-041: Consulta de Cardápio com Cache (Headers ETag e 304 Not Modified)
-- **Pré-condição:** Cardápio sem alterações nos últimos 10 minutos.
-- **Passos:** GET `/restaurants/pizzaria-bela/menu` com header `If-None-Match: <hash>`.
-- **Esperado:** HTTP 304 Not Modified economizando tráfego de rede.
+### CAT-039: Limite de Caracteres no Nome do Item (`varchar(255)`)
+- **Pré-condição:** Nenhuma.
+- **Passos:** POST item com nome de 256 caracteres.
+- **Esperado:** HTTP 400 Bad Request.
 
-### CAT-042: Cadastro de Opcional com Nome Extremamente Longo
-- **Pré-condição:** Grupo de opcionais existente.
-- **Passos:** POST opção com nome de 300 caracteres.
-- **Esperado:** HTTP 400 Bad Request se o limite do campo for 100 caracteres.
+### CAT-040: Descrição Longa de Item no Campo `text`
+- **Pré-condição:** Nenhuma.
+- **Passos:** Cadastrar item com descrição detalhada de 1.500 caracteres.
+- **Esperado:** HTTP 201 Created. Campo `text` persiste integralmente.
 
-### CAT-043: Isolamento de Catálogo: Tentativa de Vincular Categoria de Outro Restaurante
-- **Pré-condição:** Categoria 50 pertence a `hamburgueria-x`.
-- **Passos:** Tentar criar produto em `pizzaria-bela` apontando para `category_id = 50`.
-- **Esperado:** HTTP 400 Bad Request `category does not belong to this restaurant`.
+### CAT-041: Consulta de Todos os Ingredientes de um Restaurante
+- **Pré-condição:** Ingredientes cadastrados no catálogo.
+- **Passos:** GET `/ingredients`.
+- **Esperado:** HTTP 200 OK com array de ingredientes.
 
-### CAT-044: Exclusão de Grupo de Opcionais com Opções Aninhadas
-- **Pré-condição:** Grupo ID 3 possui 4 opções cadastradas em `side_option`.
-- **Passos:** DELETE `/items/1/sides/3`.
-- **Esperado:** HTTP 204 No Content. Todas as 4 opções filhas são deletadas em cascata sem erro de chave estrangeira.
+### CAT-042: Exclusão de Ingrediente sem Uso
+- **Pré-condição:** Ingrediente nunca associado a nenhum item.
+- **Passos:** DELETE `/ingredients/50`.
+- **Esperado:** HTTP 204 No Content.
 
-### CAT-045: Remoção de Ingrediente Base Referenciado em Fichas Técnicas
-- **Pré-condição:** Ingrediente "Tomate" utilizado em 15 pizzas diferentes.
+### CAT-043: Bloqueio de Exclusão de Ingrediente Usado em Ficha Técnica
+- **Pré-condição:** Ingrediente presente em `item_ingredient`.
 - **Passos:** DELETE `/ingredients/1`.
-- **Esperado:** HTTP 409 Conflict `ingredient is in use by existing products`.
+- **Esperado:** HTTP 409 Conflict.
+
+### CAT-044: Validação de URL de Imagem Válida (`image_url`)
+- **Pré-condição:** Nenhuma.
+- **Passos:** Salvar URL inválida `"not-a-url"`.
+- **Esperado:** HTTP 400 Bad Request.
+
+### CAT-045: Alteração de Preço de Item no Catálogo Não Altera Pedidos Anteriores
+- **Pré-condição:** Item comprado anteriormente por 40.00.
+- **Passos:** Atualizar preço do item para 55.00.
+- **Esperado:** Pedido anterior permanece com `unit_price = 40.00` em `order_item`.
 
 ---
 
-## Módulo 4: Pedidos, Especialização (Salão vs. Delivery) e Imutabilidade (ORD-001 a ORD-040)
+## Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD-001 a ORD-040)
 
-### ORD-001: Criação de Pedido de Salão Completo (`local_order`)
-- **Pré-condição:** Filial 1 ativa; Mesa 5 disponível; Item 1 (preço 25.00).
-- **Passos:** POST `/restaurants/pizzaria-bela/branches/1/orders/local`.
+### ORD-001: Criação de Pedido de Salão (`LOCAL`) sem CPF
+- **Pré-condição:** Unidade física ID 1 ativa; Item 1 (preço 30.00).
+- **Passos:** POST `/branches/1/orders/local`.
 - **Entradas:**
   ```json
   {
-    "user_cpf": "52998224725",
-    "table_number": 5,
+    "order_type": "LOCAL",
+    "customer_name": "Mesa do João",
+    "table": 4,
+    "display_order": 1,
     "items": [
-      {"item_id": 1, "quantity": 2, "notes": "Sem cebola"}
+      {"item_id": 1, "quantity": 2}
     ]
   }
   ```
-- **Esperado:** HTTP 201 Created. Registro inserido em `order` (`status = 'pending'`, `order_type = 'local'`, `subtotal = 50.00`, `total = 50.00`), registro em `local_order` (`table_number = 5`), e 2 itens em `order_item` com `unit_price_frozen = 25.00`. Nenhuma linha em `remote_order`.
+- **Esperado:** HTTP 201 Created. `order` gerado com `subtotal = 60.00`, `total = 60.00`, `status = 'PENDING'`. Registro em `local_order` (`table = 4`). **Nenhum campo de CPF solicitado ou armazenado**.
 
-### ORD-002: Criação de Pedido para Entrega Completo (`remote_order`)
-- **Pré-condição:** Filial 1; Endereço ID 20 cadastrado; Taxa de frete 8.50; Item 1 (40.00).
-- **Passos:** POST `/restaurants/pizzaria-bela/branches/1/orders/remote`.
+### ORD-002: Criação de Pedido para Entrega (`REMOTE`) sem Vínculo de Conta
+- **Pré-condição:** Unidade física ID 1; Endereço cadastrado; Frete 10.00; Item 1 (50.00).
+- **Passos:** POST `/branches/1/orders/remote`.
 - **Entradas:**
   ```json
   {
-    "user_cpf": "52998224725",
-    "delivery_address": {"cep": "51020010", "street": "Rua A", "number": "100"},
-    "phone": "81999990000",
-    "freight_fee": 8.50,
-    "items": [{"item_id": 1, "quantity": 1}]
+    "order_type": "REMOTE",
+    "customer_name": "Maria Delivery",
+    "address_id": 20,
+    "contact_phone": "81999990000",
+    "delivery_fee": 10.00,
+    "items": [
+      {"item_id": 1, "quantity": 1}
+    ]
   }
   ```
-- **Esperado:** HTTP 201 Created. `order.total = 48.50` (`40.00 + 8.50`). Registro em `remote_order`. Nenhuma linha em `local_order`.
+- **Esperado:** HTTP 201 Created. Linha em `remote_order` (`contact_phone = '81999990000'`, `delivery_fee = 10.00`). Total do pedido = 60.00 (`50.00 + 10.00`).
 
-### ORD-003: Subtipo Exclusivo: Bloqueio de Pedido Híbrido (Local + Remoto)
-- **Pré-condição:** Pedido com `order_type = 'local'`.
-- **Passos:** Tentar inserir registro em `remote_order` para o mesmo `order_id`.
-- **Esperado:** Violação de integridade ou HTTP 422 Unprocessable Entity. Um pedido não pode ser simultaneamente local e remoto.
+### ORD-003: Subtipo Exclusivo: Rejeição de Pedido com Tipos Conflitantes
+- **Pré-condição:** Pedido criado com `order_type = 'LOCAL'`.
+- **Passos:** Tentar inserir registro em `remote_order` para o mesmo `order.id`.
+- **Esperado:** Erro de integridade HTTP 422 Unprocessable Entity. Um pedido possui apenas um subtipo exclusivo.
 
-### ORD-004: Pedido Anônimo (Sem CPF do Consumidor)
+### ORD-004: Pedido com `customer_name` Opcional / Nulo
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter pedido local com `user_cpf = null`.
-- **Esperado:** HTTP 201 Created. Pedido processado normalmente. Nenhum ponto de fidelidade creditado ao cliente.
+- **Passos:** Submeter pedido omitindo `customer_name`.
+- **Esperado:** HTTP 201 Created com `customer_name = NULL`. Pedido processado normalmente.
 
-### ORD-005: Congelamento Obrigatório de Preço (`unit_price_frozen`)
-- **Pré-condição:** Item 1 cadastrado no catálogo a 35.00.
-- **Passos:** Criar pedido contendo o Item 1. Consultar `order_item.unit_price_frozen`.
-- **Esperado:** Valor `35.00` gravado diretamente na linha do item. Alterações futuras no catálogo não afetam o pedido.
+### ORD-005: Congelamento Obrigatório de Preço em `order_item.unit_price`
+- **Pré-condição:** Item 1 com `price = 45.00` no catálogo.
+- **Passos:** Criar pedido contendo o Item 1. Consultar banco.
+- **Esperado:** `order_item.unit_price` gravado estritamente como `45.00`.
 
-### ORD-006: Aplicação de Desconto Vigente de Promoção no `unit_price_frozen`
-- **Pré-condição:** Item 1 com preço base de 50.00 e promoção ativa de 20% (preço promocional 40.00).
-- **Passos:** Criar pedido dentro do horário da promoção.
-- **Esperado:** `unit_price_frozen` gravado como `40.00`, e não 50.00.
+### ORD-006: Captura do Preço Promocional de `item_sale` no `unit_price`
+- **Pré-condição:** Item 1 (preço 50.00) com promoção ativa de R$ 10,00 de desconto (preço 40.00).
+- **Passos:** Criar pedido durante o período da promoção.
+- **Esperado:** `order_item.unit_price` gravado como `40.00`.
 
-### ORD-007: Compra Fora da Janela da Promoção Não Aplica Desconto
-- **Pré-condição:** Promoção das 11:00 às 14:00.
-- **Passos:** Criar pedido às 14:05.
-- **Esperado:** `unit_price_frozen` gravado com o preço integral de 50.00.
+### ORD-007: Compra Fora da Promoção Registra Preço Integral
+- **Pré-condição:** Promoção expirada ou inativa (`is_active = false`).
+- **Passos:** Criar pedido.
+- **Esperado:** `order_item.unit_price` gravado como `50.00`.
 
-### ORD-008: Validação de Quantidade Mínima de Item no Pedido (`quantity >= 1`)
+### ORD-008: Validação de Quantidade Positiva (`quantity >= 1`)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter pedido com `{"quantity": 0}` ou `{"quantity": -2}`.
-- **Esperado:** HTTP 400 Bad Request `quantity must be greater than zero`.
+- **Passos:** Submeter pedido com `{"quantity": 0}` ou `{"quantity": -1}`.
+- **Esperado:** HTTP 400 Bad Request `quantity must be at least 1`.
 
-### ORD-009: Pedido com Múltiplos Itens Diferentes
-- **Pré-condição:** Item A (10.00), Item B (15.00), Item C (20.00).
-- **Passos:** Criar pedido com 2x Item A, 1x Item B e 3x Item C.
-- **Esperado:** Subtotal calculado com exatidão: `(2*10) + (1*15) + (3*20) = 20 + 15 + 60 = 95.00`.
+### ORD-009: Pedido com Múltiplas Linhas de Itens
+- **Pré-condição:** Item A (20.00) e Item B (15.00).
+- **Passos:** Criar pedido com 2x Item A e 1x Item B.
+- **Esperado:** `subtotal = 55.00`, `total = 55.00`.
 
-### ORD-010: Pedido com Produto Indisponível (`is_available = false`)
+### ORD-010: Bloqueio de Pedido Contendo Produto Indisponível
 - **Pré-condição:** Item com `is_available = false`.
-- **Passos:** Tentar submeter pedido contendo este item.
+- **Passos:** Submeter pedido com o item.
 - **Esperado:** HTTP 400 Bad Request `item is currently unavailable`.
 
-### ORD-011: Validação de Itens Obrigatórios de Adicionais (`min_options` Violado)
-- **Pré-condição:** Grupo "Ponto da Carne" exige `min_options = 1`.
-- **Passos:** Fazer pedido do hambúrguer sem selecionar nenhum ponto.
-- **Esperado:** HTTP 400 Bad Request `missing required options for group: Ponto da Carne`.
+### ORD-011: Registro de Avaliação no Item do Pedido (`order_item.review`)
+- **Pré-condição:** Pedido em status `COMPLETED`.
+- **Passos:** POST `/order-items/15/review` com nota 5 (escala de 1 a 5).
+- **Esperado:** HTTP 200 OK. Coluna `review` preenchida com `5`.
 
-### ORD-012: Validação de Limite Máximo de Adicionais (`max_options` Violado)
-- **Pré-condição:** Grupo de opcionais permite no máximo 2 molhos (`max_options = 2`).
-- **Passos:** Fazer pedido selecionando 3 molhos.
-- **Esperado:** HTTP 400 Bad Request `exceeded maximum options allowed (2)`.
+### ORD-012: Validação de Nota de Avaliação Fora da Escala (Ex: 0 ou 6)
+- **Pré-condição:** Nenhuma.
+- **Passos:** Enviar avaliação com nota 7.
+- **Esperado:** HTTP 400 Bad Request `review must be between 1 and 5`.
 
-### ORD-013: Adição do Preço do Opcional ao Valor do Item do Pedido
-- **Pré-condição:** Hambúrguer base (25.00) + Bacon Extra (5.00).
-- **Passos:** Criar pedido com essa seleção.
-- **Esperado:** O valor computado para a linha do item reflete `30.00`.
-
-### ORD-014: Decomposição de Combo em `order_item` (Itens Pais e Filhos)
-- **Pré-condição:** "Combo Família" é composto por 1 Pizza e 1 Refrigerante.
-- **Passos:** Criar pedido com o combo.
+### ORD-013: Decomposição de Combo com `parent_order_id`
+- **Pré-condição:** Item 10 é um combo composto por Itens 1 e 2.
+- **Passos:** Comprar o Combo 10.
 - **Esperado:**
-  - Linha pai: Item do Combo com valor total.
-  - Linhas filhas: Pizza e Refrigerante com `parent_order_item_id` apontando para o ID da linha pai e `unit_price_frozen = 0.00`.
+  - Linha pai: Item 10 com preço do combo.
+  - Linhas filhas: Itens 1 e 2 com `parent_order_id = <id_da_linha_pai>` e `unit_price = 0.00`.
 
-### ORD-015: Adição de Novo Item a Comanda Aberta (Mesa Ativa)
-- **Pré-condição:** Pedido de salão em status `pending` na Mesa 5.
-- **Passos:** POST `/orders/101/items` com `{"item_id": 2, "quantity": 1}`.
-- **Esperado:** HTTP 201 Created. Item inserido e `order.subtotal` e `order.total` recalculados e atualizados no banco.
+### ORD-014: Aplicação de Cupom de Desconto Válido (`coupon_id` em `order`)
+- **Pré-condição:** Cupom `DESC10` de 10% ativo; Pedido de subtotal 100.00.
+- **Passos:** Submeter pedido com o cupom.
+- **Esperado:** `order.coupon_id` preenchido, `discount_amount = 10.00`, `total = 90.00`.
 
-### ORD-016: Bloqueio de Adição de Item a Pedido Já Concluído ou Cancelado
-- **Pré-condição:** Pedido em status `delivered` ou `cancelled`.
-- **Passos:** POST `/orders/101/items`.
-- **Esperado:** HTTP 409 Conflict `cannot modify a completed or cancelled order`.
+### ORD-015: Rejeição de Cupom de Outro Estabelecimento
+- **Pré-condição:** Cupom pertence ao Restaurante 2; Pedido feito na filial do Restaurante 1.
+- **Passos:** Aplicar cupom.
+- **Esperado:** HTTP 400 Bad Request `coupon is not valid for this restaurant`.
 
-### ORD-017: Cancelamento de Item Específico de Comanda Aberta
-- **Pré-condição:** Comanda com 3 itens (Total 75.00).
-- **Passos:** DELETE `/orders/101/items/5` (item de 25.00).
-- **Esperado:** HTTP 204 No Content. Linha removida e total do pedido reajustado para 50.00.
+### ORD-016: Rejeição de Cupom Abaixo do Valor Mínimo (`min_order_value`)
+- **Pré-condição:** Cupom exige pedido mínimo de 80.00; Pedido com subtotal 50.00.
+- **Passos:** Aplicar cupom.
+- **Esperado:** HTTP 400 Bad Request `order subtotal does not reach coupon minimum value`.
 
-### ORD-018: Transição de Status: `pending` -> `preparing`
-- **Pré-condição:** Pedido em `pending`.
-- **Passos:** PATCH `/orders/101/status` com `{"status": "preparing"}`.
-- **Esperado:** HTTP 200 OK. Status alterado. Notificação enviada para a cozinha.
+### ORD-017: Transição de Status: `PENDING` -> `PREPARING`
+- **Pré-condição:** Pedido criado com status padrão `PENDING`.
+- **Passos:** PATCH `/orders/100/status` com `{"status": "PREPARING"}`.
+- **Esperado:** HTTP 200 OK. `status` atualizado para `PREPARING`.
 
-### ORD-019: Transição de Status: `preparing` -> `ready`
-- **Pré-condição:** Pedido em `preparing`.
-- **Passos:** PATCH com `{"status": "ready"}`.
-- **Esperado:** HTTP 200 OK. Comanda pronta para entrega ao garçom ou motoboy.
+### ORD-018: Transição de Status: `PREPARING` -> `READY`
+- **Pré-condição:** Pedido em `PREPARING`.
+- **Passos:** PATCH com `{"status": "READY"}`.
+- **Esperado:** HTTP 200 OK. Notificação de pedido pronto emitida.
 
-### ORD-020: Transição de Status: `ready` -> `delivered`
-- **Pré-condição:** Pedido em `ready`.
-- **Passos:** PATCH com `{"status": "delivered"}`.
-- **Esperado:** HTTP 200 OK. Pedido finalizado.
+### ORD-019: Transição de Status: `READY` -> `COMPLETED`
+- **Pré-condição:** Pedido em `READY`.
+- **Passos:** PATCH com `{"status": "COMPLETED"}`.
+- **Esperado:** HTTP 200 OK. Pedido concluído com sucesso.
 
-### ORD-021: Rejeição de Transição Inválida de Status (Pulo Proibido)
-- **Pré-condição:** Pedido em `pending`.
-- **Passos:** Tentar mover direto para `delivered` sem passar por preparo.
-- **Esperado:** HTTP 400 Bad Request `invalid status transition from pending to delivered`.
-
-### ORD-022: Cancelamento de Pedido com Motivo (`cancelled`)
-- **Pré-condição:** Pedido em `pending`.
-- **Passos:** PATCH com `{"status": "cancelled", "reason": "Cliente desistiu"}`.
+### ORD-020: Cancelamento de Pedido (`CANCELLED`)
+- **Pré-condição:** Pedido em `PENDING`.
+- **Passos:** PATCH com `{"status": "CANCELLED"}`.
 - **Esperado:** HTTP 200 OK. Pedido cancelado.
 
-### ORD-023: Bloqueio de Cancelamento de Pedido Já Entregue
-- **Pré-condição:** Pedido em status `delivered`.
-- **Passos:** Tentar mudar para `cancelled`.
-- **Esperado:** HTTP 400 Bad Request `cannot cancel an order that is already delivered`.
+### ORD-021: Rejeição de Cancelamento de Pedido Já Concluído
+- **Pré-condição:** Pedido com status `COMPLETED`.
+- **Passos:** Tentar alterar status para `CANCELLED`.
+- **Esperado:** HTTP 400 Bad Request `cannot cancel an already completed order`.
 
-### ORD-024: Validação de Número de Mesa Válido em Pedido Local
+### ORD-022: Validação de Mesa em Pedido de Salão (`local_order.table > 0`)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter pedido local com `table_number = 0` ou `table_number = -5`.
-- **Esperado:** HTTP 400 Bad Request `table_number must be a positive integer`.
+- **Passos:** Submeter pedido com `"table": 0` ou `"table": -1`.
+- **Esperado:** HTTP 400 Bad Request `table must be a positive integer`.
 
-### ORD-025: Múltiplas Comandas na Mesma Mesa (Mesas Compartilhadas)
-- **Pré-condição:** Mesa 4 já possui um pedido aberto.
-- **Passos:** Abrir segundo pedido para outro cliente na Mesa 4.
-- **Esperado:** HTTP 201 Created com IDs de pedido distintos, identificados pelo cliente.
-
-### ORD-026: Cálculo de Frete com Valor Negativo Rejeitado
+### ORD-023: Campo de Notas da Mesa (`local_order.notes`)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter pedido de delivery com `{"freight_fee": -10.00}`.
-- **Esperado:** HTTP 400 Bad Request `freight_fee must be >= 0`.
+- **Passos:** Salvar pedido local com `"notes": "Próximo à janela, levar pratos extras"`.
+- **Esperado:** HTTP 201 Created. Notas registradas.
 
-### ORD-027: Validação de Campo Observações (`notes` no item)
+### ORD-024: Validação de Telefone de Contato no Pedido Remoto
 - **Pré-condição:** Nenhuma.
-- **Passos:** Enviar observação de 500 caracteres (ex: detalhes de alergia alimentar).
-- **Esperado:** HTTP 201 Created com observação gravada e enviada para o ticket da cozinha.
+- **Passos:** Submeter pedido de delivery sem `contact_phone`.
+- **Esperado:** HTTP 400 Bad Request `contact_phone is required for remote orders`.
 
-### ORD-028: Inclusão de Cupom de Desconto Válido no Pedido
-- **Pré-condição:** Cupom `DESC10` de 10% válido; Pedido com subtotal 100.00.
-- **Passos:** Aplicar cupom no pedido.
-- **Esperado:** `discount = 10.00`, `total = 90.00`.
+### ORD-025: Campo de Instruções de Entrega (`remote_order.delivery_notes`)
+- **Pré-condição:** Nenhuma.
+- **Passos:** Submeter delivery com `"delivery_notes": "Tocar interfone 202, deixar na portaria"`.
+- **Esperado:** HTTP 201 Created. Observações de entrega persistidas.
 
-### ORD-029: Rejeição de Cupom com Pedido Abaixo do Valor Mínimo
-- **Pré-condição:** Cupom exige pedido mínimo de 50.00; Pedido com subtotal 30.00.
-- **Passos:** Tentar aplicar o cupom.
-- **Esperado:** HTTP 400 Bad Request `minimum order value for this coupon is 50.00`.
+### ORD-026: Tempo Estimado de Entrega (`remote_order.estimated_minutes`)
+- **Pré-condição:** Nenhuma.
+- **Passos:** Submeter com `"estimated_minutes": 45`.
+- **Esperado:** HTTP 201 Created. Estimativa exibida no rastreamento do pedido.
 
-### ORD-030: Rejeição de Cupom Expirado
-- **Pré-condição:** Cupom com `expires_at` anterior à data atual.
-- **Passos:** Aplicar cupom no checkout.
-- **Esperado:** HTTP 400 Bad Request `coupon has expired`.
+### ORD-027: Validação de Taxa de Frete Positiva (`delivery_fee >= 0`)
+- **Pré-condição:** Nenhuma.
+- **Passos:** Submeter frete com valor `-5.00`.
+- **Esperado:** HTTP 400 Bad Request `delivery_fee cannot be negative`.
 
-### ORD-031: Rejeição de Cupom Esgotado (`max_uses` Atingido)
-- **Pré-condição:** Cupom configurado para 5 usos máximos, já utilizado 5 vezes.
-- **Passos:** Sexto usuário tenta aplicar o cupom.
-- **Esperado:** HTTP 400 Bad Request `coupon usage limit reached`.
+### ORD-028: Adição de Itens a Pedido Aberto na Mesa
+- **Pré-condição:** Pedido local em status `PENDING`.
+- **Passos:** POST `/orders/100/items` com mais 1 item de 20.00.
+- **Esperado:** HTTP 201 Created. `subtotal` e `total` recalculados com precisão.
 
-### ORD-032: Consulta de Pedido com Todos os Dados Detalhados (`OrderDetail`)
-- **Pré-condição:** Pedido com itens, adicionais, dados locais e pagamentos.
-- **Passos:** GET `/orders/101`.
-- **Esperado:** HTTP 200 OK com payload estruturado completo contendo itens e histórico.
+### ORD-029: Bloqueio de Adição de Itens a Pedido Finalizado
+- **Pré-condição:** Pedido em status `COMPLETED`.
+- **Passos:** Tentar adicionar item.
+- **Esperado:** HTTP 409 Conflict `cannot modify a completed order`.
 
-### ORD-033: Consulta de Pedido por ID Inexistente
-- **Pré-condição:** ID 999999 inexistente.
-- **Passos:** GET `/orders/999999`.
+### ORD-030: Remoção de Linha de Item do Pedido
+- **Pré-condição:** Pedido aberto com 2 itens.
+- **Passos:** DELETE `/orders/100/items/5`.
+- **Esperado:** HTTP 204 No Content. Total recalculado.
+
+### ORD-031: Consulta de Pedido por ID com Linhas de Itens
+- **Pré-condição:** Pedido ID 100 cadastrado.
+- **Passos:** GET `/orders/100`.
+- **Esperado:** HTTP 200 OK com dados do pedido, subtipo e array de `order_item`.
+
+### ORD-032: Consulta de Pedido por ID Inexistente
+- **Pré-condição:** ID 888888 inexistente.
+- **Passos:** GET `/orders/888888`.
 - **Esperado:** HTTP 404 Not Found `order not found`.
 
-### ORD-034: Listagem de Pedidos Filtrados por Status
-- **Pré-condição:** 10 pedidos na filial (4 `pending`, 3 `preparing`, 3 `ready`).
-- **Passos:** GET `/branches/1/orders?status=preparing`.
-- **Esperado:** Retorno com exatamente os 3 pedidos em preparo.
+### ORD-033: Listagem de Pedidos Filtrados por Status na Filial
+- **Pré-condição:** 5 pedidos na filial (2 `PENDING`, 3 `PREPARING`).
+- **Passos:** GET `/branches/1/orders?status=PREPARING`.
+- **Esperado:** Retorno exato dos 3 pedidos em preparo.
 
-### ORD-035: Concorrência: Dois Garçons Adicionando Itens na Mesma Comanda Simultaneamente
-- **Pré-condição:** Comanda aberta na Mesa 2.
-- **Passos:** Dois garçons submetem novos itens no mesmo milissegundo.
-- **Esperado:** Ambos os itens inseridos corretamente e o total recalculado sem perda de registros (transação atômica serializável).
-
-### ORD-036: Verificação de Pedido Vazio (Sem Itens)
+### ORD-034: Rejeição de Pedido Vazio (Array de Itens Vazio)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter POST `/orders/local` com array `"items": []`.
-- **Esperado:** HTTP 400 Bad Request `an order must contain at least one item`.
+- **Passos:** Submeter pedido com `"items": []`.
+- **Esperado:** HTTP 400 Bad Request `order must have at least one item`.
 
-### ORD-037: Validação de Telefone de Contato no Pedido Remoto
+### ORD-035: Concorrência: Inserções Paralelas na Mesma Comanda
+- **Pré-condição:** Comanda aberta na mesa 1.
+- **Passos:** Dois garçons adicionam produtos simultaneamente.
+- **Esperado:** Transação atômica serializada; nenhum item é perdido e o total bate com a soma real.
+
+### ORD-036: Validação de FK: Pedido Apontando para Filial Inexistente
+- **Pré-condição:** `physical_restaurant_id = 99999` não existe.
+- **Passos:** POST pedido com essa filial.
+- **Esperado:** HTTP 400 Bad Request violando chave estrangeira.
+
+### ORD-037: Rejeição de Transição para Enum de Status Inexistente
+- **Pré-condição:** Pedido ativo.
+- **Passos:** PATCH com `{"status": "AGUARDANDO_PAGAMENTO"}`.
+- **Esperado:** HTTP 400 Bad Request informando valores aceitos pelo `order_status_enum`.
+
+### ORD-038: Pedido sem Associação de CPF ou Usuário em `order`
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter pedido de delivery sem telefone de contato.
-- **Esperado:** HTTP 400 Bad Request `contact phone is required for delivery orders`.
+- **Passos:** Criar pedido informando apenas itens e mesa. Consultar colunas da tabela `order`.
+- **Esperado:** Nenhuma coluna ou chave estrangeira para CPF/usuário existe na tabela `order`; privacidade do consumidor preservada por design.
 
-### ORD-038: Bloqueio de Pedido para Filial Fechada / Fora de Horário
-- **Pré-condição:** Filial física sem turno operacional aberto.
-- **Passos:** Tentar abrir pedido na filial.
-- **Esperado:** HTTP 409 Conflict `branch is currently closed`.
+### ORD-039: Idempotência de Criação de Pedido com Header `Idempotency-Key`
+- **Pré-condição:** Cliente com instabilidade de rede envia duas requisições idênticas.
+- **Passos:** Enviar dois POSTs com o mesmo cabeçalho `Idempotency-Key: req-xyz-789`.
+- **Esperado:** Apenas um pedido é persistido; a segunda chamada retorna a resposta idempotente sem duplicar linhas em `order`.
 
-### ORD-039: Idempotência na Criação de Pedido com Header `Idempotency-Key`
-- **Pré-condição:** Cliente com oscilação de rede envia a mesma requisição duas vezes com a mesma chave.
-- **Passos:** Disparar dois POST idênticos com `Idempotency-Key: abc-123`.
-- **Esperado:** Apenas um pedido é criado no banco; a segunda requisição devolve a resposta cacheada do primeiro.
-
-### ORD-040: Deleção de Pedido em Cascata Rejeitada para Pedidos Pagos
-- **Pré-condição:** Pedido com pagamento aprovado.
-- **Passos:** Tentar executar DELETE direto no banco sem estorno.
+### ORD-040: Deleção de Pedido com Transações Financeiras Bloqueada
+- **Pré-condição:** Pedido com pagamentos registrados na tabela `transaction`.
+- **Passos:** Executar DELETE no pedido.
 - **Esperado:** Bloqueado por integridade referencial com a tabela `transaction`.
 
 ---
 
-## Módulo 5: Pagamentos, Transações, PIX e Fidelidade (FIN-001 a FIN-030)
+## Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN-001 a FIN-030)
 
-### FIN-001: Pagamento Integral de Pedido em Dinheiro (`cash`)
-- **Pré-condição:** Pedido de 50.00 com status `pending`.
-- **Passos:** POST `/orders/101/transactions`.
-- **Entradas:** `{"payment_method": "cash", "amount": 50.00}`.
-- **Esperado:** HTTP 201 Created. Registro criado em `transaction` com `status = 'paid'`.
+### FIN-001: Pagamento Integral em Dinheiro (`transaction_type = 'CASH'`)
+- **Pré-condição:** Pedido 100 de 50.00 em status `PENDING`.
+- **Passos:** POST `/orders/100/transactions`.
+- **Entradas:** `{"transaction_type": "CASH", "amount": 50.00, "notes": "Pago no caixa"}`.
+- **Esperado:** HTTP 201 Created. Linha em `transaction` com `status = 'COMPLETED'`.
 
-### FIN-002: Pagamento Parcial / Dividido da Comanda (Split Payment)
-- **Pré-condição:** Comanda de 100.00 na Mesa 10 dividida entre 2 clientes.
-- **Passos:** Submeter duas transações de 50.00.
-- **Entradas:**
-  - Cliente 1: `{"payment_method": "credit_card", "amount": 50.00}`
-  - Cliente 2: `{"payment_method": "pix", "amount": 50.00}`
-- **Esperado:** Ambas transações aprovadas. Soma das transações pagas atinge o valor total do pedido.
+### FIN-002: Pagamento com Cartão de Crédito (`CREDIT`) e Débito (`DEBIT`)
+- **Pré-condição:** Pedido aberto.
+- **Passos:** Criar transação com tipo `CREDIT` ou `DEBIT`.
+- **Esperado:** HTTP 201 Created. Registro inserido em conformidade com o `transaction_type_enum`.
 
-### FIN-003: Bloqueio de Pagamento com Valor Superior ao Saldo Devedor
-- **Pré-condição:** Pedido com saldo devedor restante de 20.00.
-- **Passos:** Submeter transação de 50.00 via cartão de crédito.
-- **Esperado:** HTTP 400 Bad Request `payment amount exceeds remaining order balance`.
+### FIN-003: Pagamento Dividido da Comanda (Split Payment)
+- **Pré-condição:** Pedido de 100.00.
+- **Passos:** Transação 1 de 60.00 via `CREDIT` e Transação 2 de 40.00 via `PIX`.
+- **Esperado:** Ambas transações aprovadas, totalizando os 100.00 devidos.
 
 ### FIN-004: Geração de Cobrança Instantânea PIX (`transaction_pix`)
-- **Pré-condição:** Transação ID 500 criada com `payment_method = 'pix'`.
-- **Passos:** POST `/transactions/500/pix`.
-- **Esperado:** HTTP 201 Created. Registro em `transaction_pix` contendo código copia-e-cola (`copy_paste_code`), imagem base64 do QR code (`qr_code_base64`) e data de expiração (`expires_at` em 15 minutos).
+- **Pré-condição:** Transação ID 50 criada com `transaction_type = 'PIX'`.
+- **Passos:** POST `/transactions/50/pix`.
+- **Esperado:** HTTP 201 Created na tabela `transaction_pix` contendo:
+  - `pix_copy_paste` (string copia-e-cola).
+  - `qr_code_url` (URL ou base64 do QR code).
+  - `expires_at` (timestamp futuro).
 
-### FIN-005: Consulta de Status do Pagamento PIX
-- **Pré-condição:** Cobrança PIX gerada.
-- **Passos:** GET `/transactions/500/pix`.
-- **Esperado:** Retorno do status atual (`pending` ou `paid`).
+### FIN-005: Webhook de Confirmação de Pagamento PIX
+- **Pré-condição:** Transação PIX em status `PENDING`.
+- **Passos:** Webhook bancário notifica pagamento aprovado.
+- **Esperado:** `transaction.status` atualizado para `'COMPLETED'`.
 
-### FIN-006: Webhook / Confirmação de Pagamento PIX pelo Banco
-- **Pré-condição:** Transação PIX em `pending`.
-- **Passos:** Simular notificação do PSP bancário via webhook POST `/webhooks/pix`.
-- **Esperado:** HTTP 200 OK. `transaction.status` atualizado para `'paid'`. Comanda liberada automaticamente.
+### FIN-006: Expiração de PIX Não Pago
+- **Pré-condição:** Transação PIX que ultrapassou o `expires_at`.
+- **Passos:** Rotina de conciliação executa verificação.
+- **Esperado:** `transaction.status` marcado como `'EXPIRED'`.
 
-### FIN-007: Expiração de Cobrança PIX após Tempo Limite
-- **Pré-condição:** Cobrança gerada com expiração de 15 minutos.
-- **Passos:** Consultar status após 16 minutos sem pagamento.
-- **Esperado:** `transaction.status` atualizado para `'failed'` com motivo `expired`.
+### FIN-007: Emissão de Recibo Estruturado em JSON (`receipt`)
+- **Pré-condição:** Transação ID 50 aprovada (`COMPLETED`).
+- **Passos:** Gerar recibo digital.
+- **Esperado:** Linha inserida na tabela `receipt` com `transaction_id = 50`, `receipt_code` único e `receipt` preenchido como objeto `jsonb`.
 
-### FIN-008: Validação de Métodos de Pagamento Permitidos
+### FIN-008: Unicidade do Código de Recibo (`receipt.receipt_code`)
+- **Pré-condição:** Código `REC-123456` já emitido.
+- **Passos:** Tentar gerar outro recibo com mesmo código.
+- **Esperado:** HTTP 409 Conflict.
+
+### FIN-009: Criação de Cupom com Restrição de Unicidade Composta `(restaurant_id, code)`
+- **Pré-condição:** Restaurante ID 1.
+- **Passos:** POST `/restaurants/1/coupons` com `code = 'PRATELLO10'`.
+- **Esperado:** HTTP 201 Created. Registro inserido na tabela `coupon`.
+
+### FIN-010: Mesmo Código de Cupom Permitido em Restaurantes Distintos
+- **Pré-condição:** Cupom `PRATELLO10` existe no Restaurante ID 1.
+- **Passos:** Cadastrar cupom `PRATELLO10` no Restaurante ID 2.
+- **Esperado:** HTTP 201 Created devido ao índice composto `idx_coupons_restaurant_id_code`.
+
+### FIN-011: Bloqueio de Cupom Duplicado no Mesmo Restaurante
+- **Pré-condição:** Cupom `PRATELLO10` já existente no Restaurante 1.
+- **Passos:** Tentar recriar no Restaurante 1.
+- **Esperado:** HTTP 409 Conflict violando o índice único `(restaurant_id, code)`.
+
+### FIN-012: Validação de Desconto no Cupom (`PERCENTAGE` vs `FIXED_AMOUNT`)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Tentar criar transação com método não suportado.
-- **Entradas:** `{"payment_method": "cheque_sem_fundo", "amount": 50.00}`.
-- **Esperado:** HTTP 400 Bad Request. Aceitos apenas `credit_card`, `debit_card`, `pix` e `cash`.
+- **Passos:** Testar os dois tipos de desconto em cupons.
+- **Esperado:** Ambos persistidos e validados corretamente.
 
-### FIN-009: Emissão de Recibo Digital Imutável (`receipt`)
-- **Pré-condição:** Pedido 101 totalmente pago.
-- **Passos:** GET `/orders/101/receipt`.
-- **Esperado:** HTTP 200 OK. Snapshot estruturado em JSON com hash único `receipt_code`, lista de itens, impostos, método de pagamento e carimbo temporal.
+### FIN-013: Fidelidade: Criação Automática de `user_restaurant` para Novo CPF na Compra
+- **Pré-condição:** CPF `52998224725` nunca comprou no Restaurante ID 1 (`user_restaurant` não existe para esse par).
+- **Passos:** Cliente informa seu CPF no checkout de compra de 100.00. Concluir pagamento (Regra: 1 moeda a cada R$ 10).
+- **Esperado:** Sistema insere automaticamente nova linha em `user_restaurant` com `restaurant_id = 1`, `cpf = '52998224725'`, `coins_amount = 10` e `account_id = NULL`.
 
-### FIN-010: Imutabilidade do Recibo Emitido
-- **Pré-condição:** Recibo gerado para o Pedido 101.
-- **Passos:** Tentar alterar dados do recibo via API ou banco.
-- **Esperado:** Ação rejeitada. Recibos são registros fiscais estritamente append-only.
+### FIN-014: Fidelidade: Incremento de Saldo para CPF Já Existente na Compra
+- **Pré-condição:** Registro em `user_restaurant` já existente com `cpf = '52998224725'`, `restaurant_id = 1` e `coins_amount = 10`.
+- **Passos:** Cliente compra mais 50.00 no Restaurante ID 1 informando o mesmo CPF.
+- **Esperado:** `coins_amount` incrementado para `15` (`10 + 5`).
 
-### FIN-011: Cálculo da Taxa de Take-Rate da Plataforma Pratello
-- **Pré-condição:** Restaurante com comissão de 5% acordada. Pedido total de 200.00.
-- **Passos:** Concluir transação financeira do pedido.
-- **Esperado:** Comissão de R$ 10,00 calculada e segregada para o faturamento da plataforma Pratello.
+### FIN-015: Fidelidade: Bloqueio de Resgate de Moedas para Usuário sem Conta (`account_id IS NULL`)
+- **Pré-condição:** Registro em `user_restaurant` possui `coins_amount = 50`, mas `account_id = NULL` (usuário apenas informou CPF nas compras, nunca criou conta).
+- **Passos:** Tentar aplicar as moedas como desconto no pedido.
+- **Esperado:** HTTP 403 Forbidden com mensagem: `an account is required to redeem coins. Please register or log in`.
 
-### FIN-012: Crédito de Pontos de Fidelidade / Cashback (`user_restaurant`)
-- **Pré-condição:** Cliente identificado pelo CPF realizou pedido de 100.00. Regra de fidelidade: 1 ponto a cada R$ 10 gastos.
-- **Passos:** Concluir pagamento do pedido.
-- **Esperado:** Saldo em `user_restaurant.points_balance` incrementado em 10 pontos.
+### FIN-016: Fidelidade: Vínculo de Conta (`account`) à Carteira de CPF Existente
+- **Pré-condição:** Carteira em `user_restaurant` existe com `cpf = '52998224725'` e `coins_amount = 50`.
+- **Passos:** Usuário cria uma conta `account` com `document = '52998224725'`.
+- **Esperado:** Sistema vincula automaticamente `account_id` da conta recém-criada ao registro de `user_restaurant`.
 
-### FIN-013: Consulta de Saldo de Carteira de Fidelidade por Cliente
-- **Pré-condição:** Cliente com 50 pontos acumulados na "Pizzaria Bela".
-- **Passos:** GET `/restaurants/pizzaria-bela/users/52998224725/wallet`.
-- **Esperado:** HTTP 200 OK com `points_balance = 50`.
+### FIN-017: Fidelidade: Resgate de Moedas com Sucesso para Usuário com Conta (`account_id IS NOT NULL`)
+- **Pré-condição:** `user_restaurant` possui `account_id = 5` preenchido e `coins_amount = 50` (cada moeda = R$ 1,00 de desconto). Pedido de 40.00.
+- **Passos:** Usuário autenticado solicita resgate de 20 moedas.
+- **Esperado:** HTTP 200 OK. Desconto de R$ 20,00 aplicado no pedido. Saldo em `user_restaurant.coins_amount` atualizado para `30`.
 
-### FIN-014: Isolamento de Carteira de Fidelidade Entre Restaurantes
-- **Pré-condição:** Cliente tem 50 pontos na "Pizzaria Bela" e 0 pontos na "Hamburgueria Bela".
-- **Passos:** Consultar carteira na "Hamburgueria Bela".
-- **Esperado:** Saldo de 0 pontos. Pontos não são transferíveis entre tenants.
+### FIN-018: Fidelidade: Bloqueio de Resgate de Moedas Superior ao Saldo
+- **Pré-condição:** Usuário com conta possui 10 moedas.
+- **Passos:** Tentar resgatar 25 moedas.
+- **Esperado:** HTTP 400 Bad Request `insufficient coins balance`.
 
-### FIN-015: Resgate / Débito de Pontos de Fidelidade como Desconto no Pedido
-- **Pré-condição:** Cliente com 100 pontos (cada 10 pontos = R$ 1,00 de desconto). Pedido de 40.00.
-- **Passos:** Resgatar 50 pontos no pedido.
-- **Esperado:** Desconto de R$ 5,00 aplicado no pedido. Saldo da carteira atualizado para 50 pontos.
+### FIN-019: Fidelidade: Isolamento de Moedas Entre Restaurantes Distintos
+- **Pré-condição:** Cliente tem 50 moedas no Restaurante 1 e 0 moedas no Restaurante 2.
+- **Passos:** Tentar resgatar moedas no Restaurante 2.
+- **Esperado:** Rejeitado. Moedas são intransferíveis entre diferentes `restaurant_id`.
 
-### FIN-016: Bloqueio de Resgate de Pontos Superior ao Saldo Disponível
-- **Pré-condição:** Cliente possui 20 pontos.
-- **Passos:** Tentar resgatar 50 pontos.
-- **Esperado:** HTTP 400 Bad Request `insufficient loyalty points balance`.
+### FIN-020: Cancelamento de Pagamento (`CANCELLED`)
+- **Pré-condição:** Transação pendente.
+- **Passos:** PATCH no status da transação para `CANCELLED`.
+- **Esperado:** HTTP 200 OK.
 
-### FIN-017: Prevenção de Saldo Negativo na Carteira de Pontos
-- **Pré-condição:** Saldo de 0 pontos.
-- **Passos:** Tentativa de débito manual.
-- **Esperado:** Violação da restrição de integridade `CHECK (points_balance >= 0)`.
+### FIN-021: Reversão / Estorno de Moedas Concedidas em Pedido Cancelado
+- **Pré-condição:** Compra gerou 10 moedas para o CPF. Pedido foi posteriormente estornado/cancelado.
+- **Passos:** Executar rotina de cancelamento.
+- **Esperado:** 10 moedas deduzidas da carteira `user_restaurant`, restaurando o saldo anterior.
 
-### FIN-018: Criação de Cupom de Desconto com Código Único por Restaurante
-- **Pré-condição:** Cupom `BEMVINDO` disponível.
-- **Passos:** POST `/restaurants/pizzaria-bela/coupons`.
-- **Entradas:**
-  ```json
-  {
-    "code": "BEMVINDO",
-    "discount_type": "percent",
-    "discount_value": 15.00,
-    "min_order_value": 30.00,
-    "expires_at": "2026-12-31T23:59:59Z",
-    "max_uses": 100
-  }
-  ```
-- **Esperado:** HTTP 201 Created. Cupom cadastrado na tabela `coupon`.
+### FIN-022: Falha em Transação de Cartão de Crédito (`FAILED`)
+- **Pré-condição:** Pagamento recusado pela adquirente.
+- **Passos:** Registrar retorno da adquirente.
+- **Esperado:** `transaction.status` gravado como `FAILED`. Pedido continua aguardando pagamento.
 
-### FIN-019: Mesmo Código de Cupom Permitido em Restaurantes Diferentes
-- **Pré-condição:** Cupom `PROMO10` existe em `pizzaria-bela`.
-- **Passos:** Criar cupom com o mesmo código `PROMO10` em `hamburgueria-x`.
-- **Esperado:** HTTP 201 Created. Permitido devido ao isolamento multi-tenant.
+### FIN-023: Validação de Chave Estrangeira: Transação com `order_id` Inexistente
+- **Pré-condição:** `order_id = 999999` não cadastrado.
+- **Passos:** POST transação.
+- **Esperado:** HTTP 400 Bad Request violando chave estrangeira com a tabela `order`.
 
-### FIN-020: Conflito de Cupom Duplicado no Mesmo Restaurante
-- **Pré-condição:** Cupom `PROMO10` já existe em `pizzaria-bela`.
-- **Passos:** Tentar recriar `PROMO10` para `pizzaria-bela`.
-- **Esperado:** HTTP 409 Conflict `coupon code already exists for this restaurant`.
+### FIN-024: Limite Máximo de Usos de Cupom (`coupon.max_uses`)
+- **Pré-condição:** Cupom com `max_uses = 3`, já utilizado 3 vezes.
+- **Passos:** Quarto pedido tenta usar o cupom.
+- **Esperado:** HTTP 400 Bad Request `coupon usage limit reached`.
 
-### FIN-021: Desativação Manual de Cupom Promocional
-- **Pré-condição:** Cupom ativo.
-- **Passos:** DELETE `/restaurants/pizzaria-bela/coupons/1`.
-- **Esperado:** HTTP 204 No Content. Cupom não pode mais ser aplicado em novos pedidos.
+### FIN-025: Cupom Fora da Validade (`coupon.expires_at`)
+- **Pré-condição:** Cupom com data de expiração no passado.
+- **Passos:** Aplicar cupom no pedido.
+- **Esperado:** HTTP 400 Bad Request `coupon has expired`.
 
-### FIN-022: Estorno / Reembolso de Transação (`refunded`)
-- **Pré-condição:** Pedido cancelado com transação de cartão paga.
-- **Passos:** Executar estorno via POST `/transactions/500/refund`.
-- **Esperado:** `transaction.status` atualizado para `'refunded'`.
+### FIN-026: Desativação de Cupom (`is_active = false`)
+- **Pré-condição:** Cupom desativado manualmente.
+- **Passos:** Tentar utilizar o cupom.
+- **Esperado:** HTTP 400 Bad Request `coupon is inactive`.
 
-### FIN-023: Pagamento de Pedido com Falha no Cartão (Transação Recusada)
-- **Pré-condição:** Pedido aberto.
-- **Passos:** Gateway recusa o cartão por saldo insuficiente.
-- **Esperado:** `transaction.status` registrado como `'failed'`. Pedido continua aberto aguardando outro método de pagamento.
+### FIN-027: Validação de Valor Mínimo de Pedido no Cupom (`min_order_value`)
+- **Pré-condição:** Cupom exige mínimo de 60.00; Pedido com total de 40.00.
+- **Passos:** Tentar aplicar.
+- **Esperado:** HTTP 400 Bad Request `order amount does not satisfy coupon requirements`.
 
-### FIN-024: Múltiplas Tentativas de Pagamento para a Mesma Comanda
-- **Pré-condição:** Tentativa 1 com cartão falhou.
-- **Passos:** Cliente efetua Tentativa 2 com PIX e é aprovado.
-- **Esperado:** Tabela `transaction` mantém o histórico de ambas as tentativas (1 failed, 1 paid).
+### FIN-028: Cálculo e Auditoria de Recibo Fiscal em JSONB
+- **Pré-condição:** Recibo gravado para pedido finalizado.
+- **Passos:** Consultar coluna `receipt.receipt`.
+- **Esperado:** Objeto JSON íntegro contendo discriminação de itens, taxas e formas de pagamento.
 
-### FIN-025: Pagamento em Dinheiro com Cálculo de Troco
-- **Pré-condição:** Pedido de 35.00.
-- **Passos:** Cliente entrega nota de 50.00 em dinheiro.
-- **Esperado:** Sistema registra transação de 35.00 e calcula troco de R$ 15,00 no comprovante.
+### FIN-029: Prevenção de Transação com Valor Negativo ou Zero
+- **Pré-condição:** Nenhuma.
+- **Passos:** POST transação com `amount = -10.00`.
+- **Esperado:** HTTP 400 Bad Request `amount must be greater than zero`.
 
-### FIN-026: Idempotência no Processamento de Pagamento com Cartão
-- **Pré-condição:** Requisição de cobrança enviada.
-- **Passos:** Disparo duplo da mesma transação de cartão com a mesma chave de idempotência.
-- **Esperado:** O cartão do cliente é debitado estritamente uma única vez.
-
-### FIN-027: Estorno de Pontos de Fidelidade em Pedido Cancelado
-- **Pré-condição:** Pedido gerou 10 pontos para o cliente, mas foi cancelado posteriormente.
-- **Passos:** Executar cancelamento e estorno do pedido.
-- **Esperado:** 10 pontos debitados da carteira do cliente, restaurando o saldo original.
-
-### FIN-028: Relatório Financeiro: Fechamento de Caixa por Filial e Turno
-- **Pré-condição:** Turno encerrado com 20 transações (R$ 500 Dinheiro, R$ 800 Cartão, R$ 700 PIX).
-- **Passos:** GET `/reports/cashier-closure?session_id=12`.
-- **Esperado:** Total consolidado de R$ 2.000 com discriminação precisa por método de pagamento.
-
-### FIN-029: Auditoria de Transações Financeiras (Log Imutável)
-- **Pré-condição:** Qualquer alteração de status financeiro.
-- **Passos:** Validar persistência de logs de data, hora e operador responsável pela cobrança.
-- **Esperado:** Rastreabilidade garantida para compliance e conciliação bancária.
-
-### FIN-030: Tentativa de Pagar Pedido com Valor Zero (Sem Itens)
-- **Pré-condição:** Pedido sem itens cadastrados.
-- **Passos:** Tentar gerar pagamento.
-- **Esperado:** HTTP 400 Bad Request `cannot process payment for zero or empty order`.
+### FIN-030: Concorrência no Resgate de Moedas
+- **Pré-condição:** Usuário com conta possui 30 moedas.
+- **Passos:** Dois pedidos simultâneos solicitam o resgate de 20 moedas cada.
+- **Esperado:** Apenas um resgate conclui com sucesso; o segundo falha por saldo insuficiente (prevenção de double-spending).
 
 ---
 
 ## Módulo 6: Turnos Operacionais, Concorrência e Resiliência (OPS-001 a OPS-020)
 
-### OPS-001: Abertura de Turno Operacional de Trabalho (`restaurant_staff_session`)
-- **Pré-condição:** Filial física ativa.
-- **Passos:** POST `/restaurants/pizzaria-bela/branches/1/staff-sessions/open`.
-- **Entradas:** `{"shift_code": "ALMOCO-2026-10-12"}`.
-- **Esperado:** HTTP 201 Created. Registro criado com `opened_at = now()`, `closed_at = null` e `qr_token` criptograficamente seguro gerado para ponto da equipe.
+### OPS-001: Abertura de Turno Operacional (`staff_session`) com `shift_code` de 6 Dígitos
+- **Pré-condição:** Unidade física ID 1 ativa.
+- **Passos:** POST `/branches/1/staff-sessions`.
+- **Entradas:** `{"shift_code": "TURNO1", "expires_at": "2026-10-18T00:00:00Z"}`.
+- **Esperado:** HTTP 201 Created. Registro inserido em `staff_session` com `qr_token` de 64 caracteres único e `is_active = true`.
 
-### OPS-002: Bloqueio de Abertura de Turno Simultâneo na Mesma Filial
-- **Pré-condição:** Turno de almoço já aberto e ativo na Filial 1.
-- **Passos:** Tentar abrir outro turno na mesma filial antes de encerrar o anterior.
-- **Esperado:** HTTP 409 Conflict `an active staff session is already running for this branch`.
-
-### OPS-003: Check-in de Funcionário via Token QR do Turno (`staff_session`)
-- **Pré-condição:** Turno aberto com `qr_token = 'token_xyz_123'`. Funcionário com conta `account_id = 8`.
-- **Passos:** POST `/staff-sessions/check-in` com `{"qr_token": "token_xyz_123", "account_id": 8}`.
-- **Esperado:** HTTP 201 Created. Registro inserido em `staff_session` com `checked_in_at = now()` e `checked_out_at = null`.
-
-### OPS-004: Rejeição de Check-in com Token QR Inválido ou Forjado
+### OPS-002: Validação de Tamanho Limite de `shift_code` (`varchar(6)`)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter POST `/staff-sessions/check-in` com token inexistente.
-- **Esperado:** HTTP 401 Unauthorized `invalid or expired shift QR token`.
+- **Passos:** Submeter turno com `{"shift_code": "TURNO_LONGO_DEMAIS"}`.
+- **Esperado:** HTTP 400 Bad Request `shift_code cannot exceed 6 characters`.
 
-### OPS-005: Bloqueio de Duplo Check-in do Mesmo Funcionário sem Check-out
-- **Pré-condição:** Funcionário ID 8 já efetuou check-in no turno ativo.
-- **Passos:** Tentar efetuar check-in novamente.
-- **Esperado:** HTTP 409 Conflict `employee is already clocked in`.
+### OPS-003: Unicidade do Token QR de Presença (`staff_session.qr_token`)
+- **Pré-condição:** Token `token_hash_64_chars` existente.
+- **Passos:** Tentar gravar outro turno com token idêntico.
+- **Esperado:** HTTP 409 Conflict violando o índice único em `qr_token`.
 
-### OPS-006: Check-out de Funcionário do Turno
-- **Pré-condição:** Ponto de entrada registrado.
-- **Passos:** POST `/staff-sessions/55/check-out`.
-- **Esperado:** HTTP 200 OK. `checked_out_at` preenchido com carimbo de data/hora atual.
+### OPS-004: Encerramento de Turno (`is_active = false`)
+- **Pré-condição:** Turno ativo.
+- **Passos:** PATCH `/staff-sessions/1` com `{"is_active": false}`.
+- **Esperado:** HTTP 200 OK. Turno encerrado; novos pontos com este token passam a ser rejeitados.
 
-### OPS-007: Fechamento do Turno Operacional da Filial
-- **Pré-condição:** Turno aberto.
-- **Passos:** POST `/restaurants/pizzaria-bela/branches/1/staff-sessions/12/close`.
-- **Esperado:** HTTP 200 OK. `closed_at = now()`. Token QR invalidado para novos check-ins. Check-out automático ou advertência para funcionários que não registraram saída.
+### OPS-005: Verificação de Validade de Turno Expirado (`expires_at`)
+- **Pré-condição:** Turno cuja data `expires_at` é anterior ao horário atual.
+- **Passos:** Consultar status do turno.
+- **Esperado:** Considerado inativo automaticamente pelo sistema.
 
-### OPS-008: Listagem de Funcionários Ativos no Turno Atual
-- **Pré-condição:** 3 funcionários com ponto registrado e sem check-out.
-- **Passos:** GET `/staff-sessions/active?branch_id=1`.
-- **Esperado:** Retorno de lista com os 3 funcionários em plantão ativo.
+### OPS-006: Concorrência na Venda de Última Unidade de Item em Estoque
+- **Pré-condição:** Item limitado a 1 unidade.
+- **Passos:** Dois clientes finalizam a compra no mesmo milissegundo.
+- **Esperado:** Um pedido obtém sucesso (HTTP 201); o segundo é rejeitado por indisponibilidade, sem permitir estoque negativo.
 
-### OPS-009: Teste de Concorrência: Venda do Último Item em Estoque
-- **Pré-condição:** Item limitado a 1 unidade disponível.
-- **Passos:** Dois clientes disparam pedido para a mesma unidade no exato mesmo milissegundo.
-- **Esperado:** Uma requisição obtém sucesso (HTTP 201); a outra recebe erro de estoque esgotado (HTTP 409) sem estoque negativo (lock pessimista via `SELECT ... FOR UPDATE`).
+### OPS-007: Concorrência no Acúmulo de Moedas pelo Mesmo CPF
+- **Pré-condição:** Cliente compra presencialmente e faz pedido de delivery simultaneamente com o mesmo CPF.
+- **Passos:** Disparo paralelo de conclusão de pagamento das duas ordens.
+- **Esperado:** Ambas as bonificações são somadas atomicamente sem perda de saldo (`coins_amount`).
 
-### OPS-010: Concorrência: Atualização Simultânea de Saldo de Fidelidade
-- **Pré-condição:** Cliente com saldo de 50 pontos.
-- **Passos:** Duas requisições paralelas de débito de 30 pontos.
-- **Esperado:** Apenas uma transação de débito é concluída com sucesso; a segunda é rejeitada por saldo insuficiente, prevenindo condição de corrida (Race Condition).
+### OPS-008: Atomicidade de Pedido com Rollback em Falha de Inserção de Item
+- **Pré-condição:** Pedido com 2 itens válidos e 1 item com `item_id` inexistente.
+- **Passos:** Enviar criação de pedido.
+- **Esperado:** Falha no item inexistente reverte a transação inteira (`tx.Rollback()`). Nenhuma linha é inserida em `order` ou `order_item`.
 
-### OPS-011: Resiliência contra Queda Repentina de Conexão com o Banco de Dados
+### OPS-009: Resiliência contra Queda Repentina de Conexão com o PostgreSQL
 - **Pré-condição:** Aplicação em execução.
-- **Passos:** Forçar interrupção do PostgreSQL durante a inicialização do roteador.
-- **Esperado:** A aplicação não sofre pânico (crash incontrolado); retorna HTTP 503 Service Unavailable no healthcheck e tenta reconexão automática com backoff exponencial.
+- **Passos:** Derrubar temporariamente o banco de dados.
+- **Esperado:** API retorna HTTP 503 Service Unavailable sem encerrar abruptamente o processo Go; reconecta automaticamente após restauração do banco.
 
-### OPS-012: Teste de Carga e Vazamento de Conexões (Connection Pool Exhaustion)
-- **Pré-condição:** Pool configurado para 25 conexões máximas.
+### OPS-010: Esgotamento e Recuperação de Conexões do Pool (Connection Pool)
+- **Pré-condição:** Limite do pool configurado para 20 conexões.
 - **Passos:** Disparar 100 requisições simultâneas de leitura de cardápio.
-- **Esperado:** Todas as requisições liberam suas conexões (`rows.Close()`) e concluem sem travar o pool de conexões do Go.
+- **Esperado:** Todas as conexões são devidamente liberadas após execução (`rows.Close()`) sem travamento do pool.
 
-### OPS-013: Atomicidade de Pedido (Rollback em Caso de Erro no Meio da Transação)
-- **Pré-condição:** Pedido com 3 itens, onde o 3º item possui um ID de produto inexistente.
-- **Passos:** Submeter requisição de criação do pedido.
-- **Esperado:** Falha no 3º item dispara `tx.Rollback()`. Nenhuma linha é gravada em `order`, `local_order` ou `order_item`. O banco permanece limpo.
-
-### OPS-014: Validação de Healthcheck da Aplicação (`/health` e `/api/health`)
-- **Pré-condição:** Banco de dados online.
+### OPS-011: Validação de Endpoint de Healthcheck (`/health`)
+- **Pré-condição:** Banco de dados e aplicação operacionais.
 - **Passos:** GET `/health`.
-- **Esperado:** HTTP 200 OK com payload `{"status": "ok", "service": "pratello"}` em menos de 10ms.
+- **Esperado:** HTTP 200 OK com `{"status": "ok", "service": "pratello"}`.
 
-### OPS-015: Validação de Healthcheck com Banco de Dados Fora do Ar
+### OPS-012: Healthcheck Reportando Falha de Banco (`/health`)
 - **Pré-condição:** Banco de dados indisponível.
 - **Passos:** GET `/health`.
-- **Esperado:** HTTP 500 ou 503 com `{"status": "degraded", "database": "unreachable"}`.
+- **Esperado:** HTTP 500 ou 503 com status degradado.
 
-### OPS-016: Proteção contra Payload JSON Gigante (Denial of Service por Memória)
+### OPS-013: Proteção contra Payload JSON Gigante (DoS de Memória)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Enviar requisição POST com corpo de 50MB contendo caracteres em branco ou lixo.
-- **Esperado:** HTTP 413 Payload Too Large (middleware limita tamanho do body a 2MB).
+- **Passos:** Enviar body com 30MB de lixo textual.
+- **Esperado:** HTTP 413 Payload Too Large.
 
-### OPS-017: Sanitização e Ocultação de Stack Traces em Produção
-- **Pré-condição:** Erro interno proposital disparado (ex.: query SQL com tabela com permissão negada).
-- **Passos:** Executar chamada que dispara o erro.
-- **Esperado:** Retorno HTTP 500 contendo apenas mensagem amigável `{"error": "internal server error"}`. Nenhuma linha de código, path do servidor ou query SQL é vazada na resposta HTTP.
+### OPS-014: Ocultação Estrita de Stack Traces e Dados Internos em Erros 500
+- **Pré-condição:** Erro de banco forçado.
+- **Passos:** Executar chamada afetada.
+- **Esperado:** Retorno HTTP 500 contendo apenas mensagem genérica amigável `{"error": "internal server error"}`. Nenhuma query SQL ou caminho de arquivo é exposto.
 
-### OPS-018: Teste de Deadlock em Transações Cruzadas de Pedido e Pagamento
-- **Pré-condição:** Duas threads tentando atualizar `order` e `transaction` em ordem inversa.
-- **Passos:** Executar requisições concorrentes entrelaçadas.
-- **Esperado:** O banco detecta deadlock e a camada de repositório do Go executa retry automático sem falhar para o usuário final.
+### OPS-015: Idempotência de Inicialização de Tabelas (`InitSchema`)
+- **Pré-condição:** Banco já populado com o schema DBML.
+- **Passos:** Invocar rotina de inicialização de schema novamente.
+- **Esperado:** Execução sem falhas; nenhuma tabela ou índice duplicado.
 
-### OPS-019: Idempotência de Inicialização de Schema (`InitSchema`)
-- **Pré-condição:** Banco de dados já populado com todas as tabelas.
-- **Passos:** Chamar `app.InitSchema()` múltiplas vezes na inicialização.
-- **Esperado:** Nenhuma tabela é recriada ou truncada; comandos utilizam `CREATE TABLE IF NOT EXISTS` e executam sem erros.
+### OPS-016: Encerramento Gracioso do Servidor (Graceful Shutdown)
+- **Pré-condição:** Servidor processando transação de pagamento.
+- **Passos:** Enviar sinal `SIGTERM`.
+- **Esperado:** O servidor conclui as requisições em trânsito antes de desligar, sem interromper ou corromper dados de transações.
 
-### OPS-020: Encerramento Gracioso do Servidor (Graceful Shutdown)
-- **Pré-condição:** Servidor processando requisição longa de relatório (duração de 3 segundos).
-- **Passos:** Enviar sinal de término `SIGTERM` / `SIGINT` para o processo da API Go.
-- **Esperado:** O servidor para de aceitar novas requisições na porta, aguarda a finalização da requisição ativa e encerra o processo com exit code 0 sem corromper transações.
+### OPS-017: Validação de Deadlock em Transações Concorrentes
+- **Pré-condição:** Operações concorrentes acessando `order` e `transaction` em ordem cruzada.
+- **Passos:** Disparar execução em threads simultâneas.
+- **Esperado:** O driver trata a contenção de locks sem travar permanentemente a aplicação.
+
+### OPS-018: Consulta de Sessão de Turno por Token QR
+- **Pré-condição:** Turno cadastrado com token de 64 caracteres.
+- **Passos:** GET `/staff-sessions/by-token?token=<64_chars>`.
+- **Esperado:** HTTP 200 OK com dados da sessão.
+
+### OPS-019: Bloqueio de Registro de Presença em Turno Inativo
+- **Pré-condição:** Turno com `is_active = false`.
+- **Passos:** Tentar validar presença com o token desse turno.
+- **Esperado:** HTTP 400 Bad Request `shift session is inactive`.
+
+### OPS-020: Verificação de Consistência e Isolamento ACID Completo
+- **Pré-condição:** Ciclo completo: Pedido local -> Pagamento PIX -> Acúmulo de moedas em `user_restaurant` por CPF.
+- **Passos:** Submeter requisições do fluxo completo.
+- **Esperado:** Todas as operações comitadas com sucesso e integridade total dos saldos e comprovantes gerados.

@@ -196,7 +196,13 @@ func TestUnit_HandleListDishes_Success(t *testing.T) {
 	var body []Dish
 	err := json.NewDecoder(rec.Body).Decode(&body)
 	assert.NoError(t, err)
-	assert.Equal(t, expected, body)
+	assert.Len(t, body, 2)
+	assert.Equal(t, 1, body[0].ID)
+	assert.Equal(t, "Margherita", body[0].Name)
+	assert.Equal(t, 12.50, body[0].Price)
+	assert.Equal(t, 2, body[1].ID)
+	assert.Equal(t, "Diavola", body[1].Name)
+	assert.Equal(t, 14.00, body[1].Price)
 	mockDishStore.AssertExpectations(t)
 }
 

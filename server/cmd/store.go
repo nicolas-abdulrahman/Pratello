@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 )
 
 var (
@@ -228,5 +229,139 @@ func (s *SQLDishStore) Delete(ctx context.Context, restaurantSlug string, dishID
 	if affected == 0 {
 		return ErrNotFound
 	}
+	return nil
+}
+
+// MemoryRestaurantStore provides a thread-safe in-memory store for RestaurantStore.
+type MemoryRestaurantStore struct {
+	mu          sync.RWMutex
+	restaurants map[string]Restaurant
+}
+
+func NewMemoryRestaurantStore() *MemoryRestaurantStore {
+	return &MemoryRestaurantStore{
+		restaurants: make(map[string]Restaurant),
+	}
+}
+
+func (m *MemoryRestaurantStore) List(ctx context.Context) ([]Restaurant, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	list := make([]Restaurant, 0, len(m.restaurants))
+	for _, r := range m.restaurants {
+		list = append(list, r)
+	}
+	return list, nil
+}
+
+func (m *MemoryRestaurantStore) GetBySlug(ctx context.Context, slug string) (*Restaurant, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	r, exists := m.restaurants[slug]
+	if !exists {
+		return nil, ErrNotFound
+	}
+	return &r, nil
+}
+
+func (m *MemoryRestaurantStore) Create(ctx context.Context, r *Restaurant) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.restaurants[r.Slug]; exists {
+		return ErrConflict
+	}
+	m.restaurants[r.Slug] = *r
+	return nil
+}
+
+func (m *MemoryRestaurantStore) Update(ctx context.Context, slug string, req UpdateRestaurantRequest) (*Restaurant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, exists := m.restaurants[slug]
+	if !exists {
+		return nil, ErrNotFound
+	}
+	if req.Name != "" {
+		r.Name = req.Name
+	}
+	r.Description = req.Description
+	m.restaurants[slug] = r
+	return &r, nil
+}
+
+func (m *MemoryRestaurantStore) Delete(ctx context.Context, slug string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.restaurants[slug]; !exists {
+		return ErrNotFound
+	}
+	delete(m.restaurants, slug)
+	return nil
+}
+
+// MemoryDishStore provides a thread-safe in-memory store for DishStore.
+type MemoryDishStore struct {
+	mu      sync.RWMutex
+	counter int
+	dishes  map[int]Dish
+}
+
+func NewMemoryDishStore() *MemoryDishStore {
+	return &MemoryDishStore{
+		dishes: make(map[int]Dish),
+	}
+}
+
+func (m *MemoryDishStore) ListByRestaurant(ctx context.Context, restaurantSlug string) ([]Dish, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var list []Dish
+	for _, d := range m.dishes {
+		if d.RestaurantSlug == restaurantSlug {
+			list = append(list, d)
+		}
+	}
+	return list, nil
+}
+
+func (m *MemoryDishStore) Create(ctx context.Context, restaurantSlug string, req CreateDishRequest) (*Dish, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.counter++
+	dish := Dish{
+		ID:             m.counter,
+		RestaurantSlug: restaurantSlug,
+		Name:           req.Name,
+		Price:          req.Price,
+	}
+	m.dishes[dish.ID] = dish
+	return &dish, nil
+}
+
+func (m *MemoryDishStore) Update(ctx context.Context, restaurantSlug string, dishID int, req UpdateDishRequest) (*Dish, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	dish, exists := m.dishes[dishID]
+	if !exists || dish.RestaurantSlug != restaurantSlug {
+		return nil, ErrNotFound
+	}
+	if req.Name != "" {
+		dish.Name = req.Name
+	}
+	if req.Price >= 0 {
+		dish.Price = req.Price
+	}
+	m.dishes[dishID] = dish
+	return &dish, nil
+}
+
+func (m *MemoryDishStore) Delete(ctx context.Context, restaurantSlug string, dishID int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	dish, exists := m.dishes[dishID]
+	if !exists || dish.RestaurantSlug != restaurantSlug {
+		return ErrNotFound
+	}
+	delete(m.dishes, dishID)
 	return nil
 }

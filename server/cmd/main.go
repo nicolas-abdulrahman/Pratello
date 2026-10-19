@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
 
 	_ "github.com/lib/pq"
 )
@@ -19,17 +18,7 @@ type Restaurant struct {
 	MenuItems   []string `json:"menu_items,omitempty"`
 }
 
-// In-memory store for restaurants protected by a mutex (for backwards compatibility)
-var (
-	restaurantsMu sync.RWMutex
-	restaurants   = make(map[string]Restaurant)
-	defaultApp    *App
-)
-
-func init() {
-	defaultApp = NewApp(nil)
-	defaultApp.memRestaurants = restaurants
-}
+var defaultApp = NewApp(nil)
 
 type CreateRestaurantRequest struct {
 	Name        string `json:"name"`
@@ -42,10 +31,6 @@ func setupRouter(apps ...*App) *http.ServeMux {
 	if len(apps) > 0 && apps[0] != nil {
 		app = apps[0]
 	} else {
-		// Sync with global restaurants map in case tests modified it directly
-		restaurantsMu.RLock()
-		defaultApp.memRestaurants = restaurants
-		restaurantsMu.RUnlock()
 		app = defaultApp
 	}
 

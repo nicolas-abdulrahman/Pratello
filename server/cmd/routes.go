@@ -1,13 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // Dish represents a menu item belonging to a restaurant.
@@ -33,27 +34,22 @@ type UpdateRestaurantRequest struct {
 	Description string `json:"description"`
 }
 
-// App holds the stores for business logic and legacy fallback fields for backwards compatibility.
+// App holds the database connection and repository stores.
 type App struct {
-	Restaurants    RestaurantStore
-	Dishes         DishStore
-	DB             *sql.DB
-	memMu          sync.RWMutex
-	memRestaurants map[string]Restaurant
-	memDishes      map[int]Dish
-	dishIDCounter  int
+	Restaurants RestaurantStore
+	Dishes      DishStore
+	DB          *sql.DB
 }
 
 func NewApp(db *sql.DB) *App {
-	app := &App{
-		DB:             db,
-		memRestaurants: make(map[string]Restaurant),
-		memDishes:      make(map[int]Dish),
-	}
+	app := &App{DB: db}
 	if db != nil {
 		app.Restaurants = NewSQLRestaurantStore(db)
 		app.Dishes = NewSQLDishStore(db)
 		_ = app.InitSchema()
+	} else {
+		app.Restaurants = NewMemoryRestaurantStore()
+		app.Dishes = NewMemoryDishStore()
 	}
 	return app
 }
@@ -82,53 +78,25 @@ func (a *App) InitSchema() error {
 
 // SeedDefaultRestaurant resets and re-seeds dogao_do_seu_joao with 1 dish "feijao"
 func (a *App) SeedDefaultRestaurant() error {
+	ctx := context.Background()
 	slug := "dogao_do_seu_joao"
 	name := "Dogão do Seu João"
 	desc := "Aqui é o dogão do seu joão"
 
-	if a.DB != nil {
-		// Delete if exists (cascades to dishes)
-		_, _ = a.DB.Exec("DELETE FROM restaurants WHERE slug = $1", slug)
-
-		// Insert restaurant
-		_, err := a.DB.Exec("INSERT INTO restaurants (slug, name, description) VALUES ($1, $2, $3)", slug, name, desc)
-		if err != nil {
-			return fmt.Errorf("failed to insert default restaurant: %w", err)
-		}
-
-		// Insert initial dish "feijao"
-		_, err = a.DB.Exec("INSERT INTO dishes (restaurant_slug, name, price) VALUES ($1, $2, $3)", slug, "feijao", 10.00)
-		if err != nil {
-			return fmt.Errorf("failed to insert default dish: %w", err)
-		}
-		return nil
-	}
-
-	a.memMu.Lock()
-	defer a.memMu.Unlock()
-
-	// Clear if existing
-	delete(a.memRestaurants, slug)
-	for id, d := range a.memDishes {
-		if d.RestaurantSlug == slug {
-			delete(a.memDishes, id)
-		}
-	}
-
-	// Insert restaurant
-	a.memRestaurants[slug] = Restaurant{
+	_ = a.Restaurants.Delete(ctx, slug)
+	if err := a.Restaurants.Create(ctx, &Restaurant{
 		Slug:        slug,
 		Name:        name,
 		Description: desc,
+	}); err != nil {
+		return fmt.Errorf("failed to insert default restaurant: %w", err)
 	}
 
-	// Insert dish "feijao"
-	a.dishIDCounter++
-	a.memDishes[a.dishIDCounter] = Dish{
-		ID:             a.dishIDCounter,
-		RestaurantSlug: slug,
-		Name:           "feijao",
-		Price:          10.00,
+	if _, err := a.Dishes.Create(ctx, slug, CreateDishRequest{
+		Name:  "feijao",
+		Price: 10.00,
+	}); err != nil {
+		return fmt.Errorf("failed to insert default dish: %w", err)
 	}
 
 	return nil
@@ -136,22 +104,21 @@ func (a *App) SeedDefaultRestaurant() error {
 
 // RegisterRoutes registers all routes for both "/" and "/api/" prefixes for maximum flexibility.
 func (a *App) RegisterRoutes(mux *http.ServeMux) {
-	prefixes := []string{"", "/api"}
+	// prefixes := []string{, "/api/r"}
+	var p=  "/api/r"
 
-	for _, p := range prefixes {
-		// Restaurants
-		mux.HandleFunc(fmt.Sprintf("GET %s/restaurants", p), a.handleListRestaurants)
-		mux.HandleFunc(fmt.Sprintf("POST %s/restaurants", p), a.handleCreateRestaurant)
-		mux.HandleFunc(fmt.Sprintf("GET %s/restaurants/{slug}", p), a.handleGetRestaurant)
-		mux.HandleFunc(fmt.Sprintf("PUT %s/restaurants/{slug}", p), a.handleUpdateRestaurant)
-		mux.HandleFunc(fmt.Sprintf("DELETE %s/restaurants/{slug}", p), a.handleDeleteRestaurant)
+	// Restaurants
+	mux.HandleFunc(fmt.Sprintf("GET %s/", p), a.handleListRestaurants)
+	mux.HandleFunc(fmt.Sprintf("POST %s/", p), a.handleCreateRestaurant)
+	mux.HandleFunc(fmt.Sprintf("GET %s/{slug}", p), a.handleGetRestaurant)
+	mux.HandleFunc(fmt.Sprintf("PUT %s/{slug}", p), a.handleUpdateRestaurant)
+	mux.HandleFunc(fmt.Sprintf("DELETE %s/{slug}", p), a.handleDeleteRestaurant)
 
-		// Dishes
-		mux.HandleFunc(fmt.Sprintf("GET %s/restaurants/{slug}/dishes", p), a.handleListDishes)
-		mux.HandleFunc(fmt.Sprintf("POST %s/restaurants/{slug}/dishes", p), a.handleCreateDish)
-		mux.HandleFunc(fmt.Sprintf("PUT %s/restaurants/{slug}/dishes/{id}", p), a.handleUpdateDish)
-		mux.HandleFunc(fmt.Sprintf("DELETE %s/restaurants/{slug}/dishes/{id}", p), a.handleDeleteDish)
-	}
+	// Dishes
+	mux.HandleFunc(fmt.Sprintf("GET %s/{slug}/dishes", p), a.handleListDishes)
+	mux.HandleFunc(fmt.Sprintf("POST %s/{slug}/dishes", p), a.handleCreateDish)
+	mux.HandleFunc(fmt.Sprintf("PUT %s/{slug}/dishes/{id}", p), a.handleUpdateDish)
+	mux.HandleFunc(fmt.Sprintf("DELETE %s/{slug}/dishes/{id}", p), a.handleDeleteDish)
 }
 
 // ---------------- RESTAURANTS HANDLERS ----------------
@@ -159,43 +126,13 @@ func (a *App) RegisterRoutes(mux *http.ServeMux) {
 func (a *App) handleListRestaurants(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if a.Restaurants != nil {
-		list, err := a.Restaurants.List(r.Context())
-		if err != nil {
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		if list == nil {
-			list = make([]Restaurant, 0)
-		}
-		_ = json.NewEncoder(w).Encode(list)
+	list, err := a.Restaurants.List(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
 		return
 	}
-
-	if a.DB != nil {
-		rows, err := a.DB.QueryContext(r.Context(), "SELECT slug, name, COALESCE(description, '') FROM restaurants")
-		if err != nil {
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-
-		list := make([]Restaurant, 0)
-		for rows.Next() {
-			var res Restaurant
-			if err := rows.Scan(&res.Slug, &res.Name, &res.Description); err == nil {
-				list = append(list, res)
-			}
-		}
-		_ = json.NewEncoder(w).Encode(list)
-		return
-	}
-
-	a.memMu.RLock()
-	defer a.memMu.RUnlock()
-	list := make([]Restaurant, 0, len(a.memRestaurants))
-	for _, res := range a.memRestaurants {
-		list = append(list, res)
+	if list == nil {
+		list = make([]Restaurant, 0)
 	}
 	_ = json.NewEncoder(w).Encode(list)
 }
@@ -229,47 +166,14 @@ func (a *App) handleCreateRestaurant(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 	}
 
-	if a.Restaurants != nil {
-		if err := a.Restaurants.Create(r.Context(), &restaurant); err != nil {
-			if errors.Is(err, ErrConflict) {
-				w.WriteHeader(http.StatusConflict)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant with this slug already exists"})
-				return
-			}
-			http.Error(w, `{"error":"failed to create restaurant"}`, http.StatusInternalServerError)
+	if err := a.Restaurants.Create(r.Context(), &restaurant); err != nil {
+		if errors.Is(err, ErrConflict) {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant with this slug already exists"})
 			return
 		}
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(restaurant)
+		http.Error(w, `{"error":"failed to create restaurant"}`, http.StatusInternalServerError)
 		return
-	}
-
-	if a.DB != nil {
-		var existing string
-		err := a.DB.QueryRowContext(r.Context(), "SELECT slug FROM restaurants WHERE slug = $1", slug).Scan(&existing)
-		if err == nil {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant with this slug already exists"})
-			return
-		}
-
-		_, err = a.DB.ExecContext(r.Context(),
-			"INSERT INTO restaurants (slug, name, description) VALUES ($1, $2, $3)",
-			restaurant.Slug, restaurant.Name, restaurant.Description,
-		)
-		if err != nil {
-			http.Error(w, `{"error":"failed to create restaurant"}`, http.StatusInternalServerError)
-			return
-		}
-	} else {
-		a.memMu.Lock()
-		defer a.memMu.Unlock()
-		if _, exists := a.memRestaurants[slug]; exists {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant with this slug already exists"})
-			return
-		}
-		a.memRestaurants[slug] = restaurant
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -280,35 +184,8 @@ func (a *App) handleGetRestaurant(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	slug := strings.ToLower(r.PathValue("slug"))
 
-	if a.Restaurants != nil {
-		res, err := a.Restaurants.GetBySlug(r.Context(), slug)
-		if err != nil {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(res)
-		return
-	}
-
-	if a.DB != nil {
-		var res Restaurant
-		err := a.DB.QueryRowContext(r.Context(),
-			"SELECT slug, name, COALESCE(description, '') FROM restaurants WHERE slug = $1", slug,
-		).Scan(&res.Slug, &res.Name, &res.Description)
-		if err != nil {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(res)
-		return
-	}
-
-	a.memMu.RLock()
-	defer a.memMu.RUnlock()
-	res, exists := a.memRestaurants[slug]
-	if !exists {
+	res, err := a.Restaurants.GetBySlug(r.Context(), slug)
+	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
 		return
@@ -327,105 +204,31 @@ func (a *App) handleUpdateRestaurant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.Restaurants != nil {
-		updated, err := a.Restaurants.Update(r.Context(), slug, req)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-				return
-			}
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(updated)
-		return
-	}
-
-	if a.DB != nil {
-		res, err := a.DB.ExecContext(r.Context(),
-			"UPDATE restaurants SET name = $1, description = $2 WHERE slug = $3",
-			req.Name, req.Description, slug,
-		)
-		if err != nil {
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		rows, _ := res.RowsAffected()
-		if rows == 0 {
+	updated, err := a.Restaurants.Update(r.Context(), slug, req)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
 			return
 		}
-
-		_ = json.NewEncoder(w).Encode(Restaurant{Slug: slug, Name: req.Name, Description: req.Description})
+		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
 		return
 	}
-
-	a.memMu.Lock()
-	defer a.memMu.Unlock()
-	res, exists := a.memRestaurants[slug]
-	if !exists {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-		return
-	}
-	if req.Name != "" {
-		res.Name = req.Name
-	}
-	res.Description = req.Description
-	a.memRestaurants[slug] = res
-
-	_ = json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(updated)
 }
 
 func (a *App) handleDeleteRestaurant(w http.ResponseWriter, r *http.Request) {
 	slug := strings.ToLower(r.PathValue("slug"))
 
-	if a.Restaurants != nil {
-		err := a.Restaurants.Delete(r.Context(), slug)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-				return
-			}
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if a.DB != nil {
-		res, err := a.DB.ExecContext(r.Context(), "DELETE FROM restaurants WHERE slug = $1", slug)
-		if err != nil {
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		rows, _ := res.RowsAffected()
-		if rows == 0 {
+	err := a.Restaurants.Delete(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
 		return
-	}
-
-	a.memMu.Lock()
-	defer a.memMu.Unlock()
-	if _, exists := a.memRestaurants[slug]; !exists {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-		return
-	}
-
-	delete(a.memRestaurants, slug)
-	for id, dish := range a.memDishes {
-		if dish.RestaurantSlug == slug {
-			delete(a.memDishes, id)
-		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -436,67 +239,18 @@ func (a *App) handleListDishes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	slug := strings.ToLower(r.PathValue("slug"))
 
-	if a.Dishes != nil {
-		dishes, err := a.Dishes.ListByRestaurant(r.Context(), slug)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-				return
-			}
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		if dishes == nil {
-			dishes = make([]Dish, 0)
-		}
-		_ = json.NewEncoder(w).Encode(dishes)
-		return
-	}
-
-	if a.DB != nil {
-		// Verify restaurant exists
-		var dummy string
-		if err := a.DB.QueryRowContext(r.Context(), "SELECT slug FROM restaurants WHERE slug = $1", slug).Scan(&dummy); err != nil {
+	dishes, err := a.Dishes.ListByRestaurant(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
 			return
 		}
-
-		rows, err := a.DB.QueryContext(r.Context(),
-			"SELECT id, name, price FROM dishes WHERE restaurant_slug = $1 ORDER BY id ASC", slug,
-		)
-		if err != nil {
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-
-		dishes := make([]Dish, 0)
-		for rows.Next() {
-			var d Dish
-			if err := rows.Scan(&d.ID, &d.Name, &d.Price); err == nil {
-				d.RestaurantSlug = slug
-				dishes = append(dishes, d)
-			}
-		}
-		_ = json.NewEncoder(w).Encode(dishes)
+		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
 		return
 	}
-
-	a.memMu.RLock()
-	defer a.memMu.RUnlock()
-	if _, exists := a.memRestaurants[slug]; !exists {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-		return
-	}
-
-	dishes := make([]Dish, 0)
-	for _, d := range a.memDishes {
-		if d.RestaurantSlug == slug {
-			dishes = append(dishes, d)
-		}
+	if dishes == nil {
+		dishes = make([]Dish, 0)
 	}
 	_ = json.NewEncoder(w).Encode(dishes)
 }
@@ -518,63 +272,16 @@ func (a *App) handleCreateDish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.Dishes != nil {
-		dish, err := a.Dishes.Create(r.Context(), slug, req)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-				return
-			}
-			http.Error(w, `{"error":"failed to create dish"}`, http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(dish)
-		return
-	}
-
-	if a.DB != nil {
-		var dummy string
-		if err := a.DB.QueryRowContext(r.Context(), "SELECT slug FROM restaurants WHERE slug = $1", slug).Scan(&dummy); err != nil {
+	dish, err := a.Dishes.Create(r.Context(), slug, req)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
 			return
 		}
-
-		var newID int
-		err := a.DB.QueryRowContext(r.Context(),
-			"INSERT INTO dishes (restaurant_slug, name, price) VALUES ($1, $2, $3) RETURNING id",
-			slug, req.Name, req.Price,
-		).Scan(&newID)
-		if err != nil {
-			http.Error(w, `{"error":"failed to create dish"}`, http.StatusInternalServerError)
-			return
-		}
-
-		dish := Dish{ID: newID, RestaurantSlug: slug, Name: req.Name, Price: req.Price}
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(dish)
+		http.Error(w, `{"error":"failed to create dish"}`, http.StatusInternalServerError)
 		return
 	}
-
-	a.memMu.Lock()
-	defer a.memMu.Unlock()
-	if _, exists := a.memRestaurants[slug]; !exists {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "restaurant not found"})
-		return
-	}
-
-	a.dishIDCounter++
-	dish := Dish{
-		ID:             a.dishIDCounter,
-		RestaurantSlug: slug,
-		Name:           req.Name,
-		Price:          req.Price,
-	}
-	a.memDishes[dish.ID] = dish
-
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(dish)
 }
@@ -597,58 +304,16 @@ func (a *App) handleUpdateDish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.Dishes != nil {
-		dish, err := a.Dishes.Update(r.Context(), slug, id, req)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
-				return
-			}
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(dish)
-		return
-	}
-
-	if a.DB != nil {
-		res, err := a.DB.ExecContext(r.Context(),
-			"UPDATE dishes SET name = $1, price = $2 WHERE id = $3 AND restaurant_slug = $4",
-			req.Name, req.Price, id, slug,
-		)
-		if err != nil {
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		rows, _ := res.RowsAffected()
-		if rows == 0 {
+	dish, err := a.Dishes.Update(r.Context(), slug, id, req)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
 			return
 		}
-
-		_ = json.NewEncoder(w).Encode(Dish{ID: id, RestaurantSlug: slug, Name: req.Name, Price: req.Price})
+		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
 		return
 	}
-
-	a.memMu.Lock()
-	defer a.memMu.Unlock()
-	dish, exists := a.memDishes[id]
-	if !exists || dish.RestaurantSlug != slug {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
-		return
-	}
-
-	if req.Name != "" {
-		dish.Name = req.Name
-	}
-	if req.Price >= 0 {
-		dish.Price = req.Price
-	}
-	a.memDishes[id] = dish
-
 	_ = json.NewEncoder(w).Encode(dish)
 }
 
@@ -662,48 +327,15 @@ func (a *App) handleDeleteDish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.Dishes != nil {
-		err := a.Dishes.Delete(r.Context(), slug, id)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
-				return
-			}
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if a.DB != nil {
-		res, err := a.DB.ExecContext(r.Context(),
-			"DELETE FROM dishes WHERE id = $1 AND restaurant_slug = $2", id, slug,
-		)
-		if err != nil {
-			http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
-			return
-		}
-		rows, _ := res.RowsAffected()
-		if rows == 0 {
+	err = a.Dishes.Delete(r.Context(), slug, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		http.Error(w, `{"error":"database error"}`, http.StatusInternalServerError)
 		return
 	}
-
-	a.memMu.Lock()
-	defer a.memMu.Unlock()
-	dish, exists := a.memDishes[id]
-	if !exists || dish.RestaurantSlug != slug {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "dish not found"})
-		return
-	}
-
-	delete(a.memDishes, id)
 	w.WriteHeader(http.StatusNoContent)
 }
