@@ -20,11 +20,7 @@ type Restaurant struct {
 
 var defaultApp = NewApp(nil)
 
-type CreateRestaurantRequest struct {
-	Name        string `json:"name"`
-	Slug        string `json:"slug"`
-	Description string `json:"description"`
-}
+
 
 func setupRouter(apps ...*App) *http.ServeMux {
 	var app *App

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+
+<html lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Mamma mia Mario - Pratello</title>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#fff5f2',
+              100: '#ffe8e2',
+              500: '#ea580c',
+              600: '#dd4516',
+              700: '#c2380f'
+            },
+            neutral: {
+              850: '#1e2124',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<style data-purpose="custom-scroll-and-fine-tuning">
+    /* Subtle polish for custom borders and scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #ccc;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #999;
+    }
+  </style>
+</head>
+<body class="bg-[#fafaf9] text-gray-800 antialiased min-h-screen flex flex-col font-sans">
+<!-- BEGIN: MainHeader -->
+<header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<!-- Top header row -->
+<div class="flex items-center justify-between h-20 gap-4">
+<!-- Left: Brand Logo & Delivery Address -->
+<div class="flex items-center space-x-8">
+<!-- Brand Logo -->
+<a class="flex items-center gap-2 group text-[#ea4519]" href="#">
+<div class="flex items-center">
+<svg class="w-8 h-8 fill-current text-[#ea4519]" viewbox="0 0 24 24">
+<path d="M11 2a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm-4 0a1 1 0 0 1 1 1v5a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3a1 1 0 1 1 2 0v5a4 4 0 0 1-3 3.874V21a1 1 0 0 1-2 0v-9.126A4 4 0 0 1 6 8V3a1 1 0 0 1 1-1zm10 0a1 1 0 0 1 1 1v6a3 3 0 0 1-2 2.83V21a1 1 0 0 1-2 0v-9.17A3 3 0 0 1 17 9V3a1 1 0 0 1 1-1z"></path>
+</svg>
+<span class="text-2xl font-black tracking-tight text-[#ea4519] ml-1">pratello<span class="text-3xl font-black leading-none">.</span></span>
+</div>
+</a>
+<!-- Location Selector -->
+<button class="hidden md:flex items-center text-left py-1.5 px-3 rounded-xl hover:bg-gray-50 transition border border-transparent hover:border-gray-200">
+<i class="w-4 h-4 text-[#ea4519] mr-2.5 flex-shrink-0" data-lucide="map-pin"></i>
+<div>
+<div class="text-[10px] uppercase font-bold tracking-wider text-gray-400">Entregar para:</div>
+<div class="text-xs font-semibold text-gray-800 flex items-center gap-1">
+                Rua Padre Carapuceiro 1234 , Recife
+                <i class="w-3.5 h-3.5 text-gray-500" data-lucide="chevron-down"></i>
+</div>
+</div>
+</button>
+</div>
+<!-- Center: Search Bar -->
+<div class="flex-1 max-w-lg mx-4 hidden sm:block">
+<div class="relative">
+<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+<i class="w-4 h-4" data-lucide="search"></i>
+</div>
+<input class="w-full pl-10 pr-4 py-2.5 bg-gray-100/80 hover:bg-gray-100 focus:bg-white text-sm border-transparent focus:border-gray-300 rounded-xl focus:ring-0 transition placeholder-gray-400" placeholder="Restaurante, prato ou culinária" type="text"/>
+</div>
+</div>
+<!-- Right: Auth and Cart -->
+<div class="flex items-center gap-4">
+<button class="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-black py-2 px-3 rounded-lg hover:bg-gray-100 transition">
+<i class="w-4 h-4 text-gray-500" data-lucide="user"></i>
+<span>Entrar</span>
+</button>
+<button class="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-black border border-gray-200 px-3.5 py-2 rounded-xl hover:border-gray-300 bg-white transition shadow-sm">
+<i class="w-4 h-4 text-gray-600" data-lucide="shopping-bag"></i>
+<span class="font-bold text-gray-900">0</span>
+</button>
+</div>
+</div>
+<!-- Sub-navigation row -->
+<div class="flex items-center justify-between border-t border-gray-100 text-sm">
+<nav class="flex space-x-8">
+<a class="py-3 font-semibold text-[#ea4519] border-b-2 border-[#ea4519]" href="#">Restaurantes</a>
+<a class="py-3 font-medium text-gray-500 hover:text-gray-900 transition" href="#">Ofertas</a>
+<a class="py-3 font-medium text-gray-500 hover:text-gray-900 transition" href="#">Favoritos</a>
+</nav>
+<div>
+<a class="py-3 text-xs font-medium text-gray-500 hover:text-gray-700 flex items-center gap-1" href="#">
+<i class="w-3.5 h-3.5" data-lucide="help-circle"></i>
+            Precisa de ajuda?
+          </a>
+</div>
+</div>
+</div>
+</header>
+<!-- END: MainHeader -->
+<!-- BEGIN: MainContent -->
+<main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+<!-- Breadcrumb Navigation -->
+<nav class="flex items-center text-xs font-medium text-gray-500 mb-5 gap-2">
+<a class="hover:text-gray-800 transition" href="#">Restaurantes</a>
+<i class="w-3 h-3 text-gray-400" data-lucide="chevron-right"></i>
+<a class="hover:text-gray-800 transition" href="#">Italiana</a>
+<i class="w-3 h-3 text-gray-400" data-lucide="chevron-right"></i>
+<span class="text-gray-900 font-semibold">Mamma mia Mario</span>
+</nav>
+<!-- Hero Image Banner -->
+<div class="relative w-full h-[320px] md:h-[400px] rounded-2xl overflow-hidden shadow-sm mb-6 bg-gray-100">
+<img alt="Interior do Restaurante Mamma mia Mario" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD8i7X0qDoCvkouDq-uUv7UEDtkKSTah3gKO68ElZOQTiDH0KjKi_fyaIcGAqaF7mZ_ZgqueJ6j_U-Z-tt30B1fuhs28n6b5ZhcHjaFmjEgmxSSCJChcNGK27S-R-GsleUn0DChdITkkqd3lz-H6R4XMb81BP7tfPtAvQa2d2wjv4dqHh-zPRTB2cfC81OAkENDitgwJzfayVROlNm2Y_cpClw84FTUl8AaFP--O1M"/>
+<!-- "Ver todas as fotos" Floating Action Button -->
+<button class="absolute bottom-4 right-4 bg-white/95 hover:bg-white text-gray-800 text-xs font-semibold px-4 py-2.5 rounded-xl shadow-md backdrop-blur-sm flex items-center gap-2 transition hover:scale-[1.02]">
+<i class="w-4 h-4 text-gray-600" data-lucide="images"></i>
+<span>Ver todas as fotos</span>
+</button>
+</div>
+<!-- Restaurant Header Card -->
+<section class="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-6">
+<div class="flex items-start gap-4">
+<!-- Badge Avatar -->
+<div class="w-16 h-16 rounded-xl bg-[#faebe6] border border-[#f5d5cc] flex flex-col items-center justify-center text-[#ea4519] flex-shrink-0 shadow-sm">
+<span class="text-xl font-bold tracking-tight">LN</span>
+<span class="text-[9px] uppercase tracking-wider font-semibold opacity-80">EST. 2018</span>
+</div>
+<!-- Details -->
+<div>
+<div class="flex flex-wrap items-center gap-3">
+<h1 class="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">Mamma mia Mario</h1>
+<span class="bg-emerald-50 text-emerald-700 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-emerald-200">
+              Aberto até as 22:00
+            </span>
+</div>
+<p class="text-sm text-gray-500 mt-1 max-w-xl">
+            Um pedacinho de Napoli. Pizza no fogão a lenha, feita com amor atrás do armário.
+          </p>
+<div class="flex items-center text-xs text-gray-600 mt-2 gap-1.5 flex-wrap">
+<span class="flex items-center text-amber-500 font-bold">
+<i class="w-3.5 h-3.5 fill-current mr-1" data-lucide="star"></i>
+              4.9
+            </span>
+<span class="text-gray-500">(324 avaliações)</span>
+<span class="text-gray-300">·</span>
+<span class="text-gray-600">Italiana</span>
+<span class="text-gray-300">·</span>
+<span class="text-gray-600">Pizza</span>
+<span class="text-gray-300">·</span>
+<span class="text-gray-600">R$</span>
+</div>
+</div>
+</div>
+<!-- Action Button -->
+<div>
+<button class="w-full md:w-auto inline-flex items-center justify-center gap-2 border border-gray-200 hover:border-gray-300 bg-white text-gray-700 hover:text-black font-semibold text-xs py-2.5 px-4 rounded-xl shadow-sm transition">
+<i class="w-4 h-4 text-gray-500" data-lucide="heart"></i>
+<span>Favoritar restaurante</span>
+</button>
+</div>
+</section>
+<!-- Quick Info Stats Bar -->
+<div class="bg-white rounded-2xl border border-gray-100 p-4 mb-8 grid grid-cols-2 md:grid-cols-4 gap-4 divide-y md:divide-y-0 md:divide-x divide-gray-100 shadow-sm">
+<!-- Stat 1 -->
+<div class="flex items-center gap-3 px-2 pt-2 md:pt-0">
+<div class="p-2.5 bg-gray-50 text-gray-600 rounded-xl">
+<i class="w-5 h-5" data-lucide="clock"></i>
+</div>
+<div>
+<div class="text-xs font-bold text-gray-900">20–30 min</div>
+<div class="text-[11px] text-gray-500">Prazo da Entrega</div>
+</div>
+</div>
+<!-- Stat 2 -->
+<div class="flex items-center gap-3 px-2 pt-2 md:pt-0">
+<div class="p-2.5 bg-gray-50 text-gray-600 rounded-xl">
+<i class="w-5 h-5" data-lucide="bike"></i>
+</div>
+<div>
+<div class="text-xs font-bold text-gray-900">R$1.99</div>
+<div class="text-[11px] text-gray-500">Frete</div>
+</div>
+</div>
+<!-- Stat 3 -->
+<div class="flex items-center gap-3 px-2 pt-2 md:pt-0">
+<div class="p-2.5 bg-gray-50 text-gray-600 rounded-xl">
+<i class="w-5 h-5" data-lucide="receipt"></i>
+</div>
+<div>
+<div class="text-xs font-bold text-gray-900">R$12.00</div>
+<div class="text-[11px] text-gray-500">Preço mínimo</div>
+</div>
+</div>
+<!-- Stat 4 -->
+<div class="flex items-center gap-3 px-2 pt-2 md:pt-0">
+<div class="p-2.5 bg-gray-50 text-gray-600 rounded-xl">
+<i class="w-5 h-5" data-lucide="navigation"></i>
+</div>
+<div>
+<div class="text-xs font-bold text-gray-900">0.8 km</div>
+<div class="text-[11px] text-gray-500">Do seu endereço</div>
+</div>
+</div>
+</div>
+<!-- Layout Grid: Menu Items vs. Sidebar Cart -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+<!-- BEGIN: MenuSection (Left 2 cols) -->
+<div class="lg:col-span-2">
+<!-- Category Navigation & Search -->
+<div class="border-b border-gray-200 flex items-center justify-between pb-1 mb-8 overflow-x-auto">
+<div class="flex gap-6 whitespace-nowrap">
+<button class="text-xs font-bold text-[#ea4519] border-b-2 border-[#ea4519] pb-3 -mb-[1px]">Mais Pedidos</button>
+<button class="text-xs font-medium text-gray-500 hover:text-gray-900 pb-3 transition">Pizzas</button>
+<button class="text-xs font-medium text-gray-500 hover:text-gray-900 pb-3 transition">Acompanhamentos</button>
+<button class="text-xs font-medium text-gray-500 hover:text-gray-900 pb-3 transition">Sobremesas</button>
+<button class="text-xs font-medium text-gray-500 hover:text-gray-900 pb-3 transition">Bebidas</button>
+</div>
+<button class="text-gray-400 hover:text-gray-600 p-1 mb-2">
+<i class="w-4 h-4" data-lucide="search"></i>
+</button>
+</div>
+<!-- Section Title -->
+<div class="mb-6">
+<h2 class="text-xl font-bold text-gray-900">Mais pedidos</h2>
+<p class="text-xs text-gray-500 mt-0.5">Os favoritos da casa. Ótimo para experimentar.</p>
+</div>
+<!-- Food Cards Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Item 1: Margherita -->
+<article class="bg-white rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
+<div class="flex flex-col justify-between flex-1">
+<div>
+<span class="inline-block text-[9px] font-bold tracking-wide uppercase text-red-600 bg-red-50 px-1.5 py-0.5 rounded mb-1">MOST LOVED</span>
+<h3 class="font-bold text-sm text-gray-900 group-hover:text-[#ea4519] transition">Margherita</h3>
+<p class="text-xs text-gray-500 line-clamp-2 mt-1">San Marzano tomato, fior di latte mozzarella, fresh basil.</p>
+</div>
+<div class="font-bold text-sm text-gray-900 mt-4">$16.00</div>
+</div>
+<div class="relative w-28 h-28 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100">
+<img alt="Margherita" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCb-eU4XxPHWKrxNYHn7-TPGZZiDJ7J43_wyHW35GGvB4ZYni8tfx_WXwM5FpIXR5sPzrKxs7IsbzM8We9VCULm7jAj3tnmjxGjgDsOIjDnBTMIWNwM3hGed30aeoT2VhHS9PkWMmiaJALNAfdW7EcUR2jaBsZXviPHVg-BLQ_Yf-JaqHsdxRAb3o6FWddiPqt9vxwkUpiL3darOkhD4kKfXX9-ff_dhL3G24HQmLw"/>
+<button class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-[#ea4519] hover:text-white transition">
+<i class="w-4 h-4" data-lucide="plus"></i>
+</button>
+</div>
+</article>
+<!-- Item 2: Spicy Diavola -->
+<article class="bg-white rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
+<div class="flex flex-col justify-between flex-1">
+<div>
+<span class="inline-block text-[9px] font-bold tracking-wide uppercase text-red-600 bg-red-50 px-1.5 py-0.5 rounded mb-1">MOST LOVED</span>
+<h3 class="font-bold text-sm text-gray-900 group-hover:text-[#ea4519] transition">Spicy Diavola</h3>
+<p class="text-xs text-gray-500 line-clamp-2 mt-1">Spicy salami, mozzarella, tomato and a drizzle of chili honey.</p>
+</div>
+<div class="font-bold text-sm text-gray-900 mt-4">$19.00</div>
+</div>
+<div class="relative w-28 h-28 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100">
+<img alt="Spicy Diavola" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCTmOctI0RewSPwuz-BWjt1KjY06cnghRQd_5aD3yZ1mdACQ5v5UPrVcEaIeltyls3yjVEikrahYf-2fyZK4fwkm_VkaoGT7Rf2YHIePG4HfGnJJBV-j7xf-amYSPa3IDHVXFqKEhwbdbJomOR_fOEgiJJV31ru_FWjl8K31Wfai5rpjXVPa8DMj8HxJ_xQ4WWAwo0ZsO10gZXIHGP9fjCJZqNz6-vn7YPrM4fqcM8"/>
+<button class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-[#ea4519] hover:text-white transition">
+<i class="w-4 h-4" data-lucide="plus"></i>
+</button>
+</div>
+</article>
+<!-- Item 3: Burrata & tomatoes -->
+<article class="bg-white rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
+<div class="flex flex-col justify-between flex-1">
+<div>
+<h3 class="font-bold text-sm text-gray-900 group-hover:text-[#ea4519] transition">Burrata &amp; tomatoes</h3>
+<p class="text-xs text-gray-500 line-clamp-2 mt-1">Creamy burrata, heirloom tomatoes, basil and extra virgin olive oil.</p>
+</div>
+<div class="font-bold text-sm text-gray-900 mt-4">$14.00</div>
+</div>
+<div class="relative w-28 h-28 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100">
+<img alt="Burrata &amp; tomatoes" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBFETatsb6xiRzdMPM-1wMApk2RxLzpPFaJRKZ7yhdMVwciJo0Y53nDdCJM2yXu6qiqF4MZhPHNMAMwt_xVzRCnp2QM2M1YnoXM0bZks8dQ9-rrvPxY2LrYt1WwMYvUKvwgdw4FMn-O9G0clEClprlRhqIKNsE95Xpbulp8jfHSz4g_3Snl6Isi9kNw_rLR0ZtjJf8FsS4esS6B-XfCxNztdT6WBZKjFfkPHG95JYM"/>
+<button class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-[#ea4519] hover:text-white transition">
+<i class="w-4 h-4" data-lucide="plus"></i>
+</button>
+</div>
+</article>
+<!-- Item 4: Truffle Mushroom -->
+<article class="bg-white rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
+<div class="flex flex-col justify-between flex-1">
+<div>
+<h3 class="font-bold text-sm text-gray-900 group-hover:text-[#ea4519] transition">Truffle Mushroom</h3>
+<p class="text-xs text-gray-500 line-clamp-2 mt-1">Roasted mushrooms, mozzarella, truffle cream and thyme.</p>
+</div>
+<div class="font-bold text-sm text-gray-900 mt-4">$21.00</div>
+</div>
+<div class="relative w-28 h-28 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100">
+<img alt="Truffle Mushroom" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBgr4efN2zG2j5YdM4zBLIxePdIXevZq6BqNr273gvcuro9rXupd5oJaumsiQdZWIvLQAmvRpgdx85dyQqVn8PN50wzujrML8REWF96ZjCmsthj7QUrn4MIxisp7MMuSBQQWOL5JS2acb1mKF5rvuynj0qTiF1D1OVrpJeosxBLpnkKe8AcjAZssWraaTd70DXGmAVWrAFsiTR7auZsTqpJEMGzhk200QXJv4B2Tm4"/>
+<button class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-[#ea4519] hover:text-white transition">
+<i class="w-4 h-4" data-lucide="plus"></i>
+</button>
+</div>
+</article>
+<!-- Item 5: Crispy Arancini -->
+<article class="bg-white rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
+<div class="flex flex-col justify-between flex-1">
+<div>
+<h3 class="font-bold text-sm text-gray-900 group-hover:text-[#ea4519] transition">Crispy Arancini</h3>
+<p class="text-xs text-gray-500 line-clamp-2 mt-1">Three golden risotto bites with mozzarella and house marinara.</p>
+</div>
+<div class="font-bold text-sm text-gray-900 mt-4">$10.00</div>
+</div>
+<div class="relative w-28 h-28 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100">
+<img alt="Crispy Arancini" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA5M0wIG0STOjSlXO8KlzmDCmlJk4xNYmBVlb1wvHwjQJFOfHQgHgrQozsShpiTvjfx5PqIGqXPLqhqREqBdMQ4Ktm3b3114QqfxXvZgmUDYHb5MwXTkGITtp4VAbzXXk5iC-35fcFlWQLN6aXYpBkVXFEOnk0qjHsMpvoKmMuBIfamWVh_TRVW2Za1bLx8yrQ_P7tsPN3J_Xrw2VO8vjLn4ePchVL8DLJec2zaVj4"/>
+<button class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-[#ea4519] hover:text-white transition">
+<i class="w-4 h-4" data-lucide="plus"></i>
+</button>
+</div>
+</article>
+<!-- Item 6: Classic Tiramisù -->
+<article class="bg-white rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
+<div class="flex flex-col justify-between flex-1">
+<div>
+<h3 class="font-bold text-sm text-gray-900 group-hover:text-[#ea4519] transition">Classic Tiramisù</h3>
+<p class="text-xs text-gray-500 line-clamp-2 mt-1">Espresso-soaked ladyfingers, mascarpone and a dusting of cocoa.</p>
+</div>
+<div class="font-bold text-sm text-gray-900 mt-4">$8.00</div>
+</div>
+<div class="relative w-28 h-28 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100">
+<img alt="Classic Tiramisù" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBEYrCpYgj2C2Uwt4Cs1myULdkmW_Rmh2yKrUw-_k7-tBFNS4Fl_ARM5OFNEprKyTnd0noJEtBjX9mgUNa0Macr0jt4Ci7iC1M5kWVCBq4FYwJ3xSPfa1EakfWraqlc5JYjtVCGDQ10swEnhKggEKkqycFOr_8zVWj8LyQjsToN4o6mkW_i70woK-300ZoysMTwFxVSaypKBjVx1LGMzmPMVv3JjPTFSd43fVUkm1M"/>
+<button class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-[#ea4519] hover:text-white transition">
+<i class="w-4 h-4" data-lucide="plus"></i>
+</button>
+</div>
+</article>
+</div>
+<!-- Bottom Dietary / Allergy Notice -->
+<div class="mt-8 flex items-center gap-2 text-xs text-gray-400">
+<i class="w-4 h-4 flex-shrink-0" data-lucide="info"></i>
+<p>Allergies or dietary needs? Please call the restaurant at (415) 555-0148.</p>
+</div>
+</div>
+<!-- END: MenuSection -->
+<!-- BEGIN: Sidebar (Right 1 col) -->
+<aside class="space-y-6 lg:sticky lg:top-28">
+<!-- Cart Box -->
+<div class="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+<h2 class="text-lg font-bold text-gray-900 mb-4">Seu Pedido</h2>
+<!-- Delivery / Pickup Toggle -->
+<div class="grid grid-cols-2 p-1 bg-gray-100/90 rounded-xl mb-6">
+<button class="py-1.5 text-xs font-semibold rounded-lg bg-white text-[#ea4519] shadow-sm transition">
+              Entrega
+            </button>
+<button class="py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-800 transition">
+              Pickup
+            </button>
+</div>
+<!-- Empty Cart State -->
+<div class="text-center py-6 px-4">
+<div class="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-3 text-gray-400 border border-gray-100">
+<i class="w-5 h-5" data-lucide="shopping-bag"></i>
+</div>
+<h3 class="text-sm font-bold text-gray-800 mb-1">Algo delicioso te espera</h3>
+<p class="text-xs text-gray-400 max-w-xs mx-auto">
+              Adicione seus favoritos do cardápio e nós cuidamos do resto.
+            </p>
+</div>
+<!-- Disabled minimum checkout button -->
+<div class="mt-4 pt-4 border-t border-gray-100">
+<button class="w-full py-3 bg-gray-100 text-gray-400 font-semibold text-xs rounded-xl cursor-not-allowed text-center transition" disabled="">
+              Mínimo R$12 para entrega
+            </button>
+</div>
+</div>
+<!-- Location Box -->
+<div class="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+<h3 class="text-sm font-bold text-gray-900 mb-3">Logo na esquina</h3>
+<!-- Schematic Street Map Preview -->
+<div class="relative w-full h-36 bg-[#edece8] rounded-xl overflow-hidden mb-3 border border-gray-200 flex items-center justify-center">
+<!-- Map Road Grid Illustration -->
+<div class="absolute inset-0 p-2 grid grid-cols-3 gap-2">
+<div class="bg-[#e4e2dd] rounded"></div>
+<div class="bg-[#e4e2dd] rounded relative">
+<span class="absolute top-1 left-1/2 -translate-x-1/2 text-[8px] font-bold text-gray-400 tracking-wider">18TH ST</span>
+</div>
+<div class="bg-[#e4e2dd] rounded"></div>
+<div class="bg-[#e4e2dd] rounded"></div>
+<div class="bg-[#dad7d0] rounded flex items-center justify-center">
+<!-- Location Pin Marker -->
+<div class="w-8 h-8 rounded-full bg-[#ea4519] flex items-center justify-center shadow-lg border-2 border-white">
+<i class="w-4 h-4 text-white" data-lucide="utensils"></i>
+</div>
+</div>
+<div class="bg-[#e4e2dd] rounded"></div>
+<div class="bg-[#e4e2dd] rounded"></div>
+<div class="bg-[#e4e2dd] rounded relative">
+<span class="absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] font-bold text-gray-400 tracking-wider">VALENCIA ST</span>
+</div>
+<div class="bg-[#e4e2dd] rounded"></div>
+</div>
+</div>
+<!-- Location Info -->
+<div>
+<div class="text-xs font-bold text-gray-900">746 Valencia St, San Francisco, CA</div>
+<div class="text-[11px] text-gray-500 mt-0.5">Mission District · 0.8 km away</div>
+<a class="inline-flex items-center gap-1 text-xs font-bold text-[#ea4519] hover:underline mt-3" href="#">
+<span>Obter rotas</span>
+<i class="w-3.5 h-3.5" data-lucide="arrow-up-right"></i>
+</a>
+</div>
+</div>
+</aside>
+<!-- END: Sidebar -->
+</div>
+</main>
+<!-- END: MainContent -->
+<!-- BEGIN: Footer -->
+<footer class="bg-white border-t border-gray-200 mt-16 py-8">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
+<!-- Brand & Tagline -->
+<div class="flex items-center gap-4">
+<a class="flex items-center gap-2 group text-[#ea4519]" href="#">
+<svg class="w-6 h-6 fill-current text-[#ea4519]" viewbox="0 0 24 24">
+<path d="M11 2a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm-4 0a1 1 0 0 1 1 1v5a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3a1 1 0 1 1 2 0v5a4 4 0 0 1-3 3.874V21a1 1 0 0 1-2 0v-9.126A4 4 0 0 1 6 8V3a1 1 0 0 1 1-1zm10 0a1 1 0 0 1 1 1v6a3 3 0 0 1-2 2.83V21a1 1 0 0 1-2 0v-9.17A3 3 0 0 1 17 9V3a1 1 0 0 1 1-1z"></path>
+</svg>
+<span class="text-xl font-black tracking-tight text-[#ea4519]">pratello<span class="text-2xl font-black">.</span></span>
+</a>
+<span class="hidden sm:inline text-xs text-gray-400">|</span>
+<span class="text-xs text-gray-500 font-medium">Comida boa. Do lado da sua casa.</span>
+</div>
+<!-- Footer Navigation Links -->
+<div class="flex flex-wrap items-center gap-6 text-xs text-gray-500">
+<a class="hover:text-gray-900 transition" href="#">Sobre nós</a>
+<a class="hover:text-gray-900 transition" href="#">Ajuda</a>
+<a class="hover:text-gray-900 transition" href="#">Privacidade</a>
+<a class="hover:text-gray-900 transition" href="#">Termos</a>
+<span class="text-gray-400">© 2026 Pratello</span>
+</div>
+</div>
+</footer>
+<!-- END: Footer -->
+<!-- Initialize Lucide Icons -->
+<script data-purpose="icon-initialization">
+    lucide.createIcons();
+  </script>
+</body></html>
