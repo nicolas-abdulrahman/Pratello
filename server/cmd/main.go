@@ -11,11 +11,23 @@ import (
 )
 
 type Restaurant struct {
-	Slug        string   `json:"slug"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Cuisine     string   `json:"cuisine,omitempty"`
-	MenuItems   []string `json:"menu_items,omitempty"`
+	Slug         string   `json:"slug"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Cuisine      string   `json:"cuisine,omitempty"`
+	IsOpen       bool     `json:"isOpen"`
+	OpenTime     string   `json:"openTime,omitempty"`
+	ClosingTime  string   `json:"closingTime,omitempty"`
+	Rating       float64  `json:"rating"`
+	ReviewsCount int      `json:"reviewsCount"`
+	DeliveryFee  float64  `json:"deliveryFee"`
+	CEP          string   `json:"CEP,omitempty"`
+	DeliveryTime string   `json:"deliveryTime,omitempty"`
+	Neighborhood string   `json:"neighborhood,omitempty"`
+	Phone        string   `json:"phone,omitempty"`
+	BannerURL    string   `json:"bannerUrl,omitempty"`
+	LogoURL      string   `json:"logoUrl,omitempty"`
+	MenuItems    []string `json:"menu_items,omitempty"`
 }
 
 var defaultApp = NewApp(nil)

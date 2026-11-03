@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 var (
@@ -30,13 +31,21 @@ type UpdateRestaurantInput struct {
 type NewDish struct {
 	RestaurantSlug string
 	Name           string
+	Description    string
+	Category       string
+	Tags           []string
 	Price          float64
+	ImageURL       string
 }
 
 // UpdateDishInput holds the fields for modifying a dish.
 type UpdateDishInput struct {
-	Name  string
-	Price float64
+	Name        string
+	Description string
+	Category    string
+	Tags        []string
+	Price       float64
+	ImageURL    string
 }
 
 // RestaurantStore defines the contract for restaurant data persistence.
@@ -54,6 +63,7 @@ type DishStore interface {
 	Create(ctx context.Context, input NewDish) (*Dish, error)
 	Update(ctx context.Context, restaurantSlug string, dishID int, input UpdateDishInput) (*Dish, error)
 	Delete(ctx context.Context, restaurantSlug string, dishID int) error
+	UpdateImage(ctx context.Context, restaurantSlug string, dishID int, imageURL string) (*Dish, error)
 }
 
 // SQLRestaurantStore implements RestaurantStore backed by a SQL database.
@@ -66,7 +76,15 @@ func NewSQLRestaurantStore(db *sql.DB) *SQLRestaurantStore {
 }
 
 func (s *SQLRestaurantStore) List(ctx context.Context) ([]Restaurant, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT slug, name, COALESCE(description, '') FROM restaurants")
+	query := `
+		SELECT slug, name, COALESCE(description, ''), COALESCE(cuisine, ''),
+		       COALESCE(is_open, true), COALESCE(open_time, '07:00'), COALESCE(closing_time, '22:00'),
+		       COALESCE(rating, 5.0), COALESCE(reviews_count, 0), COALESCE(delivery_fee, 0.0),
+		       COALESCE(cep, ''), COALESCE(delivery_time, '20–30 min'), COALESCE(neighborhood, ''),
+		       COALESCE(phone, ''), COALESCE(banner_url, ''), COALESCE(logo_url, '')
+		FROM restaurants
+	`
+	rows, err := s.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +93,13 @@ func (s *SQLRestaurantStore) List(ctx context.Context) ([]Restaurant, error) {
 	var result []Restaurant
 	for rows.Next() {
 		var r Restaurant
-		if err := rows.Scan(&r.Slug, &r.Name, &r.Description); err != nil {
+		if err := rows.Scan(
+			&r.Slug, &r.Name, &r.Description, &r.Cuisine,
+			&r.IsOpen, &r.OpenTime, &r.ClosingTime,
+			&r.Rating, &r.ReviewsCount, &r.DeliveryFee,
+			&r.CEP, &r.DeliveryTime, &r.Neighborhood,
+			&r.Phone, &r.BannerURL, &r.LogoURL,
+		); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -85,10 +109,21 @@ func (s *SQLRestaurantStore) List(ctx context.Context) ([]Restaurant, error) {
 
 func (s *SQLRestaurantStore) GetBySlug(ctx context.Context, slug string) (*Restaurant, error) {
 	var r Restaurant
-	err := s.DB.QueryRowContext(ctx,
-		"SELECT slug, name, COALESCE(description, '') FROM restaurants WHERE slug = $1",
-		slug,
-	).Scan(&r.Slug, &r.Name, &r.Description)
+	query := `
+		SELECT slug, name, COALESCE(description, ''), COALESCE(cuisine, ''),
+		       COALESCE(is_open, true), COALESCE(open_time, '07:00'), COALESCE(closing_time, '22:00'),
+		       COALESCE(rating, 5.0), COALESCE(reviews_count, 0), COALESCE(delivery_fee, 0.0),
+		       COALESCE(cep, ''), COALESCE(delivery_time, '20–30 min'), COALESCE(neighborhood, ''),
+		       COALESCE(phone, ''), COALESCE(banner_url, ''), COALESCE(logo_url, '')
+		FROM restaurants WHERE slug = $1
+	`
+	err := s.DB.QueryRowContext(ctx, query, slug).Scan(
+		&r.Slug, &r.Name, &r.Description, &r.Cuisine,
+		&r.IsOpen, &r.OpenTime, &r.ClosingTime,
+		&r.Rating, &r.ReviewsCount, &r.DeliveryFee,
+		&r.CEP, &r.DeliveryTime, &r.Neighborhood,
+		&r.Phone, &r.BannerURL, &r.LogoURL,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -108,9 +143,21 @@ func (s *SQLRestaurantStore) Create(ctx context.Context, r *Restaurant) error {
 		return err
 	}
 
-	_, err = s.DB.ExecContext(ctx,
-		"INSERT INTO restaurants (slug, name, description) VALUES ($1, $2, $3)",
-		r.Slug, r.Name, r.Description,
+	query := `
+		INSERT INTO restaurants (
+			slug, name, description, cuisine, is_open, open_time, closing_time,
+			rating, reviews_count, delivery_fee, cep, delivery_time, neighborhood,
+			phone, banner_url, logo_url
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7,
+			$8, $9, $10, $11, $12, $13,
+			$14, $15, $16
+		)
+	`
+	_, err = s.DB.ExecContext(ctx, query,
+		r.Slug, r.Name, r.Description, r.Cuisine, r.IsOpen, r.OpenTime, r.ClosingTime,
+		r.Rating, r.ReviewsCount, r.DeliveryFee, r.CEP, r.DeliveryTime, r.Neighborhood,
+		r.Phone, r.BannerURL, r.LogoURL,
 	)
 	return err
 }
@@ -170,10 +217,12 @@ func (s *SQLDishStore) ListByRestaurant(ctx context.Context, restaurantSlug stri
 		return nil, err
 	}
 
-	rows, err := s.DB.QueryContext(ctx,
-		"SELECT id, name, price FROM dishes WHERE restaurant_slug = $1 ORDER BY id",
-		restaurantSlug,
-	)
+	query := `
+		SELECT id, name, COALESCE(description, ''), COALESCE(category, 'Pizzas'),
+		       COALESCE(tags, ''), price, COALESCE(image_url, '')
+		FROM dishes WHERE restaurant_slug = $1 ORDER BY id
+	`
+	rows, err := s.DB.QueryContext(ctx, query, restaurantSlug)
 	if err != nil {
 		return nil, err
 	}
@@ -182,10 +231,16 @@ func (s *SQLDishStore) ListByRestaurant(ctx context.Context, restaurantSlug stri
 	var result []Dish
 	for rows.Next() {
 		var d Dish
-		if err := rows.Scan(&d.ID, &d.Name, &d.Price); err != nil {
+		var tagsStr string
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.Category, &tagsStr, &d.Price, &d.ImageURL); err != nil {
 			return nil, err
 		}
 		d.RestaurantSlug = restaurantSlug
+		if tagsStr != "" {
+			d.Tags = strings.Split(tagsStr, ",")
+		} else {
+			d.Tags = []string{}
+		}
 		result = append(result, d)
 	}
 	return result, rows.Err()
@@ -200,10 +255,19 @@ func (s *SQLDishStore) Create(ctx context.Context, input NewDish) (*Dish, error)
 		return nil, err
 	}
 
+	tagsStr := strings.Join(input.Tags, ",")
+	if input.Category == "" {
+		input.Category = "Pizzas"
+	}
+
+	query := `
+		INSERT INTO dishes (restaurant_slug, name, description, category, tags, price, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
+	`
 	var newID int
-	err := s.DB.QueryRowContext(ctx,
-		"INSERT INTO dishes (restaurant_slug, name, price) VALUES ($1, $2, $3) RETURNING id",
-		input.RestaurantSlug, input.Name, input.Price,
+	err := s.DB.QueryRowContext(ctx, query,
+		input.RestaurantSlug, input.Name, input.Description, input.Category, tagsStr, input.Price, input.ImageURL,
 	).Scan(&newID)
 	if err != nil {
 		return nil, err
@@ -213,14 +277,18 @@ func (s *SQLDishStore) Create(ctx context.Context, input NewDish) (*Dish, error)
 		ID:             newID,
 		RestaurantSlug: input.RestaurantSlug,
 		Name:           input.Name,
+		Description:    input.Description,
+		Category:       input.Category,
+		Tags:           input.Tags,
 		Price:          input.Price,
+		ImageURL:       input.ImageURL,
 	}, nil
 }
 
 func (s *SQLDishStore) Update(ctx context.Context, restaurantSlug string, dishID int, input UpdateDishInput) (*Dish, error) {
 	res, err := s.DB.ExecContext(ctx,
-		"UPDATE dishes SET name = $1, price = $2 WHERE id = $3 AND restaurant_slug = $4",
-		input.Name, input.Price, dishID, restaurantSlug,
+		"UPDATE dishes SET name = $1, price = $2, image_url = CASE WHEN $3 = '' THEN image_url ELSE $3 END WHERE id = $4 AND restaurant_slug = $5",
+		input.Name, input.Price, input.ImageURL, dishID, restaurantSlug,
 	)
 	if err != nil {
 		return nil, err
@@ -233,12 +301,44 @@ func (s *SQLDishStore) Update(ctx context.Context, restaurantSlug string, dishID
 		return nil, ErrNotFound
 	}
 
-	return &Dish{
-		ID:             dishID,
-		RestaurantSlug: restaurantSlug,
-		Name:           input.Name,
-		Price:          input.Price,
-	}, nil
+	var d Dish
+	err = s.DB.QueryRowContext(ctx,
+		"SELECT id, name, price, COALESCE(image_url, '') FROM dishes WHERE id = $1 AND restaurant_slug = $2",
+		dishID, restaurantSlug,
+	).Scan(&d.ID, &d.Name, &d.Price, &d.ImageURL)
+	if err != nil {
+		return nil, err
+	}
+	d.RestaurantSlug = restaurantSlug
+	return &d, nil
+}
+
+func (s *SQLDishStore) UpdateImage(ctx context.Context, restaurantSlug string, dishID int, imageURL string) (*Dish, error) {
+	res, err := s.DB.ExecContext(ctx,
+		"UPDATE dishes SET image_url = $1 WHERE id = $2 AND restaurant_slug = $3",
+		imageURL, dishID, restaurantSlug,
+	)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, ErrNotFound
+	}
+
+	var d Dish
+	err = s.DB.QueryRowContext(ctx,
+		"SELECT id, name, price, COALESCE(image_url, '') FROM dishes WHERE id = $1 AND restaurant_slug = $2",
+		dishID, restaurantSlug,
+	).Scan(&d.ID, &d.Name, &d.Price, &d.ImageURL)
+	if err != nil {
+		return nil, err
+	}
+	d.RestaurantSlug = restaurantSlug
+	return &d, nil
 }
 
 func (s *SQLDishStore) Delete(ctx context.Context, restaurantSlug string, dishID int) error {

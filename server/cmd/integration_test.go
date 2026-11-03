@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -83,6 +86,90 @@ func TestPostgresAddAndReadRestaurant(t *testing.T) {
 		t.Errorf("Unexpected fetched restaurant data from Postgres: %+v", fetched)
 	}
 
+	// 3. Add Dish for the restaurant
+	dishPayload, _ := json.Marshal(map[string]any{
+		"name":  "Pizza Margherita",
+		"price": 45.00,
+	})
+	dishPostReq := httptest.NewRequest(http.MethodPost, "/restaurants/"+slug+"/dishes", bytes.NewReader(dishPayload))
+	dishPostReq.Header.Set("Content-Type", "application/json")
+	dishPostRec := httptest.NewRecorder()
+	router.ServeHTTP(dishPostRec, dishPostReq)
+
+	if dishPostRec.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 Created for adding dish, got %d. Body: %s", dishPostRec.Code, dishPostRec.Body.String())
+	}
+	var createdDish Dish
+	if err := json.NewDecoder(dishPostRec.Body).Decode(&createdDish); err != nil {
+		t.Fatalf("Failed to decode dish response: %v", err)
+	}
+
+	// 4. Upload Image for Dish (POST /restaurants/{slug}/dishes/{id}/image)
+	var bodyBuf bytes.Buffer
+	mw := multipart.NewWriter(&bodyBuf)
+	part, err := mw.CreateFormFile("image", "margherita.png")
+	if err != nil {
+		t.Fatalf("Failed to create multipart form file: %v", err)
+	}
+	fakeImageData := []byte("\x89PNG\r\n\x1a\nfake-png-binary-content")
+	_, _ = part.Write(fakeImageData)
+	_ = mw.Close()
+
+	uploadReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/restaurants/%s/dishes/%v/image", slug, createdDish.ID), &bodyBuf)
+	uploadReq.Header.Set("Content-Type", mw.FormDataContentType())
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+
+	if uploadRec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for image upload, got %d. Body: %s", uploadRec.Code, uploadRec.Body.String())
+	}
+	var dishWithImage Dish
+	if err := json.NewDecoder(uploadRec.Body).Decode(&dishWithImage); err != nil {
+		t.Fatalf("Failed to decode uploaded dish response: %v", err)
+	}
+	if !strings.HasPrefix(dishWithImage.ImageURL, "/media/dishes/") {
+		t.Fatalf("Expected image_url starting with /media/dishes/, got: %s", dishWithImage.ImageURL)
+	}
+
+	// 5. Fetch image statically (GET /media/dishes/...)
+	staticReq := httptest.NewRequest(http.MethodGet, dishWithImage.ImageURL, nil)
+	staticRec := httptest.NewRecorder()
+	router.ServeHTTP(staticRec, staticReq)
+
+	if staticRec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for statically served image, got %d", staticRec.Code)
+	}
+	if !bytes.Equal(staticRec.Body.Bytes(), fakeImageData) {
+		t.Fatalf("Static file content mismatch: expected %q, got %q", fakeImageData, staticRec.Body.Bytes())
+	}
+
+	// 6. Test Restaurant Menu / Page Endpoint (GET /r/{slug})
+	menuReq := httptest.NewRequest(http.MethodGet, "/r/"+slug, nil)
+	menuRec := httptest.NewRecorder()
+	router.ServeHTTP(menuRec, menuReq)
+
+	if menuRec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for GET /r/%s, got %d. Body: %s", slug, menuRec.Code, menuRec.Body.String())
+	}
+	var menuData struct {
+		Restaurant Restaurant `json:"restaurant"`
+		Categories []string   `json:"categories"`
+		Dishes     []Dish     `json:"dishes"`
+	}
+	if err := json.NewDecoder(menuRec.Body).Decode(&menuData); err != nil {
+		t.Fatalf("Failed to decode /r/%s response: %v", slug, err)
+	}
+	if menuData.Restaurant.Slug != slug {
+		t.Errorf("Expected restaurant slug %s, got %s", slug, menuData.Restaurant.Slug)
+	}
+	if len(menuData.Categories) == 0 || menuData.Categories[0] != "Mais Pedidos" {
+		t.Errorf("Expected categories to include 'Mais Pedidos', got %v", menuData.Categories)
+	}
+	if len(menuData.Dishes) == 0 {
+		t.Errorf("Expected at least 1 dish in menu response, got %d", len(menuData.Dishes))
+	}
+
 	// Clean up after test
+	_ = os.Remove("." + dishWithImage.ImageURL)
 	_, _ = db.Exec("DELETE FROM restaurants WHERE slug = $1", slug)
 }

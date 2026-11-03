@@ -92,6 +92,18 @@ func (f *fakeDishStore) Update(ctx context.Context, slug string, id int, input U
 	}
 	d.Name = input.Name
 	d.Price = input.Price
+	if input.ImageURL != "" {
+		d.ImageURL = input.ImageURL
+	}
+	return d, nil
+}
+
+func (f *fakeDishStore) UpdateImage(ctx context.Context, slug string, id int, imageURL string) (*Dish, error) {
+	d, exists := f.dishes[id]
+	if !exists || d.RestaurantSlug != slug {
+		return nil, ErrNotFound
+	}
+	d.ImageURL = imageURL
 	return d, nil
 }
 

@@ -288,6 +288,34 @@
   </section>
 
   <!-- Quick Info Stats Bar -->
+  <div class="bg-white rounded-2xl border border-gray-100 p-4 mb-8 grid grid-cols-2 md:grid-cols-4 gap-4 divide-y md:divide-y-0 md:divide-x divide-gray-100 shadow-sm">
+    <Stat value={restaurant.deliveryTime} label="Prazo da Entrega">
+      <svg slot="icon" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+    </Stat>
+    <Stat value={`R$${restaurant.deliveryFee.toFixed(2)}`} label="Frete">
+      <svg slot="icon" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="18.5" cy="17.5" r="3.5"/>
+        <circle cx="5.5" cy="17.5" r="3.5"/>
+        <circle cx="15" cy="5" r="1"/>
+        <path d="M12 17.5V14l-3-3 4-3 2 3h2"/>
+      </svg>
+    </Stat>
+    <Stat value={`R$${restaurant.minOrder.toFixed(2)}`} label="Preço mínimo">
+      <svg slot="icon" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/>
+        <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/>
+        <path d="M12 17.5v-11"/>
+      </svg>
+    </Stat>
+    <Stat value={restaurant.distance} label="Do seu endereço">
+      <svg slot="icon" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+      </svg>
+    </Stat>
+  </div>
 
   <!-- Layout Grid: Menu Items vs. Sidebar Cart -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -327,7 +355,7 @@
       <!-- Food Cards Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {#each filteredDishes as dish (dish.id)}
-          <article class="bg-gray-400 rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
+          <article class="bg-white rounded-2xl border border-gray-200/80 p-4 flex justify-between gap-3 hover:border-gray-300 hover:shadow-sm transition group cursor-pointer">
             <div class="flex flex-col justify-between flex-1">
               <div>
                 {#if dish.tag}

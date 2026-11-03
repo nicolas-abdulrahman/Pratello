@@ -119,6 +119,7 @@ func (s *DishService) AddDish(ctx context.Context, input NewDish) (*Dish, error)
 		RestaurantSlug: slug,
 		Name:           name,
 		Price:          input.Price,
+		ImageURL:       input.ImageURL,
 	})
 }
 
