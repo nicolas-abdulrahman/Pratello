@@ -4,7 +4,7 @@
   import DeliveryCalc from './DeliveryCalc.svelte';
   import DeliveryOrder from './DeliveryOrder.svelte';
   import DeliveryForm from './DeliveryForm.svelte';
-  import Restaurants from './Restaurants.svelte'; // Imported the new component
+  import Restaurants from '../common/Restaurants.svelte'; // Imported the new component
 
   // State to toggle the checkout form under the map
   let showCheckoutForm = $state(false);

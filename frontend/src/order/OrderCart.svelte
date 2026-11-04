@@ -1,20 +1,18 @@
 <script>
+  import { cart } from '../lib/stores/cart.js';
   import OrderSidebar from './OrderSidebar.svelte';
 
-  // Svelte 5 Props
-  let { cartItemCount = 0 } = $props();
+  // Accept the function from App.svelte
+  let { goToOrder = () => {} } = $props();
 
-  // Local state to manage the sidebar
   let isCartOpen = $state(false);
 
-  function toggleCart() {
-    isCartOpen = !isCartOpen;
-  }
+  // Automatically calculate total items (sum of quantities)
+  let cartItemCount = $derived($cart.reduce((total, item) => total + item.quantity, 0));
 </script>
 
-<!-- Floating Button -->
 <button 
-  onclick={toggleCart}
+  onclick={() => isCartOpen = true}
   class="fixed top-6 right-4 md:right-8 z-40 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-[#ff5722] border border-orange-100 px-4 py-2.5 rounded-full font-bold transition-all shadow-lg hover:scale-105"
 >
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -32,5 +30,9 @@
   <span class="hidden sm:block">Carrinho</span>
 </button>
 
-<!-- Render the Sidebar -->
-<OrderSidebar isOpen={isCartOpen} onClose={() => isCartOpen = false} />
+<!-- Pass the function down to the Sidebar -->
+<OrderSidebar 
+  isOpen={isCartOpen} 
+  onClose={() => isCartOpen = false} 
+  {goToOrder} 
+/>

@@ -1,10 +1,19 @@
 <script>
+  import { onMount } from 'svelte';
   import CombosCard from './CombosCard.svelte';
+  import ItemModal from '../dish/ItemModal.svelte';
 
   let scrollContainer;
-  let activeIndex = 0;
+  let activeIndex = $state(0);
 
-  // Expanded to 12 items for 4 full pages of 3 items
+  let isModalOpen = $state(false);
+  let selectedItem = $state(null);
+
+  function openModal(item) {
+    selectedItem = item;
+    isModalOpen = true;
+  }
+
   const combos = [
     {
       id: 1,
@@ -104,37 +113,64 @@
     }
   ];
 
-  // Card width (300) + gap (24) = 324. 
-  // Scroll amount = 3 cards at once. 324 * 3 = 972px.
-  const SCROLL_AMOUNT = 324 * 3;
-  
-  // Total pages: 12 items / 3 per page = 4 pages
-  const totalPages = Math.ceil(combos.length / 3);
+  let step = $state(324);     // card width + gap (measured at runtime)
+  let visible = $state(3);    // how many full cards fit (measured at runtime)
+  let atStart = $state(true);
+  let atEnd = $state(false);
+
+  const totalPages = $derived(Math.ceil(combos.length / visible));
+
+  function getCards() {
+    return scrollContainer ? Array.from(scrollContainer.children) : [];
+  }
+
+  function measure() {
+    const cards = getCards();
+    if (cards.length < 2) return;
+    step = cards[1].offsetLeft - cards[0].offsetLeft;
+    const gap = step - cards[0].offsetWidth;
+    visible = Math.max(1, Math.floor((scrollContainer.clientWidth + gap) / step));
+    handleScroll();
+  }
+
+  function scrollToCard(index) {
+    const last = Math.max(0, combos.length - visible);
+    const target = Math.min(Math.max(index, 0), last);
+    scrollContainer.scrollTo({ left: target * step, behavior: 'smooth' });
+  }
+
+  function currentCard() {
+    return Math.round(scrollContainer.scrollLeft / step);
+  }
 
   function scrollRight() {
-    if (scrollContainer) {
-      scrollContainer.scrollBy({ left: SCROLL_AMOUNT, behavior: 'smooth' });
-    }
+    if (scrollContainer) scrollToCard(currentCard() + visible);
   }
 
   function scrollLeft() {
-    if (scrollContainer) {
-      scrollContainer.scrollBy({ left: -SCROLL_AMOUNT, behavior: 'smooth' });
-    }
+    if (scrollContainer) scrollToCard(currentCard() - visible);
   }
 
   function handleScroll() {
-    if (scrollContainer) {
-      // Calculate which set of 3 cards we are currently viewing
-      const index = Math.round(scrollContainer.scrollLeft / SCROLL_AMOUNT);
-      activeIndex = index;
-    }
+    if (!scrollContainer) return;
+    const max = scrollContainer.scrollWidth - scrollContainer.clientWidth;
+    atStart = scrollContainer.scrollLeft <= 5;
+    atEnd = scrollContainer.scrollLeft >= max - 5;
+
+    activeIndex = atEnd
+      ? totalPages - 1
+      : Math.min(totalPages - 1, Math.round(currentCard() / visible));
   }
+
+  onMount(() => {
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  });
 </script>
 
 <section class="py-12 w-full px-4 md:px-8 overflow-hidden">
   
-  <!-- Section Title -->
   <div class="flex items-center justify-center gap-4 mb-8 max-w-7xl mx-auto">
     <div class="h-px bg-[#f05a1f]/30 flex-grow"></div>
     <div class="flex items-center gap-3">
@@ -144,23 +180,19 @@
     <div class="h-px bg-[#f05a1f]/30 flex-grow"></div>
   </div>
 
-  <!-- Carousel Container -->
   <div class="relative group w-full max-w-[1920px] mx-auto">
     
-    <!-- Scrollable List -->
     <div 
       bind:this={scrollContainer}
       on:scroll={handleScroll}
       class="flex overflow-x-auto gap-6 pb-6 pt-2 snap-x snap-mandatory hide-scrollbar scroll-smooth"
     >
       {#each combos as combo}
-        <CombosCard {...combo} />
+        <CombosCard {...combo} onOpenDetails={() => openModal(combo)} />
       {/each}
-      <div class="w-4 md:w-8 shrink-0"></div>
     </div>
 
-    <!-- Left Arrow -->
-    {#if activeIndex > 0}
+    {#if !atStart}
       <button 
         on:click={scrollLeft}
         class="absolute left-0 top-[45%] -translate-y-1/2 bg-white text-[#ff5722] p-3 rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.15)] hover:bg-gray-50 transition-all hover:scale-110 z-20 flex items-center justify-center border border-gray-100"
@@ -169,16 +201,16 @@
       </button>
     {/if}
 
-    <!-- Right Arrow -->
-    <button 
-      on:click={scrollRight}
-      class="absolute right-0 top-[45%] -translate-y-1/2 bg-white text-[#ff5722] p-3 rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.15)] hover:bg-gray-50 transition-all hover:scale-110 z-20 flex items-center justify-center border border-gray-100"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-    </button>
+    {#if !atEnd}
+      <button 
+        on:click={scrollRight}
+        class="absolute right-0 top-[45%] -translate-y-1/2 bg-white text-[#ff5722] p-3 rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.15)] hover:bg-gray-50 transition-all hover:scale-110 z-20 flex items-center justify-center border border-gray-100"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+    {/if}
   </div>
 
-  <!-- Pagination Dots (Dynamic based on totalPages) -->
   <div class="flex justify-center gap-2 mt-4">
     {#each Array(totalPages) as _, i}
       <div 
@@ -190,12 +222,14 @@
 
 </section>
 
+<ItemModal 
+  isOpen={isModalOpen} 
+  onClose={() => isModalOpen = false} 
+  item={selectedItem || {}} 
+/>
+
 <style>
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  .hide-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .hide-scrollbar > :global(*) { scroll-snap-align: start; }
 </style>

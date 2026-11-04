@@ -1,6 +1,6 @@
 <script>
   import CombosSection from './CombosSection.svelte';
-  import MelhoresPratosSection from './MelhoresPratosSection.svelte';
+  import MelhoresPratosSection from './PromotionSection.svelte';
 </script>
 
 <div class="min-h-screen bg-[#fff9f5] font-sans selection:bg-[#f05a1f] selection:text-white">
