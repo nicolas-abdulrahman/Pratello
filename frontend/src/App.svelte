@@ -1,54 +1,67 @@
 <script>
   import Footer from './common/footer.svelte';
   import Navbar from './common/navbar.svelte';
-  import OrderCart from './order/OrderCart.svelte'; 
-  import OrderSection from './order/OrderSection.svelte'; 
-  import CheckoutSection from './payment/CheckoutSection.svelte'; // 👈 Import Checkout
-  
+  import OrderCart from './order/OrderCart.svelte';
+  import OrderSection from './order/OrderSection.svelte';
+  import CheckoutSection from './payment/CheckoutSection.svelte';
+
   import { cart } from './lib/stores/cart.js';
+  import { account } from './lib/stores/account.js';
 
   import Restaurant from './home/FrontPage.svelte';
-  import MenuPage from './menu/Cardapio.svelte'; 
-  import Login from './auth/Auth.svelte'; 
-  import RestaurantOld from './restaurantPage.svelte';
-  import DeliverySection from './delivery/DeliverySection.svelte'; 
+  import MenuPage from './menu/Cardapio.svelte';
+  import Login from './auth/Auth.svelte';
+  import RestaurantsPage from './restaurants/RestaurantsSection.svelte';
+  import DeliverySection from './delivery/DeliverySection.svelte';
 
-  // --- GLOBAL CART STATE ---
-  let cartItemCount = $derived($cart.reduce((total, item) => total + (item.quantity || 1), 0));
+  // --- CART (store → derived count for the navbar badge) ---
+  let cartItemCount = $derived(
+    $cart.reduce((total, item) => total + (item.quantity || 1), 0)
+  );
 
-  // --- ROUTING STATE ---
+  // --- ROUTING ---
   const path = typeof window !== 'undefined' ? window.location.pathname : '/';
   let currentView = $state('home');
   let slug = $state('');
 
   if (path === '/login') currentView = 'login';
   else if (path === '/cardapio') currentView = 'cardapio';
-  else if (path === '/restaurantes') currentView = 'restaurantes'; 
-  else if (path === '/order') currentView = 'order'; 
-  else if (path === '/checkout') currentView = 'checkout'; // 👈 Added checkout route
+  else if (path === '/restaurantes') currentView = 'restaurantes';
+  else if (path === '/order') currentView = 'order';
+  else if (path === '/checkout') currentView = 'checkout';
   else if (path.startsWith('/r/') || path.startsWith('/restaurant/')) {
     currentView = 'restaurant';
-    slug = path.startsWith('/r/') ? path.slice(3).replace(/\/$/, '') : path.slice(12).replace(/\/$/, '');
+    slug = path.startsWith('/r/')
+      ? path.slice(3).replace(/\/$/, '')
+      : path.slice(12).replace(/\/$/, '');
   }
 
-  // --- Navigation Functions ---
-  function goToHome() { currentView = 'home'; window.history.pushState({}, '', '/'); }
-  function goToCardapio() { currentView = 'cardapio'; window.history.pushState({}, '', '/cardapio'); }
-  function goToRestaurantes() { currentView = 'restaurantes'; window.history.pushState({}, '', '/restaurantes'); }
-  function goToLogin() { currentView = 'login'; window.history.pushState({}, '', '/login'); }
-  
-  function goToOrder() { 
-    currentView = 'order'; 
-    window.history.pushState({}, '', '/order'); 
+  function goToHome() {
+    currentView = 'home';
+    window.history.pushState({}, '', '/');
   }
-
-  // 👈 Fix: Now it actually navigates to checkout
+  function goToCardapio() {
+    currentView = 'cardapio';
+    window.history.pushState({}, '', '/cardapio');
+  }
+  function goToRestaurantes() {
+    currentView = 'restaurantes';
+    window.history.pushState({}, '', '/restaurantes');
+  }
+  function goToLogin() {
+    currentView = 'login';
+    window.history.pushState({}, '', '/login');
+  }
+  function goToOrder() {
+    currentView = 'order';
+    window.history.pushState({}, '', '/order');
+  }
   function goToCheckout() {
     currentView = 'checkout';
     window.history.pushState({}, '', '/checkout');
   }
 
-  // Handle browser Back/Forward
+  // --- Browser back/forward ---
   if (typeof window !== 'undefined') {
     window.addEventListener('popstate', () => {
       const newPath = window.location.pathname;
@@ -56,33 +69,54 @@
       else if (newPath === '/cardapio') currentView = 'cardapio';
       else if (newPath === '/restaurantes') currentView = 'restaurantes';
       else if (newPath === '/order') currentView = 'order';
-      else if (newPath === '/checkout') currentView = 'checkout'; // 👈
-      else if (newPath.startsWith('/r/') || newPath.startsWith('/restaurant/')) {
+      else if (newPath === '/checkout') currentView = 'checkout';
+      else if (
+        newPath.startsWith('/r/') ||
+        newPath.startsWith('/restaurant/')
+      ) {
         currentView = 'restaurant';
-        slug = newPath.startsWith('/r/') ? newPath.slice(3).replace(/\/$/, '') : newPath.slice(12).replace(/\/$/, '');
+        slug = newPath.startsWith('/r/')
+          ? newPath.slice(3).replace(/\/$/, '')
+          : newPath.slice(12).replace(/\/$/, '');
       } else {
         currentView = 'home';
       }
     });
   }
 
-  // Helper to hide global UI on specific pages
+  // --- NAVBAR BEHAVIOUR ---
+  // Início / Cardápio / Delivery appear ONLY on /r/... (restaurant detail)
+  let showNavLinks = $derived(currentView === 'restaurant');
+
+  // Yellow (brand) navbar theme also only on /r/..., white everywhere else
+  let brandTheme = $derived(currentView === 'restaurant');
+
+  // Hide global chrome on full-screen flows
   let hideGlobalUI = $derived(
-    currentView === 'login' || 
-    currentView === 'order' || 
-    currentView === 'checkout' // 👈 Hide navbar on checkout too
+    currentView === 'login' ||
+    currentView === 'order' ||
+    currentView === 'checkout'
   );
+
+  // Redirect to home if the user lands on /login while already authenticated.
+  // (Optional but useful — remove if you'd rather let logged-in users hit /login.)
+  $effect(() => {
+    if (currentView === 'login' && $account.isLoggedIn) {
+      goToHome();
+    }
+  });
 </script>
 
 <div class="relative w-full min-h-screen bg-[#fff9f5]">
-  
   {#if !hideGlobalUI}
-    <Navbar 
+    <Navbar
       {cartItemCount}
-      onOpenMenu={goToCardapio} 
-      onGoHome={goToHome} 
-      onGoLogin={goToLogin} 
-      onGoRestaurantes={goToRestaurantes} 
+      onOpenMenu={goToCardapio}
+      onGoHome={goToHome}
+      onGoLogin={goToLogin}
+      onGoRestaurantes={goToRestaurantes}
+      {showNavLinks}
+      brand={brandTheme}
     />
     <OrderCart goToOrder={goToOrder} />
   {/if}
@@ -91,39 +125,43 @@
     {#key currentView}
       <div class="animate-slide-in w-full">
         {#if currentView === 'home'}
+          <RestaurantsPage />
+        {:else if currentView === 'restaurantes'}
+          <RestaurantsPage />
+        {:else if currentView === 'restaurant'}
           <Restaurant />
         {:else if currentView === 'cardapio'}
           <MenuPage />
-        {:else if currentView === 'restaurantes'}
+        {:else if currentView === 'delivery'}
           <DeliverySection />
         {:else if currentView === 'order'}
-          <OrderSection 
-            goToCheckout={goToCheckout} 
-            onCancel={goToHome} 
-          />
+          <OrderSection goToCheckout={goToCheckout} onCancel={goToHome} />
         {:else if currentView === 'checkout'}
-          <CheckoutSection 
-            onCancel={goToOrder} 
-            total={150.00} 
-          />
+          <CheckoutSection onCancel={goToOrder} total={150.0} />
         {:else if currentView === 'login'}
           <Login />
-        {:else if currentView === 'restaurant'}
-          <RestaurantOld restaurantName={slug || 'mamma-mia-mario'} />
         {/if}
       </div>
     {/key}
   </div>
-  
+
   {#if !hideGlobalUI}
-    <Footer/>
+    <Footer />
   {/if}
 </div>
 
 <style>
-  .animate-slide-in { animation: slideIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) forwards; }
+  .animate-slide-in {
+    animation: slideIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  }
   @keyframes slideIn {
-    0% { opacity: 0; transform: translateY(20px); }
-    100% { opacity: 1; transform: translateY(0); }
+    0% {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>
