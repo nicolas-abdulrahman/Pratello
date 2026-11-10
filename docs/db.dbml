@@ -1,0 +1,262 @@
+Enum "public"."card_brand_enum" {
+    "VISA"
+    "MASTERCARD"
+    "ELO"
+    "AMEX"
+    "HIPERCARD"
+    "OTHER"
+}
+
+Enum "public"."discount_type_enum" {
+    "PERCENTAGE"
+    "FIXED_AMOUNT"
+}
+
+Enum "public"."menu_style_enum" {
+    "CLASSICO"
+    "EXPERIENCIA"
+}
+
+Enum "public"."order_status_enum" {
+    "PENDING"
+    "PREPARING"
+    "READY"
+    "COMPLETED"
+    "CANCELLED"
+}
+
+Enum "public"."order_type_enum" {
+    "LOCAL"
+    "REMOTE"
+}
+
+Enum "public"."transaction_status_enum" {
+    "PENDING"
+    "COMPLETED"
+    "EXPIRED"
+    "FAILED"
+    "CANCELLED"
+}
+
+Enum "public"."transaction_type_enum" {
+    "PIX"
+    "CREDIT"
+    "DEBIT"
+    "CASH"
+}
+
+Table "public"."transaction" {
+  "id" int [pk, not null, increment]
+  "order_id" int [not null, ref: > "public"."order"."id"]
+  "transaction_type" transaction_type_enum [not null]
+  "amount" numeric(10,2) [not null]
+  "notes" varchar(100)
+  "status" transaction_status_enum [not null, default: 'PENDING']
+  "created_at" timestamptz [not null, default: `now()`]
+}
+
+Table "public"."order_item" {
+  "id" int [pk, not null, increment]
+  "order_id" int [not null, ref: > "public"."order"."id"]
+  "item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "parent_order_id" int
+  "quantity" int [not null, default: 1]
+  "unit_price" numeric(10,2) [not null]
+  "review" int
+}
+
+Table "public"."menu_item" {
+  "id" int [pk, not null, increment, ref: - "public"."item_sale"."item_id"]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "category_id" int [not null, ref: > "public"."category"."id"]
+  "name" varchar(255) [not null]
+  "description" text
+  "price" numeric(10,2) [not null]
+  "image_url" text
+  "is_available" boolean [default: true]
+  "is_combo" boolean [not null, default: false]
+}
+
+Table "public"."menu" {
+  "id" int [not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "name" varchar(255) [not null]
+  "style" menu_style_enum [not null]
+  "accent_color" varchar(20)
+
+  Indexes {
+    (id, restaurant_id) [pk]
+  }
+}
+
+Table "public"."item_ingredient" {
+  "item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "ingredient_id" int [not null]
+  "is_removable" boolean [not null, default: true]
+  "quantity" int
+  "measure" varchar(50)
+
+  Indexes {
+    (item_id, ingredient_id) [pk]
+  }
+}
+
+Table "public"."restaurant_phone" {
+  "physical_restaurant_id" int [pk, not null]
+  "phone" varchar(500) [not null]
+  "label" varchar(50) [not null, default: 'Principal']
+}
+
+Table "public"."Address" {
+  "id" int [pk, not null, increment, ref: - "public"."account"."address_id"]
+  "CEP" varchar(500) [not null]
+  "number" int [not null]
+  "apt" varchar(500)
+  "complementary" varchar(500)
+}
+
+Table "public"."physical_restaurant" {
+  "id" int [not null, increment, ref: - "public"."restaurant_phone"."physical_restaurant_id", ref: - "public"."staff_session"."physical_restaurant_id"]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "address_id" int [not null, ref: > "public"."Address"."id"]
+  "cnpj" varchar(500) [not null]
+
+  Indexes {
+    (id, restaurant_id, address_id) [pk]
+  }
+}
+
+Table "public"."remote_order" {
+  "id" int [pk, not null, ref: - "public"."order"."id"]
+  "address_id" int [not null, ref: > "public"."Address"."id"]
+  "contact_phone" varchar(20) [not null]
+  "delivery_fee" numeric(10,2) [not null, default: 0]
+  "estimated_minutes" int
+  "delivery_notes" text
+}
+
+Table "public"."restaurant" {
+  "id" int [pk, not null, increment, ref: - "public"."account_restaurant"."restaurant_id", ref: - "public"."user_restaurant"."restaurant_id"]
+  "name_slug" varchar(500) [not null]
+  "name" varchar(255) [not null]
+  "brand" varchar(500)
+  "cnpj" varchar(500)
+  "created_at" timestamptz [not null, default: `now()`]
+}
+
+Table "public"."item_sale" {
+  "item_id" int [pk, not null]
+  "discount_type" discount_type_enum [not null, default: 'FIXED_AMOUNT']
+  "value" numeric(10,2) [not null]
+  "is_active" boolean [not null, default: true]
+  "starts_at" timestamptz
+  "ends_at" timestamptz
+}
+
+Table "public"."user_restaurant" {
+  "id" int [pk, not null]
+  "account_id" int
+  "restaurant_id" int [not null]
+  "coins_amount" int [not null, default: 0]
+  "cpf" varchar(500)
+}
+
+Table "public"."account" {
+  "id" int [pk, not null, increment, ref: - "public"."account_restaurant"."account_id", ref: - "public"."user_restaurant"."account_id"]
+  "name" varchar(500)
+  "email" varchar(255) [unique, not null]
+  "password" varchar(255) [not null]
+  "phone" varchar(500)
+  "address_id" int
+  "document" varchar(500)
+}
+
+Table "public"."account_restaurant" {
+  "id" bigint [not null]
+  "account_id" int
+  "restaurant_id" int [not null]
+  "account_type" text
+  "document" varchar(500)
+
+  Indexes {
+    (id, restaurant_id) [pk]
+  }
+}
+
+Table "public"."item_side" {
+  "id" int [pk, not null, increment]
+  "item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "name" varchar(255) [not null]
+  "amount" int [not null, default: 0]
+  "price" numeric [not null]
+}
+
+Table "public"."coupon" {
+  "id" int [pk, not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "code" varchar(50) [not null]
+  "discount_type" discount_type_enum [not null]
+  "discount_value" numeric(10,2) [not null]
+  "min_order_value" numeric(10,2) [default: 0]
+  "max_uses" int
+  "is_active" boolean [not null, default: true]
+  "expires_at" timestamptz
+  "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (restaurant_id, code) [unique, name: "idx_coupons_restaurant_id_code"]
+  }
+}
+
+Table "public"."combo_item" {
+  "combo_id" int [not null, ref: > "public"."menu_item"."id"]
+  "included_item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "quantity" int [not null, default: 1]
+
+  Indexes {
+    (combo_id, included_item_id) [pk]
+  }
+}
+
+Table "public"."receipt" {
+  "transaction_id" int [pk, not null, ref: - "public"."transaction"."id"]
+  "receipt_code" varchar(100) [unique, not null]
+  "receipt" jsonb [not null]
+}
+
+Table "public"."category" {
+  "id" int [pk, not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "name" varchar(100) [not null]
+}
+
+Table "public"."order" {
+  "id" int [pk, not null, increment]
+  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
+  "coupon_id" int [ref: > "public"."coupon"."id"]
+  "order_type" order_type_enum [not null]
+  "customer_name" varchar(255)
+  "subtotal" numeric(10,2) [not null, default: 0]
+  "discount_amount" numeric(10,2) [default: 0]
+  "total" numeric(10,2) [not null, default: 0]
+  "status" order_status_enum [not null, default: 'PENDING']
+  "created_at" timestamptz [not null, default: `now()`]
+}
+
+Table "public"."staff_session" {
+  "id" int [pk, not null, increment]
+  "physical_restaurant_id" int [not null]
+  "shift_code" varchar(6) [not null]
+  "qr_token" varchar(64) [unique, not null]
+  "is_active" boolean [not null, default: true]
+  "expires_at" timestamptz [not null]
+  "created_at" timestamptz [not null, default: `now()`]
+}
+
+Table "public"."local_order" {
+  "id" int [pk, not null, ref: - "public"."order"."id"]
+  "table" int [not null]
+  "display_order" int [not null]
+  "notes" text
+}
+

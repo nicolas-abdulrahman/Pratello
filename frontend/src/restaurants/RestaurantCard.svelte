@@ -60,7 +60,6 @@
   let scroller: HTMLUListElement | undefined = $state();
   let active = $state(0);
 
-  // Scroll the item at index i so its center sits in the middle of the strip.
   function centerOn(i: number, behavior: ScrollBehavior = 'auto') {
     const list = scroller;
     const item = list?.children[i] as HTMLElement | undefined;
@@ -71,7 +70,6 @@
     list.scrollTo({ left: itemCenter - list.clientWidth / 2, behavior });
   }
 
-  // Whichever item is closest to the strip's center is the active one.
   function onScroll() {
     if (!scroller) return;
     const listBox = scroller.getBoundingClientRect();
@@ -101,40 +99,17 @@
   });
 </script>
 
-{#snippet icon(kind: TagIcon | 'clock')}
-  <svg
-    viewBox="0 0 24 24"
-    class="h-4 w-4 shrink-0"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    {#if kind === 'chef'}
-      <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z" />
-      <line x1="6" y1="17" x2="18" y2="17" />
-    {:else if kind === 'pin'}
-      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-      <circle cx="12" cy="10" r="3" />
-    {:else if kind === 'leaf'}
-      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
-      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
-    {:else if kind === 'clock'}
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    {/if}
-  </svg>
-{/snippet}
-
 <article
-  class="mx-auto w-full max-w-[27.5rem] overflow-hidden rounded-3xl bg-[#faf3e3] shadow-[0_20px_45px_-15px_rgba(60,40,20,0.35)]"
+  class="w-full max-w-[25rem] overflow-hidden rounded-3xl bg-[#faf3e3] shadow-[0_20px_45px_-15px_rgba(60,40,20,0.35)]"
 >
   <!-- Logo panel: gold frame, navy field, thin inner gold rule -->
   <div class="rounded-[1.75rem] bg-[linear-gradient(135deg,#f3dc92,#b98a3a_40%,#f0d487_60%,#a77a31)] p-2.5">
-    <div class="relative aspect-[4/5] overflow-hidden rounded-[1.1rem] bg-[#1c3a5c]">
-      <img src={logoSrc} alt={logoAlt} class="h-full w-full object-contain p-12" />
+    <div class="relative flex aspect-[5/4] items-center justify-center overflow-hidden rounded-[1.1rem] bg-[#1c3a5c]">
+      <img
+        src={logoSrc}
+        alt={logoAlt}
+        class="h-40 w-auto object-contain p-4"
+      />
       <div class="pointer-events-none absolute inset-4 rounded-[0.9rem] border border-[#d4a84f]"></div>
     </div>
   </div>
@@ -154,7 +129,10 @@
       </span>
       <span class="h-5 w-px bg-[#4a2514]/20"></span>
       <span class="flex items-center gap-1.5 text-[#9a5532]">
-        {@render icon('clock')}
+        <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
         <span class="text-base font-medium text-[#4a2514]">{deliveryTime}</span>
       </span>
     </div>
@@ -188,7 +166,18 @@
     <ul class="mt-4 flex items-center justify-center gap-2.5">
       {#each tags as tag}
         <li class="flex h-7 items-center gap-1.5 rounded-full bg-[#f1e4cc] px-2.5 text-xs font-medium text-[#6b3a22]">
-          {@render icon(tag.icon)}
+          <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            {#if tag.icon === 'chef'}
+              <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z" />
+              <line x1="6" y1="17" x2="18" y2="17" />
+            {:else if tag.icon === 'pin'}
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+              <circle cx="12" cy="10" r="3" />
+            {:else if tag.icon === 'leaf'}
+              <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+              <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+            {/if}
+          </svg>
           {#if tag.label}<span>{tag.label}</span>{/if}
         </li>
       {/each}

@@ -11,7 +11,7 @@
   import Restaurant from './home/FrontPage.svelte';
   import MenuPage from './menu/Cardapio.svelte';
   import Login from './auth/Auth.svelte';
-  import RestaurantsPage from './restaurants/RestaurantsSection.svelte';
+  import RestaurantsPage from './restaurants/RestaurantsPage.svelte';
   import DeliverySection from './delivery/DeliverySection.svelte';
 
   // --- CART (store → derived count for the navbar badge) ---

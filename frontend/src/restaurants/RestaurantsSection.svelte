@@ -1,363 +1,218 @@
-<script >
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import type { ComponentProps } from 'svelte';
   import RestaurantCard from './RestaurantCard.svelte';
-  import RestaurantsNavbar from './RestaurantsNavbar.svelte';
-  import RestaurantsLeftSideBar from './RestaurantsLeftSideBar.svelte';
 
-  let showProfileSidebar = $state(false);
+  type Banner = {
+    id: string;
+    eyebrow?: string;
+    title: string;
+    subtitle?: string;
+    cta?: string;
+    imageSrc?: string;
+    imageAlt?: string;
+  };
 
-  const restaurants = [
+  type Props = {
+    banners?: Banner[];
+    cardProps?: Partial<ComponentProps<typeof RestaurantCard>>;
+    interval?: number;
+    transitionMs?: number;
+    height?: number;
+    mainHeight?: number;
+    sideHeight?: number;
+    gap?: number;
+    onselect?: (banner: Banner) => void;
+  };
+
+  const placeholderImage =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160">
+        <g fill="none" stroke="#d4a84f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="30" y="30" width="140" height="100" rx="14"/>
+          <circle cx="72" cy="66" r="13"/>
+          <path d="M44 118l38-38 27 27 18-18 29 29"/>
+        </g>
+      </svg>`
+    );
+
+  const defaultBanners: Banner[] = [
     {
-      name: 'Pai João',
-      tagline: 'Hambúrguer Artesanal',
-      cuisine: 'Lanches & Burgers',
-      distance: '0.6 km',
-      rating: 4.8,
-      reviews: '2.3k',
-      category: 'Lanches & Burgers',
-      badge: 'Destaque da semana',
-      badgeClass: 'bg-amber-500/20 text-amber-300',
-      deliveryTime: '30-45 min',
-      deliveryFee: 'Grátis',
-      feeClass: 'text-emerald-700 bg-emerald-50',
-      imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO',
-      bgFrom: '#211611',
-      bgTo: '#3A2419',
-      titleClass: 'text-amber-400 font-mono',
-      subtitleClass: 'text-stone-300',
-      emojis: ['🍔', '🍟', '🥤']
+      id: 'burger-50',
+      eyebrow: 'Oferta da semana',
+      title: 'Promoções em hambúrgueres',
+      subtitle: 'Economize 50% em todos os burgers artesanais',
+      cta: 'Pedir agora'
     },
-    {
-      name: "Armario Mario's",
-      tagline: 'Italian Ristorante',
-      cuisine: 'Massas & Pizza',
-      distance: '1.2 km',
-      rating: 4.7,
-      reviews: '1.1k',
-      category: 'Massas & Pizza',
-      badge: 'Massas caseiras',
-      badgeClass: 'bg-emerald-500/20 text-emerald-300',
-      deliveryTime: '25-40 min',
-      deliveryFee: 'R$ 4,90',
-      feeClass: 'text-amber-800 bg-amber-50',
-      imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO',
-      bgFrom: '#1E281F',
-      bgTo: '#2B3B2B',
-      titleClass: 'text-amber-300 font-serif',
-      subtitleClass: 'text-emerald-300',
-      emojis: ['🍕', '🍝', '🍷']
-    },
-    {
-      name: 'Sakura',
-      tagline: 'Contemporary Sushi',
-      cuisine: 'Culinária Japonesa',
-      distance: '1.5 km',
-      rating: 4.8,
-      reviews: '892',
-      category: 'Culinária Japonesa',
-      badge: 'Peixes frescos',
-      badgeClass: 'bg-rose-500/20 text-rose-300',
-      deliveryTime: '35-50 min',
-      deliveryFee: 'R$ 6,50',
-      feeClass: 'text-stone-700 bg-stone-100',
-      imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO',
-      bgFrom: '#2B171A',
-      bgTo: '#401F25',
-      titleClass: 'text-rose-400 font-sans',
-      subtitleClass: 'text-stone-300',
-      emojis: ['🍣', '🍱', '🥢']
+    { id: 'frete', title: 'Frete grátis acima de R$ 50', subtitle: 'Para pedidos selecionados' },
+    { id: 'combo', title: 'Combo família com desconto', subtitle: 'Monte o seu e economize' },
+    { id: 'sobremesas', title: 'Novidade: sobremesas da casa', subtitle: 'Experimente antes que acabe' }
+  ];
+
+  let {
+    banners = defaultBanners,
+    cardProps = {},
+    interval = 5000,
+    transitionMs = 600,
+    height = 608,
+    mainHeight = 330,
+    sideHeight = 150,
+    gap = 14,
+    onselect
+  }: Props = $props();
+
+  let step = $state(0);
+  let paused = $state(false);
+
+  const count = $derived(banners.length);
+
+  const slots = $derived(
+    count === 0
+      ? []
+      : [-2, -1, 0, 1, 2].map((d) => {
+          const k = step + d;
+          return { k, d, banner: banners[((k % count) + count) % count] };
+        })
+  );
+
+  function slotBox(d: number) {
+    const mainTop = (height - mainHeight) / 2;
+    const belowTop = mainTop + mainHeight + gap;
+    const aboveTop = mainTop - gap - sideHeight;
+    switch (d) {
+      case 0:
+        return { top: mainTop, h: mainHeight, opacity: 1, z: 20 };
+      case 1:
+        return { top: belowTop, h: sideHeight, opacity: 1, z: 10 };
+      case -1:
+        return { top: aboveTop, h: sideHeight, opacity: 1, z: 10 };
+      case 2:
+        return { top: belowTop + sideHeight + gap, h: sideHeight, opacity: 0, z: 0 };
+      default:
+        return { top: aboveTop - sideHeight - gap, h: sideHeight, opacity: 0, z: 0 };
     }
-  ];
+  }
 
-  const trending = [
-    {
-      name: 'Cantina da Nonna',
-      tagline: 'da Nonna',
-      cuisine: 'Italiana',
-      distance: '1.1 km',
-      rating: 4.9,
-      reviews: '',
-      category: 'Italiana • R$ 35 - 80',
-      badge: '',
-      badgeClass: '',
-      deliveryTime: '30-45 min',
-      deliveryFee: 'Grátis acima de R$50',
-      feeClass: 'text-emerald-700 bg-emerald-50',
-      imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO',
-      bgFrom: '#291812',
-      bgTo: '#3C241B',
-      titleClass: 'text-amber-300',
-      subtitleClass: 'text-stone-300',
-      emojis: ['🍝']
-    },
-    {
-      name: 'Taco Feliz',
-      tagline: 'Autêntico Mexicano',
-      cuisine: 'Mexicana',
-      distance: '1.9 km',
-      rating: 4.6,
-      reviews: '',
-      category: 'Mexicana • 20-35 min',
-      badge: '',
-      badgeClass: '',
-      deliveryTime: '20-35 min',
-      deliveryFee: 'Cupom 15% OFF',
-      feeClass: 'text-amber-800 bg-amber-50',
-      imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO',
-      bgFrom: '#2E2011',
-      bgTo: '#453118',
-      titleClass: 'text-amber-400',
-      subtitleClass: 'text-stone-300',
-      emojis: ['🌮']
-    },
-    {
-      name: 'Pizzaria Bella Notte',
-      tagline: 'Bella Notte',
-      cuisine: 'Pizza artesanal',
-      distance: '2.0 km',
-      rating: 4.8,
-      reviews: '',
-      category: 'Pizza artesanal • Forno a lenha',
-      badge: '',
-      badgeClass: '',
-      deliveryTime: '40-55 min',
-      deliveryFee: 'R$ 6,00',
-      feeClass: 'text-stone-700 bg-stone-100',
-      imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO',
-      bgFrom: '#201511',
-      bgTo: '#39241E',
-      titleClass: 'text-amber-300',
-      subtitleClass: 'text-stone-300',
-      emojis: ['🍕']
-    }
-  ];
+  function go(d: number) {
+    step += d;
+  }
 
-  const categories = [
-    { emoji: '🍔', label: 'Hambúrguer', active: true },
-    { emoji: '🍝', label: 'Italiana', active: false },
-    { emoji: '🍱', label: 'Japonesa', active: false },
-    { emoji: '🍕', label: 'Pizza', active: false },
-    { emoji: '🍲', label: 'Brasileira', active: false },
-    { emoji: '🥙', label: 'Árabe', active: false },
-    { emoji: '🥡', label: 'Chinesa', active: false },
-    { emoji: '🌱', label: 'Vegana', active: false },
-    { emoji: '🧁', label: 'Doces', active: false }
-  ];
+  onMount(() => {
+    const id = setInterval(() => {
+      if (!paused && count > 1) step += 1;
+    }, interval);
+    return () => clearInterval(id);
+  });
 </script>
 
-<svelte:head>
-  <title>Pratello - Delivery de Comida</title>
-</svelte:head>
+<section class="restaurants-section">
+  <div class="card-slot">
+    <RestaurantCard {...cardProps} />
+  </div>
 
-<div
-  class="min-h-screen flex flex-row overflow-x-hidden antialiased select-none selection:bg-brand-primary selection:text-white bg-[#FAF6F0] text-[#2A2017]"
->
-  <!-- Left sidebar (slide-in) -->
-  <RestaurantsLeftSideBar
-    show={showProfileSidebar}
-    onClose={() => (showProfileSidebar = false)}
-  />
-
-  <!-- Main Content -->
-  <main class="flex-1 min-h-screen px-8 py-6 space-y-9 max-w-7xl mx-auto">
-    <!-- Top bar -->
-
-    <!-- Hero Section -->
-    <section
-      class="relative rounded-3xl bg-gradient-to-r from-[#F6EDE0] via-[#FAF4EA] to-[#F7EFE2] border border-[#EDE2D2] overflow-hidden p-8 lg:p-10 shadow-sm"
+  <div class="carousel-bleed">
+    <div
+      class="relative min-w-0 flex-1 overflow-hidden rounded-3xl"
+      style="height: {height}px"
+      role="region"
+      aria-roledescription="carousel"
+      aria-label="Banners promocionais"
+      onmouseenter={() => (paused = true)}
+      onmouseleave={() => (paused = false)}
     >
-      <div
-        class="absolute -right-10 -bottom-20 w-96 h-96 bg-amber-400/20 rounded-full blur-3xl pointer-events-none"
-      ></div>
-      <div
-        class="absolute right-60 top-1/2 -translate-y-1/2 w-64 h-64 bg-amber-200/40 hero-blob pointer-events-none"
-      ></div>
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center relative z-10">
-        <div class="lg:col-span-7 space-y-4">
-          <div
-            class="inline-flex items-center gap-2 bg-amber-500/10 text-amber-800 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider"
-          >
-            <span>✨ Praticidade &amp; Agilidade</span>
-          </div>
-          <h1
-            class="text-3xl lg:text-4xl xl:text-5xl font-extrabold text-stone-900 tracking-tight leading-[1.15]"
-          >
-            Descubra os melhores <br class="hidden xl:block" />restaurantes perto de você!
-          </h1>
-          <p class="text-stone-600 text-base max-w-lg font-normal">
-            Variedade, sabor e praticidade garantidos, tudo em um só lugar no Pratello.
-          </p>
-          <div class="pt-2">
-            <a
-              class="inline-flex items-center gap-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold text-sm px-6 py-3.5 rounded-full shadow-md shadow-amber-500/25 hover:shadow-lg transition duration-200 group"
-              href="#restaurantes-proximos"
-            >
-              <span>Explorar restaurantes</span>
-              <svg
-                class="w-4 h-4 transform group-hover:translate-x-1 transition-transform"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                viewBox="0 0 24 24"
+      {#each slots as s (s.k)}
+        {@const box = slotBox(s.d)}
+        {@const main = s.d === 0}
+        {@const faded = Math.abs(s.d) === 2}
+        <button
+          type="button"
+          disabled={faded}
+          aria-current={main ? 'true' : undefined}
+          aria-label={s.banner.title}
+          onclick={() => (main ? onselect?.(s.banner) : go(s.d))}
+          class="absolute inset-x-0 flex overflow-hidden rounded-3xl text-left shadow-lg {main
+            ? 'bg-[#1c3a5c] text-[#f3dc92]'
+            : 'bg-[#1f5a45] text-[#f7efe0]'}"
+          style="top: {box.top}px; height: {box.h}px; opacity: {box.opacity}; z-index: {box.z}; transition: top {transitionMs}ms ease-in-out, height {transitionMs}ms ease-in-out, opacity {transitionMs}ms ease-in-out;"
+        >
+          <span class="relative z-10 flex w-[58%] min-w-0 flex-col justify-center {main ? 'gap-3 p-8' : 'gap-1 p-5'}">
+            {#if main && s.banner.eyebrow}
+              <span class="text-xs font-semibold uppercase tracking-wider text-[#d4a84f]">{s.banner.eyebrow}</span>
+            {/if}
+            <span class="block font-serif font-bold leading-tight {main ? 'text-3xl' : 'text-xl'}">
+              {s.banner.title}
+            </span>
+            {#if main && s.banner.subtitle}
+              <span class="block text-sm text-[#e9e1cf]">{s.banner.subtitle}</span>
+            {/if}
+            {#if main}
+              <span
+                class="mt-2 inline-flex w-fit items-center rounded-full bg-[#d4a84f] px-5 py-2.5 text-sm font-semibold text-[#1c3a5c]"
               >
-                <path d="M14 5l7 7m0 0l-7 7m7-7H3" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </a>
-          </div>
-        </div>
-        <div class="lg:col-span-5 relative flex justify-center items-center">
-          <div class="relative w-72 h-72 sm:w-80 sm:h-80 flex items-center justify-center">
-            <div
-              class="absolute inset-0 bg-gradient-to-tr from-amber-400 to-yellow-300 rounded-full opacity-30 blur-2xl animate-pulse"
-            ></div>
-            <img
-              alt="Hambúrguer artesanal Pratello"
-              class="relative z-10 w-full h-full object-cover rounded-3xl shadow-xl hover:scale-102 transition duration-300"
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO"
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Search + Filters -->
-    <div class="pt-2" id="restaurantes-proximos">
-      <div
-        class="flex flex-col sm:flex-row items-center gap-3 bg-[#F4EDE2]/80 border border-[#E6DDCE] p-2 rounded-2xl shadow-xs"
-      >
-        <div class="relative flex-1 w-full">
-          <svg
-            class="w-5 h-5 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <circle cx="11" cy="11" r="8"></circle>
-            <path d="m21 21-4.35-4.35" stroke-linecap="round"></path>
-          </svg>
-          <input
-            class="w-full bg-white border border-[#E2D6C6] rounded-xl pl-11 pr-4 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs font-medium"
-            placeholder="Buscar restaurantes ou pratos próximos..."
-            type="text"
-          />
-        </div>
-        <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
-          <button
-            class="inline-flex items-center gap-2 px-3.5 py-2.5 bg-white border border-[#E2D6C6] hover:bg-stone-50 rounded-xl text-xs font-semibold text-stone-700 transition"
-          >
-            <svg
-              class="w-3.5 h-3.5 text-stone-500"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              ></path>
-            </svg>
-            Filtros
-          </button>
-          <button
-            class="inline-flex items-center gap-1.5 px-3 py-2.5 bg-white border border-[#E2D6C6] hover:bg-stone-50 rounded-xl text-xs font-medium text-stone-600 transition"
-          >
-            <span>Mais bem avaliados</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="pt-3 space-y-1.5">
-        <div class="flex items-center justify-between px-1">
-          <span class="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
-            Categorias populares
+                {s.banner.cta ?? 'Saiba mais'}
+              </span>
+            {/if}
           </span>
-        </div>
-        <div class="relative flex items-center">
-          <div class="flex items-center gap-2 overflow-x-auto hide-scrollbar py-1 w-full pr-10">
-            {#each categories as cat}
-              <button
-                class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs transition shadow-2xs"
-                class:bg-amber-200={cat.active}
-                class:border-amber-300={cat.active}
-                class:text-stone-900={cat.active}
-                class:font-semibold={cat.active}
-                class:bg-[#F4EDE2]={!cat.active}
-                class:border-[#E4DACB]={!cat.active}
-                class:text-stone-700={!cat.active}
-                class:font-medium={!cat.active}
-                class:hover:bg-[#ECE4D6]={!cat.active}
-              >
-                <span class="text-sm">{cat.emoji}</span>
-                {cat.label}
-              </button>
-            {/each}
-          </div>
-          <button
-            aria-label="Ver mais categorias"
-            class="absolute right-0 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white border border-[#E4DACB] flex items-center justify-center text-stone-700 shadow-md hover:bg-stone-50 transition"
-          >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-        </div>
-      </div>
+
+          <span class="absolute inset-y-0 right-0 w-[42%] overflow-hidden">
+            <img
+              src={s.banner.imageSrc ?? placeholderImage}
+              alt={s.banner.imageAlt ?? ''}
+              class="h-full w-full object-contain p-6"
+            />
+          </span>
+        </button>
+      {/each}
     </div>
+  </div>
+</section>
 
-    <!-- Restaurants Section -->
-    <section class="space-y-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span class="text-amber-500 text-lg">✨</span>
-          <h2 class="text-xl font-bold text-stone-900 tracking-tight">Restaurantes próximos</h2>
-        </div>
-        <a
-          class="inline-flex items-center gap-1 text-xs font-bold text-amber-600 hover:text-amber-700 transition"
-          href="#"
-        >
-          Ver todos
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </a>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {#each restaurants as restaurant}
-          <RestaurantCard {restaurant} />
-        {/each}
-      </div>
-    </section>
+<style>
+  /* ── Section-level spacing knobs ────────────────────── */
+  .restaurants-section {
+    /* gap between the card column and the banner column.
+       Was `gap-10` (40px). Now nearly zero. */
 
-    <!-- Trending Section -->
-    <section class="space-y-4 pt-2 pb-12">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span class="text-amber-500 text-lg">🔥</span>
-          <h2 class="text-xl font-bold text-stone-900 tracking-tight">Em alta na sua região</h2>
-        </div>
-        <a
-          class="inline-flex items-center gap-1 text-xs font-bold text-amber-600 hover:text-amber-700 transition"
-          href="#"
-        >
-          Ver todos
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </a>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {#each trending as item}
-          <RestaurantCard restaurant={item} />
-        {/each}
-      </div>
-    </section>
-  </main>
-</div>
+    /* how much of the right page padding the carousel
+       is allowed to eat. Set to leave only a small sliver. */
+    --banner-right-inset: 0.25rem; /* 4px visible gap on the right edge */
+
+    /* fallback if rendered outside a page that defines this */
+    --page-padding-x-current: 1rem;
+
+    display: grid;
+    gap: var(--section-gap);
+  }
+
+  @media (min-width: 1024px) {
+    .restaurants-section {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .card-slot {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  /* Option B: on desktop, cancel the page's right padding,
+     then re-add a tiny inset so the carousel doesn't touch the edge. */
+  .carousel-bleed {
+    min-width: 0;
+  }
+
+  @media (min-width: 1024px) {
+    .carousel-bleed {
+      margin-right: calc(-1 * var(--page-padding-x-current) + var(--banner-right-inset));
+    }
+
+    /* flatten right rounding so it reads as a bleed, not a floating card */
+    .carousel-bleed :global(.relative.overflow-hidden.rounded-3xl) {
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+  }
+</style>
