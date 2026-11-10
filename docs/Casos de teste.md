@@ -1,25 +1,17 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.2  
+> **Versão:** 0.1.3  
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de Casos de Teste:** 250 Casos Rigorosos  
-> **Conformidade de Schema & UI:** Totalmente alinhado ao DBML do Pratello e aos fluxos de UI/UX do Website.  
-> **Novas Diretrizes de Domínio:**  
-> - **Privacidade do Pedido:** `order` não possui CPF nem chave estrangeira para `account` ou `users`.  
-> - **Ciclo de Vida das Moedas (`user_restaurant`):** O CPF acumula saldo a cada compra (cria o registro se não existir, atualiza se existir). **O resgate exige obrigatoriamente uma conta vinculada (`account_id IS NOT NULL`)**.  
-> - **Enums Padronizados:** Status e tipos em caixa alta (`PENDING`, `COMPLETED`, `LOCAL`, `REMOTE`, `PIX`, etc.).  
-> - **Interatividade Frontend/Website:** Cobertura completa de botões, drawers de carrinho e menu, popovers, campos de login e modais.
-
----
+> **Total de Casos de Teste:** 250 Casos 
 
 ## Resumo Executivo e Metodologia de Teste
 
 A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Modules)** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência, Concorrência e Usabilidade Frontend:
 
-1. **Módulo 1: Identidade, Contas e Gestão (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Contas (`account`), documento flexível (`document` para CPF/CNPJ), papéis e tipos em estabelecimentos (`account_restaurant`), endereço de cobrança (`Address`) e proteção contra injeções.
+1. **Módulo 1: Identidade, Contas e Gestão (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Contas (`account`), documento flexível (`document` para CPF/CNPJ), papéis e tipos em estabelecimentos (`account_restaurant`), endereço de cobrança (`address`) e proteção contra injeções.
 2. **Módulo 2: Estabelecimentos, Filiais e Infraestrutura (TEN)** — Casos `TEN-001` a `TEN-030` (30 testes): Gestão de tenants/marcas (`restaurant` com `name_slug` e `cnpj`), filiais físicas (`physical_restaurant`), telefones de unidade (`restaurant_phone`) e isolamento multi-tenant.
-3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-045` (45 testes): Layout visual (`menu` com `CLASSICO` / `EXPERIENCIA`), categorias, itens (`menu_item`), ficha técnica com medidas (`item_ingredient`), adicionais (`item_side`, `side_option`), combos vinculados (`combo_item`) e promoções (`item_sale`).
-4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 testes): Pedidos desacoplados de CPF com `customer_name` opcional, especialização estrita (`local_order` com `"table"` vs `remote_order` com `"delivery_fee"`), congelamento de valor (`unit_price`), combos com `parent_order_id` e máquina de estados (`PENDING` -> `COMPLETED`).
+3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-045` (45 testes): Layout visual (`menu` com `CLASSICO` / `EXPERIENCIA`), categorias, itens (`menu_item`), ingredientes (`ingredient`), ficha técnica com medidas (`item_ingredient`), adicionais diretos (`item_side`), combos vinculados (`combo_item`) e promoções (`item_sale`).
+4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 testes): Pedidos desacoplados de CPF com `customer_name` opcional, avaliações (`order.review` e `order_item.review`), observações/ingredientes removidos (`order_item.notes`), especialização estrita (`local_order` com `"table"` vs `remote_order` com `"delivery_fee"`), congelamento de valor (`unit_price`), combos com `parent_order_id` e máquina de estados (`PENDING` -> `COMPLETED`).
 5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-030` (30 testes): Tipos de transação (`PIX`, `CREDIT`, `DEBIT`, `CASH`), geração de PIX com `pix_copy_paste`, recibos em JSONB (`receipt`), cupons com restrição composta `(restaurant_id, code)` e **ciclo de moedas (acúmulo anônimo por CPF vs exigência de `account` para resgate)**.
 6. **Módulo 6: Turnos Operacionais, Concorrência e Resiliência (OPS)** — Casos `OPS-001` a `OPS-020` (20 testes): Sessões de turno (`staff_session` com `shift_code` de 6 dígitos e `qr_token`), concorrência em pedidos e estoque, exaustão de pool de conexões e graceful shutdown.
 7. **Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB)** — Casos `WEB-001` a `WEB-050` (50 testes): Carrinho flutuante e gaveta de pedidos (`OrderCart` / `OrderSection`), abertura/fechamento de gaveta, incremento/decremento e remoção de itens, navegação e links no navbar, seleção de endereços (`AddressSection`), fluxo de autenticação e inputs de login (`Auth`), filtros do cardápio, modal de itens com adicionais (`ItemModal`) e finalização de checkout.
@@ -455,10 +447,10 @@ A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Mod
 - **Passos:** PATCH `/restaurants/1/items/5` com `{"is_available": false}`.
 - **Esperado:** HTTP 200 OK. Item não deve mais constar na listagem pública do cardápio.
 
-### CAT-011: Cadastro de Ingrediente Base no Catálogo Global (`Ingredient_item`)
+### CAT-011: Cadastro de Ingrediente Base no Catálogo Global (`ingredient`)
 - **Pré-condição:** Nenhuma.
 - **Passos:** POST `/ingredients` com `{"name": "Orégano Desidratado"}`.
-- **Esperado:** HTTP 201 Created. Registro em `Ingredient_item`.
+- **Esperado:** HTTP 201 Created. Registro na tabela `ingredient`.
 
 ### CAT-012: Composição de Ficha Técnica (`item_ingredient`) com Medida e Quantidade
 - **Pré-condição:** Item ID 5 e Ingrediente ID 2 existentes.
@@ -471,17 +463,17 @@ A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Mod
 - **Passos:** Consultar ficha técnica do produto.
 - **Esperado:** Flag retornada como `false` para que a UI do cliente desabilite a opção de remover.
 
-### CAT-014: Criação de Grupo de Opcionais (`item_side`)
+### CAT-014: Criação de Opcional/Adicional Direto (`item_side`)
 - **Pré-condição:** Item ID 5 existente.
 - **Passos:** POST `/items/5/sides`.
 - **Entradas:** `{"name": "Borda Recheada", "amount": 1, "price": 8.00}`.
-- **Esperado:** HTTP 201 Created na tabela `item_side`.
+- **Esperado:** HTTP 201 Created com registro gravado na tabela `item_side`.
 
-### CAT-015: Associação de Opcional Escolhido ao Pedido (`side_option`)
-- **Pré-condição:** `order_item_id = 20` e `item_side_id = 3` existentes.
-- **Passos:** Inserir seleção do cliente em `side_option`.
-- **Entradas:** `{"order_item_id": 20, "side_id": 3, "additional_price": 8.00}`.
-- **Esperado:** Chave composta `(id, order_item_id, side_id)` gravada.
+### CAT-015: Customização de Pedido com Opcional e Ingrediente Removido (`order_item.notes`)
+- **Pré-condição:** Item ID 5 com adicional `item_side` ("Borda Recheada") e ingrediente removível ("Cebola").
+- **Passos:** Incluir item no pedido enviando customização nas observações de produção do item.
+- **Entradas:** `{"item_id": 5, "quantity": 1, "unit_price": 53.00, "notes": "Borda Recheada (+R$ 8.00); Sem cebola"}`.
+- **Esperado:** HTTP 201 Created. Registro inserido em `order_item` contendo o campo `notes` com as instruções de preparo e opcionais sem necessidade de joins transitórios.
 
 ### CAT-016: Criação de Item do Tipo Combo (`is_combo = true`)
 - **Pré-condição:** Categoria "Combos" existente.
@@ -591,10 +583,10 @@ A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Mod
 - **Passos:** Salvar ingrediente com medida `"gramas"`.
 - **Esperado:** HTTP 201 Created.
 
-### CAT-035: Remoção de Grupo de Opcionais em Cascata
-- **Pré-condição:** Grupo de opcionais cadastrado.
+### CAT-035: Remoção de Adicional (`item_side`)
+- **Pré-condição:** Adicional `item_side` ID 5 cadastrado para o item ID 1.
 - **Passos:** DELETE `/items/1/sides/5`.
-- **Esperado:** HTTP 204 No Content.
+- **Esperado:** HTTP 204 No Content. Registro excluído da tabela `item_side`.
 
 ### CAT-036: Validação de Preço de Opcional em `item_side`
 - **Pré-condição:** Nenhuma.
@@ -715,24 +707,26 @@ A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Mod
 - **Passos:** Submeter pedido com `{"quantity": 0}` ou `{"quantity": -1}`.
 - **Esperado:** HTTP 400 Bad Request `quantity must be at least 1`.
 
-### ORD-009: Pedido com Múltiplas Linhas de Itens
+### ORD-009: Pedido com Múltiplas Linhas de Itens e Instruções de Cozinha (`order_item.notes`)
 - **Pré-condição:** Item A (20.00) e Item B (15.00).
-- **Passos:** Criar pedido com 2x Item A e 1x Item B.
-- **Esperado:** `subtotal = 55.00`, `total = 55.00`.
+- **Passos:** Criar pedido com 2x Item A e 1x Item B com observações `"notes": "Sem cebola; ponto bem passado"`.
+- **Esperado:** `subtotal = 55.00`, `total = 55.00`. O campo `notes` em `order_item` armazena a personalização de preparo e remoção de ingredientes.
 
 ### ORD-010: Bloqueio de Pedido Contendo Produto Indisponível
 - **Pré-condição:** Item com `is_available = false`.
 - **Passos:** Submeter pedido com o item.
 - **Esperado:** HTTP 400 Bad Request `item is currently unavailable`.
 
-### ORD-011: Registro de Avaliação no Item do Pedido (`order_item.review`)
-- **Pré-condição:** Pedido em status `COMPLETED`.
-- **Passos:** POST `/order-items/15/review` com nota 5 (escala de 1 a 5).
-- **Esperado:** HTTP 200 OK. Coluna `review` preenchida com `5`.
+### ORD-011: Avaliação Dupla: Avaliação de Item (`order_item.review`) e Avaliação Geral do Pedido (`order.review`)
+- **Pré-condição:** Pedido ID 100 em status `COMPLETED` contendo o item ID 15.
+- **Passos:**
+  1. POST `/orders/100/review` com `{"review": 5}`.
+  2. POST `/order-items/15/review` com `{"review": 4}`.
+- **Esperado:** HTTP 200 OK em ambos. Coluna `order.review` atualizada para `5` e coluna `order_item.review` atualizada para `4`.
 
-### ORD-012: Validação de Nota de Avaliação Fora da Escala (Ex: 0 ou 6)
-- **Pré-condição:** Nenhuma.
-- **Passos:** Enviar avaliação com nota 7.
+### ORD-012: Validação de Escala de Avaliação (1 a 5) em Pedido e Itens
+- **Pré-condição:** Pedido finalizado.
+- **Passos:** Submeter avaliação com nota 0 ou 7 para `/orders/100/review` ou `/order-items/15/review`.
 - **Esperado:** HTTP 400 Bad Request `review must be between 1 and 5`.
 
 ### ORD-013: Decomposição de Combo com `parent_order_id`

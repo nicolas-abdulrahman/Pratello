@@ -92,10 +92,9 @@ erDiagram
 | `menu` | `(id, restaurant_id)` | `restaurant_id` -> `restaurant.id` | `name`, `style` (`CLASSICO` \| `EXPERIENCIA`), `accent_color`. |
 | `category` | `id` (INT, autoincrement) | `restaurant_id` -> `restaurant.id` | `name` (VARCHAR 100). |
 | `menu_item` | `id` (INT, autoincrement) | `restaurant_id` -> `restaurant.id`<br>`category_id` -> `category.id` | `name`, `description`, `price` (numeric 10,2), `image_url`, `is_available`, `is_combo`. |
-| `Ingredient_item` | `id` (INT, autoincrement) | Referenced by `item_ingredient` | `name` (VARCHAR 255). |
-| `item_ingredient` | `(item_id, ingredient_id)` | `item_id` -> `menu_item.id`<br>`ingredient_id` -> `Ingredient_item.id` | `is_removable`, `quantity` (INT), `measure` (VARCHAR 50). |
-| `item_side` | `id` (INT, autoincrement) | `item_id` -> `menu_item.id` | `name`, `amount`, `price` (numeric). |
-| `side_option` | `(id, order_item_id, side_id)` | `order_item_id` -> `order_item.order_id`<br>`side_id` -> `item_side.id` | `additional_price` (numeric 10,2). |
+| `ingredient` | `id` (INT, autoincrement) | Referenced by `item_ingredient` | `name` (VARCHAR 255). |
+| `item_ingredient` | `(item_id, ingredient_id)` | `item_id` -> `menu_item.id`<br>`ingredient_id` -> `ingredient.id` | `is_removable`, `quantity` (INT), `measure` (VARCHAR 50). |
+| `item_side` | `id` (INT, autoincrement) | `item_id` -> `menu_item.id` | `name`, `amount`, `price` (numeric). Direct add-on/side. |
 | `combo_item` | `(combo_id, included_item_id)` | Both -> `menu_item.id` | `quantity` (default 1). Recipe bundle mapping. |
 | `item_sale` | `item_id` (INT) | 1-to-1 with `menu_item.id` | `discount_type` (`PERCENTAGE` \| `FIXED_AMOUNT`), `value`, `is_active`, `starts_at`, `ends_at`. |
 
@@ -110,10 +109,10 @@ erDiagram
 
 | Table | Primary Key | Foreign Keys & References | Key Columns & Notes |
 | :--- | :--- | :--- | :--- |
-| `order` | `id` (INT, autoincrement) | `physical_restaurant_id` -> `physical_restaurant.id`<br>`coupon_id` -> `coupon.id` (nullable) | **No CPF or user reference**. `order_type` (`LOCAL` \| `REMOTE`), `customer_name`, `subtotal`, `discount_amount`, `total`, `status`. |
+| `order` | `id` (INT, autoincrement) | `physical_restaurant_id` -> `physical_restaurant.id`<br>`coupon_id` -> `coupon.id` (nullable) | **No CPF or user reference**. `order_type` (`LOCAL` \| `REMOTE`), `customer_name`, `subtotal`, `discount_amount`, `total`, `status`, `review` (INT, 1-5). |
 | `local_order` | `id` (INT) | PK -> `order.id` | `table` (INT), `display_order` (INT), `notes`. |
 | `remote_order` | `id` (INT) | PK -> `order.id`<br>`address_id` -> `Address.id` | `contact_phone`, `delivery_fee`, `estimated_minutes`, `delivery_notes`. |
-| `order_item` | `id` (INT, autoincrement) | `order_id` -> `order.id`<br>`item_id` -> `menu_item.id` | `parent_order_id` (combo hierarchy), `quantity`, `unit_price`, `review` (int). |
+| `order_item` | `id` (INT, autoincrement) | `order_id` -> `order.id`<br>`item_id` -> `menu_item.id` | `parent_order_id` (combo hierarchy), `quantity`, `unit_price`, `notes` (TEXT), `review` (INT, 1-5). |
 | `transaction` | `id` (INT, autoincrement) | `order_id` -> `order.id` | `transaction_type` (`PIX`, `CREDIT`, `DEBIT`, `CASH`), `amount`, `notes`, `status`. |
 | `transaction_pix` | `transaction_id` (INT) | PK -> `transaction.id` | `pix_copy_paste`, `qr_code_url`, `expires_at`. |
 | `receipt` | `transaction_id` (INT) | PK -> `transaction.id` | `receipt_code` (UNIQUE), `receipt` (JSONB). |
