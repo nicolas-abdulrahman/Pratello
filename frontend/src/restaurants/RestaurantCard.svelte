@@ -104,7 +104,7 @@
 >
   <!-- Logo panel: gold frame, navy field, thin inner gold rule -->
   <div class="rounded-[1.75rem] bg-[linear-gradient(135deg,#f3dc92,#b98a3a_40%,#f0d487_60%,#a77a31)] p-2.5">
-    <div class="relative flex aspect-[5/4] items-center justify-center overflow-hidden rounded-[1.1rem] bg-[#1c3a5c]">
+    <div class="relative flex aspect-[5/4] items-center justify-center overflow-hidden rounded-[1.1rem] bg-[#FAF4EA]">
       <img
         src={logoSrc}
         alt={logoAlt}
@@ -114,7 +114,7 @@
     </div>
   </div>
 
-  <div class="px-5 pb-5 pt-5">
+  <div class="p-card">
     <h2 class="text-center font-serif text-4xl font-bold tracking-tight text-[#4a2514]">
       {name}
     </h2>

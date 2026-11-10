@@ -1,0 +1,7 @@
+@import "./theme.css";
+@import "./palette.css";
+@import "./base.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

@@ -29,11 +29,13 @@
   else if (path === '/restaurantes') currentView = 'restaurantes';
   else if (path === '/order') currentView = 'order';
   else if (path === '/checkout') currentView = 'checkout';
-  else if (path.startsWith('/r/') || path.startsWith('/restaurant/')) {
+  else if (path === '/home' || path === '/frontpage' || path.startsWith('/r/') || path.startsWith('/restaurant/')) {
     currentView = 'restaurant';
     slug = path.startsWith('/r/')
       ? path.slice(3).replace(/\/$/, '')
-      : path.slice(12).replace(/\/$/, '');
+      : path.startsWith('/restaurant/')
+      ? path.slice(12).replace(/\/$/, '')
+      : '';
   }
 
   function goToHome() {
@@ -71,13 +73,17 @@
       else if (newPath === '/order') currentView = 'order';
       else if (newPath === '/checkout') currentView = 'checkout';
       else if (
+        newPath === '/home' ||
+        newPath === '/frontpage' ||
         newPath.startsWith('/r/') ||
         newPath.startsWith('/restaurant/')
       ) {
         currentView = 'restaurant';
         slug = newPath.startsWith('/r/')
           ? newPath.slice(3).replace(/\/$/, '')
-          : newPath.slice(12).replace(/\/$/, '');
+          : newPath.startsWith('/restaurant/')
+          ? newPath.slice(12).replace(/\/$/, '')
+          : '';
       } else {
         currentView = 'home';
       }
@@ -88,14 +94,19 @@
   // Início / Cardápio / Delivery appear ONLY on /r/... (restaurant detail)
   let showNavLinks = $derived(currentView === 'restaurant');
 
-  // Yellow (brand) navbar theme also only on /r/..., white everywhere else
-  let brandTheme = $derived(currentView === 'restaurant');
+  // Brand theme for RestaurantsPage, restaurantTheme for Restaurant
+  let brandTheme = $derived(currentTheme === 'brand');
 
   // Hide global chrome on full-screen flows
   let hideGlobalUI = $derived(
     currentView === 'login' ||
     currentView === 'order' ||
     currentView === 'checkout'
+  );
+
+  // Dynamic theme: brand for RestaurantsPage, restaurantTheme for Restaurant
+  let currentTheme = $derived(
+    currentView === 'restaurant' ? 'restaurantTheme' : 'brand'
   );
 
   // Redirect to home if the user lands on /login while already authenticated.
@@ -107,7 +118,7 @@
   });
 </script>
 
-<div class="relative w-full min-h-screen bg-[#fff9f5]">
+<div data-theme={currentTheme} class="relative w-full min-h-screen bg-background text-text">
   {#if !hideGlobalUI}
     <Navbar
       {cartItemCount}

@@ -45,7 +45,7 @@
   <div class="pt-4 border-t border-gray-100">
     <div class="text-xs font-semibold text-gray-800 mb-2 flex items-center justify-between">
       <span class="flex items-center gap-1.5">
-        <svg class="w-4 h-4 text-[#ea4519]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="18.5" cy="17.5" r="3.5"/>
           <circle cx="5.5" cy="17.5" r="3.5"/>
           <circle cx="15" cy="5" r="1"/>
@@ -67,12 +67,12 @@
         on:input={formatCep}
         placeholder="00000-000 (somente CEP)"
         maxlength="9"
-        class="flex-1 text-sm text-gray-900 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-[#ea4519] transition placeholder-gray-400 font-medium"
+        class="flex-1 text-sm text-gray-900 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-primary transition placeholder-gray-400 font-medium"
       />
       <button
         type="submit"
         disabled={calculatingShipping || cepInput.replace(/\D/g, '').length < 8}
-        class="px-3.5 py-2 bg-[#ea4519] hover:bg-[#d63c12] text-white text-xs font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shadow-sm"
+        class="px-btn-x py-btn-y bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shadow-sm"
       >
         {calculatingShipping ? 'Calculando...' : 'Calcular'}
       </button>

@@ -66,7 +66,7 @@
           <button 
             onclick={() => paymentMethod = 'card'}
             class="flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all
-            {paymentMethod === 'card' ? 'bg-orange-50 text-[#ea4519] border border-orange-200 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}"
+            {paymentMethod === 'card' ? 'bg-orange-50 text-primary border border-orange-200 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
             Cartão de Crédito
@@ -75,7 +75,7 @@
           <button 
             onclick={() => paymentMethod = 'pix'}
             class="flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all
-            {paymentMethod === 'pix' ? 'bg-orange-50 text-[#ea4519] border border-orange-200 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}"
+            {paymentMethod === 'pix' ? 'bg-orange-50 text-primary border border-orange-200 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             PIX
@@ -99,7 +99,7 @@
                     oninput={formatCardNumber}
                     placeholder="0000 0000 0000 0000" 
                     maxlength="19"
-                    class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-[#ea4519] transition pl-10" 
+                    class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-primary transition pl-10" 
                     required 
                   />
                   <div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -114,7 +114,7 @@
                   type="text" 
                   bind:value={cardName}
                   placeholder="Como está no cartão" 
-                  class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-[#ea4519] transition" 
+                  class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-primary transition" 
                   required 
                 />
               </div>
@@ -128,7 +128,7 @@
                     oninput={formatExpiry}
                     placeholder="MM/AA" 
                     maxlength="5"
-                    class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-[#ea4519] transition" 
+                    class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-primary transition" 
                     required 
                   />
                 </div>
@@ -139,7 +139,7 @@
                     bind:value={cvv}
                     placeholder="123" 
                     maxlength="4"
-                    class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-[#ea4519] transition" 
+                    class="w-full text-sm text-gray-900 px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-primary transition" 
                     required 
                   />
                 </div>
@@ -149,7 +149,7 @@
                 <button 
                   type="submit" 
                   disabled={isProcessing}
-                  class="w-full py-4 bg-[#ea4519] hover:bg-[#d63c12] text-white font-bold text-base rounded-xl shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
+                  class="w-full py-4 bg-primary hover:bg-primary-hover text-white font-bold text-base rounded-xl shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
                 >
                   {#if isProcessing}
                     <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -169,7 +169,7 @@
               <p class="text-sm text-gray-500 mb-6 max-w-sm">Escaneie o código QR abaixo com o aplicativo do seu banco para finalizar o pagamento.</p>
               
               <!-- Fake QR Code Box -->
-              <div class="p-4 bg-white border-2 border-dashed border-[#ea4519]/40 rounded-3xl mb-6 shadow-sm">
+              <div class="p-4 bg-white border-2 border-dashed border-primary/40 rounded-3xl mb-6 shadow-sm">
                 <div class="w-48 h-48 bg-gray-100 rounded-xl flex items-center justify-center relative overflow-hidden">
                   <!-- Fake QR pattern -->
                   <svg class="w-full h-full text-gray-800 opacity-80" viewBox="0 0 100 100" fill="currentColor">
@@ -191,7 +191,7 @@
                   <!-- Center Logo -->
                   <div class="absolute inset-0 flex items-center justify-center">
                     <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md">
-                      <span class="text-[#ea4519] font-black text-lg">P</span>
+                      <span class="text-primary font-black text-lg">P</span>
                     </div>
                   </div>
                 </div>
@@ -206,7 +206,7 @@
               </div>
 
               <div class="w-full max-w-xs">
-                <button class="w-full py-4 bg-[#ea4519] hover:bg-[#d63c12] text-white font-bold text-base rounded-xl shadow-lg shadow-orange-500/30 transition-all">
+                <button class="w-full py-4 bg-primary hover:bg-primary-hover text-white font-bold text-base rounded-xl shadow-lg shadow-orange-500/30 transition-all">
                   Já realizei o pagamento
                 </button>
               </div>
@@ -230,7 +230,7 @@
             {#each cartSummary as item}
               <div class="flex justify-between items-start text-sm">
                 <div class="flex items-start gap-2 text-gray-600">
-                  <span class="font-bold text-[#ea4519]">{item.qty}x</span>
+                  <span class="font-bold text-primary">{item.qty}x</span>
                   <span>{item.name}</span>
                 </div>
                 <span class="font-semibold text-gray-900">R$ {item.price.toFixed(2).replace('.', ',')}</span>
@@ -251,7 +251,7 @@
 
           <div class="flex justify-between items-center pt-4 mt-4 border-t border-gray-100">
             <span class="text-base font-bold text-gray-900">Total</span>
-            <span class="text-2xl font-black text-[#ea4519]">R$ {total.toFixed(2).replace('.', ',')}</span>
+            <span class="text-2xl font-black text-primary">R$ {total.toFixed(2).replace('.', ',')}</span>
           </div>
         </div>
       </div>

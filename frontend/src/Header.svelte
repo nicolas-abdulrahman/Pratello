@@ -32,12 +32,12 @@
       <!-- Left: Brand Logo & Delivery Address -->
       <div class="flex items-center space-x-8">
         <!-- Brand Logo -->
-        <a class="flex items-center gap-2 group text-[#ea4519]" href="/">
+        <a class="flex items-center gap-2 group text-primary" href="/">
           <div class="flex items-center">
-            <svg class="w-8 h-8 fill-current text-[#ea4519]" viewBox="0 0 24 24">
+            <svg class="w-8 h-8 fill-current text-primary" viewBox="0 0 24 24">
               <path d="M11 2a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm-4 0a1 1 0 0 1 1 1v5a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3a1 1 0 1 1 2 0v5a4 4 0 0 1-3 3.874V21a1 1 0 0 1-2 0v-9.126A4 4 0 0 1 6 8V3a1 1 0 0 1 1-1zm10 0a1 1 0 0 1 1 1v6a3 3 0 0 1-2 2.83V21a1 1 0 0 1-2 0v-9.17A3 3 0 0 1 17 9V3a1 1 0 0 1 1-1z"></path>
             </svg>
-            <span class="text-2xl font-black tracking-tight text-[#ea4519] ml-1">pratello<span class="text-3xl font-black leading-none">.</span></span>
+            <span class="text-2xl font-black tracking-tight text-primary ml-1">pratello<span class="text-3xl font-black leading-none">.</span></span>
           </div>
         </a>
 
@@ -47,7 +47,7 @@
           type="button"
           class="hidden md:flex items-center text-left py-1.5 px-3 rounded-xl hover:bg-gray-50 transition border border-transparent hover:border-gray-200"
         >
-          <svg class="w-4 h-4 text-[#ea4519] mr-2.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg class="w-4 h-4 text-primary mr-2.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
             <circle cx="12" cy="10" r="3"/>
           </svg>
@@ -115,21 +115,21 @@
     <div class="flex items-center justify-between border-t border-gray-100 text-sm">
       <nav class="flex space-x-8">
         <a
-          class="py-3 font-semibold transition {activeNav === 'Restaurantes' ? 'text-[#ea4519] border-b-2 border-[#ea4519]' : 'text-gray-500 hover:text-gray-900'}"
+          class="py-3 font-semibold transition {activeNav === 'Restaurantes' ? 'text-primary border-b-2 border-primary' : 'text-gray-500 hover:text-gray-900'}"
           href="/"
           on:click={() => activeNav = 'Restaurantes'}
         >
           Restaurantes
         </a>
         <a
-          class="py-3 font-medium transition {activeNav === 'Ofertas' ? 'text-[#ea4519] border-b-2 border-[#ea4519]' : 'text-gray-500 hover:text-gray-900'}"
+          class="py-3 font-medium transition {activeNav === 'Ofertas' ? 'text-primary border-b-2 border-primary' : 'text-gray-500 hover:text-gray-900'}"
           href="#ofertas"
           on:click={() => activeNav = 'Ofertas'}
         >
           Ofertas
         </a>
         <a
-          class="py-3 font-medium transition {activeNav === 'Favoritos' ? 'text-[#ea4519] border-b-2 border-[#ea4519]' : 'text-gray-500 hover:text-gray-900'}"
+          class="py-3 font-medium transition {activeNav === 'Favoritos' ? 'text-primary border-b-2 border-primary' : 'text-gray-500 hover:text-gray-900'}"
           href="#favoritos"
           on:click={() => activeNav = 'Favoritos'}
         >

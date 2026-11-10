@@ -26,7 +26,7 @@
       {#each cart as item}
         <div class="flex items-center justify-between text-sm">
           <div class="flex items-center gap-2">
-            <span class="font-bold text-[#ea4519]">{item.quantity}x</span>
+            <span class="font-bold text-primary">{item.quantity}x</span>
             <span class="font-medium text-gray-800">{item.name}</span>
           </div>
           <span class="font-semibold text-gray-900">R${(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
@@ -39,7 +39,7 @@
     {#if cartTotal >= restaurant.minOrder}
       <button 
         onclick={onCheckout}
-        class="w-full py-3 bg-[#ea4519] hover:bg-[#d63c12] text-white font-semibold text-sm rounded-xl shadow-md text-center transition"
+        class="w-full py-btn-y bg-primary hover:bg-primary-hover text-white font-semibold text-sm rounded-xl shadow-md text-center transition"
       >
         Finalizar Pedido (R${cartTotal.toFixed(2).replace('.', ',')})
       </button>

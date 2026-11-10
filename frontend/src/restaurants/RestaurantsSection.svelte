@@ -132,23 +132,23 @@
           aria-label={s.banner.title}
           onclick={() => (main ? onselect?.(s.banner) : go(s.d))}
           class="absolute inset-x-0 flex overflow-hidden rounded-3xl text-left shadow-lg {main
-            ? 'bg-[#1c3a5c] text-[#f3dc92]'
-            : 'bg-[#1f5a45] text-[#f7efe0]'}"
+            ? 'bg-gradient-to-br from-[#FAF3E0] via-[#FAF4EA] to-[#F7EFE2] text-[#2A2017] border border-[#EDE2D2]'
+            : 'bg-[#F4EDE2] text-[#2A2017] border border-[#E6DDCE]'}"
           style="top: {box.top}px; height: {box.h}px; opacity: {box.opacity}; z-index: {box.z}; transition: top {transitionMs}ms ease-in-out, height {transitionMs}ms ease-in-out, opacity {transitionMs}ms ease-in-out;"
         >
           <span class="relative z-10 flex w-[58%] min-w-0 flex-col justify-center {main ? 'gap-3 p-8' : 'gap-1 p-5'}">
             {#if main && s.banner.eyebrow}
-              <span class="text-xs font-semibold uppercase tracking-wider text-[#d4a84f]">{s.banner.eyebrow}</span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-amber-800">{s.banner.eyebrow}</span>
             {/if}
-            <span class="block font-serif font-bold leading-tight {main ? 'text-3xl' : 'text-xl'}">
+            <span class="block font-serif font-bold leading-tight text-stone-900 {main ? 'text-3xl' : 'text-xl'}">
               {s.banner.title}
             </span>
             {#if main && s.banner.subtitle}
-              <span class="block text-sm text-[#e9e1cf]">{s.banner.subtitle}</span>
+              <span class="block text-sm text-stone-600">{s.banner.subtitle}</span>
             {/if}
             {#if main}
               <span
-                class="mt-2 inline-flex w-fit items-center rounded-full bg-[#d4a84f] px-5 py-2.5 text-sm font-semibold text-[#1c3a5c]"
+                class="mt-2 inline-flex w-fit items-center rounded-full bg-amber-500 hover:bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-amber-500/20"
               >
                 {s.banner.cta ?? 'Saiba mais'}
               </span>
@@ -171,16 +171,6 @@
 <style>
   /* ── Section-level spacing knobs ────────────────────── */
   .restaurants-section {
-    /* gap between the card column and the banner column.
-       Was `gap-10` (40px). Now nearly zero. */
-
-    /* how much of the right page padding the carousel
-       is allowed to eat. Set to leave only a small sliver. */
-    --banner-right-inset: 0.25rem; /* 4px visible gap on the right edge */
-
-    /* fallback if rendered outside a page that defines this */
-    --page-padding-x-current: 1rem;
-
     display: grid;
     gap: var(--section-gap);
   }

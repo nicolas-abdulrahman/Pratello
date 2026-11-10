@@ -205,7 +205,7 @@
 
 <Header cartCount={totalCartItems} />
 
-<main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 font-sans text-gray-800">
+<main data-theme="restaurantTheme" class="flex-1 max-w-7xl w-full mx-auto px-page-x py-page-y font-sans text-gray-800">
   <!-- Breadcrumb Navigation -->
   <nav class="flex items-center text-xs font-medium text-gray-500 mb-5 gap-2">
     <a class="hover:text-gray-800 transition" href="#restaurants">Restaurantes</a>
@@ -241,7 +241,7 @@
   <section class="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-6">
     <div class="flex items-start gap-4">
       <!-- Badge Avatar -->
-      <div class="w-16 h-16 rounded-xl bg-[#faebe6] border border-[#f5d5cc] flex flex-col items-center justify-center text-[#ea4519] flex-shrink-0 shadow-sm">
+      <div class="w-16 h-16 rounded-xl bg-primary-soft border border-border flex flex-col items-center justify-center text-primary flex-shrink-0 shadow-sm">
         <span class="text-xl font-bold tracking-tight">{restaurant.badge}</span>
         <span class="text-[9px] uppercase tracking-wider font-semibold opacity-80">{restaurant.est}</span>
       </div>
@@ -327,7 +327,7 @@
           {#each categories as category}
             <button
               on:click={() => activeCategory = category}
-              class="text-xs font-semibold pb-3 -mb-[1px] transition {activeCategory === category ? 'text-[#ea4519] border-b-2 border-[#ea4519]' : 'text-gray-500 hover:text-gray-900'}"
+              class="text-xs font-semibold pb-3 -mb-[1px] transition {activeCategory === category ? 'text-primary border-b-2 border-primary' : 'text-gray-500 hover:text-gray-900'}"
             >
               {category}
             </button>
@@ -337,7 +337,7 @@
           <input
             bind:value={searchQuery}
             placeholder="Buscar pratos..."
-            class="text-xs pl-7 pr-2 py-1 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-[#ea4519]"
+            class="text-xs pl-7 pr-2 py-1 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-primary"
           />
           <svg class="w-3.5 h-3.5 text-gray-400 absolute left-2 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"/>
@@ -363,7 +363,7 @@
                     {dish.tag}
                   </span>
                 {/if}
-                <h3 class="font-bold text-sm text-gray-900 group-hover:text-[#ea4519] transition">
+                <h3 class="font-bold text-sm text-gray-900 group-hover:text-primary transition">
                   {dish.name}
                 </h3>
                 <p class="text-xs text-gray-500 line-clamp-2 mt-1">
@@ -378,7 +378,7 @@
               <img alt={dish.name} class="w-full h-full object-cover" src={dish.imageUrl} />
               <button
                 on:click|stopPropagation={() => handleAddToCart(dish)}
-                class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-[#ea4519] hover:text-white transition"
+                class="absolute bottom-2 right-2 w-7 h-7 bg-white text-gray-800 rounded-full flex items-center justify-center shadow-md hover:bg-primary hover:text-white transition"
                 title="Adicionar ao pedido"
               >
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -419,7 +419,7 @@
             <div class="bg-[#e4e2dd] rounded"></div>
             <div class="bg-[#dad7d0] rounded flex items-center justify-center">
               <!-- Location Pin Marker -->
-              <div class="w-8 h-8 rounded-full bg-[#ea4519] flex items-center justify-center shadow-lg border-2 border-white">
+              <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-lg border-2 border-white">
                 <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 2v6a3 3 0 0 1-3 3 3 3 0 0 1-3-3V2"/>
                   <path d="M15 2v20"/>
@@ -441,7 +441,7 @@
         <div>
           <div class="text-xs font-bold text-gray-900">{restaurant.address}</div>
           <div class="text-[11px] text-gray-500 mt-0.5">{restaurant.neighborhood} · {restaurant.distance} away</div>
-          <a class="inline-flex items-center gap-1 text-xs font-bold text-[#ea4519] hover:underline mt-2" href="#directions">
+          <a class="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline mt-2" href="#directions">
             <span>Obter rotas</span>
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="7" y1="17" x2="17" y2="7"/>
@@ -454,7 +454,7 @@
         <div class="mt-4 pt-4 border-t border-gray-100">
           <div class="text-xs font-semibold text-gray-800 mb-2 flex items-center justify-between">
             <span class="flex items-center gap-1.5">
-              <svg class="w-4 h-4 text-[#ea4519]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="18.5" cy="17.5" r="3.5"/>
                 <circle cx="5.5" cy="17.5" r="3.5"/>
                 <circle cx="15" cy="5" r="1"/>
@@ -476,12 +476,12 @@
               on:input={formatCep}
               placeholder="00000-000 (somente CEP)"
               maxlength="9"
-              class="flex-1 text-xs px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-[#ea4519] transition placeholder-gray-400"
+              class="flex-1 text-xs px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-primary transition placeholder-gray-400"
             />
             <button
               type="submit"
               disabled={calculatingShipping || cepInput.replace(/\D/g, '').length < 8}
-              class="px-3.5 py-2 bg-[#ea4519] hover:bg-[#d63c12] text-white text-xs font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shadow-sm"
+              class="px-3.5 py-2 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shadow-sm"
             >
               {calculatingShipping ? 'Calculando...' : 'Calcular'}
             </button>
@@ -513,13 +513,13 @@
         <div class="grid grid-cols-2 p-1 bg-gray-100/90 rounded-xl mb-6">
           <button
             on:click={() => deliveryMode = 'delivery'}
-            class="py-1.5 text-xs font-semibold rounded-lg transition {deliveryMode === 'delivery' ? 'bg-white text-[#ea4519] shadow-sm' : 'text-gray-500 hover:text-gray-800'}"
+            class="py-1.5 text-xs font-semibold rounded-lg transition {deliveryMode === 'delivery' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'}"
           >
             Entrega
           </button>
           <button
             on:click={() => deliveryMode = 'pickup'}
-            class="py-1.5 text-xs font-semibold rounded-lg transition {deliveryMode === 'pickup' ? 'bg-white text-[#ea4519] shadow-sm' : 'text-gray-500 hover:text-gray-800'}"
+            class="py-1.5 text-xs font-semibold rounded-lg transition {deliveryMode === 'pickup' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'}"
           >
             Pickup
           </button>
@@ -546,7 +546,7 @@
             {#each cart as item}
               <div class="flex items-center justify-between text-xs">
                 <div class="flex items-center gap-2">
-                  <span class="font-bold text-[#ea4519]">{item.quantity}x</span>
+                  <span class="font-bold text-primary">{item.quantity}x</span>
                   <span class="font-medium text-gray-800">{item.name}</span>
                 </div>
                 <span class="font-semibold text-gray-900">${(item.price * item.quantity).toFixed(2)}</span>
@@ -558,7 +558,7 @@
         <!-- Minimum checkout button -->
         <div class="mt-4 pt-4 border-t border-gray-100">
           {#if cartTotal >= restaurant.minOrder}
-            <button class="w-full py-3 bg-[#ea4519] hover:bg-[#d63c12] text-white font-semibold text-xs rounded-xl shadow-md text-center transition">
+            <button class="w-full py-3 bg-primary hover:bg-primary-hover text-white font-semibold text-xs rounded-xl shadow-md text-center transition">
               Finalizar Pedido (${cartTotal.toFixed(2)})
             </button>
           {:else}

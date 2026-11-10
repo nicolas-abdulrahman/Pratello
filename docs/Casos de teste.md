@@ -1,18 +1,20 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
+> **Versão:** 0.1.2  
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de Casos de Teste:** 200 Casos Rigorosos  
-> **Conformidade de Schema:** Totalmente alinhado ao DBML atual do Pratello.  
+> **Total de Casos de Teste:** 250 Casos Rigorosos  
+> **Conformidade de Schema & UI:** Totalmente alinhado ao DBML do Pratello e aos fluxos de UI/UX do Website.  
 > **Novas Diretrizes de Domínio:**  
 > - **Privacidade do Pedido:** `order` não possui CPF nem chave estrangeira para `account` ou `users`.  
 > - **Ciclo de Vida das Moedas (`user_restaurant`):** O CPF acumula saldo a cada compra (cria o registro se não existir, atualiza se existir). **O resgate exige obrigatoriamente uma conta vinculada (`account_id IS NOT NULL`)**.  
-> - **Enums Padronizados:** Status e tipos em caixa alta (`PENDING`, `COMPLETED`, `LOCAL`, `REMOTE`, `PIX`, etc.).
+> - **Enums Padronizados:** Status e tipos em caixa alta (`PENDING`, `COMPLETED`, `LOCAL`, `REMOTE`, `PIX`, etc.).  
+> - **Interatividade Frontend/Website:** Cobertura completa de botões, drawers de carrinho e menu, popovers, campos de login e modais.
 
 ---
 
 ## Resumo Executivo e Metodologia de Teste
 
-A suíte está estruturada em **6 Módulos Coesos de Alta Profundidade (Deep Modules)** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência e Concorrência:
+A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Modules)** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência, Concorrência e Usabilidade Frontend:
 
 1. **Módulo 1: Identidade, Contas e Gestão (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Contas (`account`), documento flexível (`document` para CPF/CNPJ), papéis e tipos em estabelecimentos (`account_restaurant`), endereço de cobrança (`Address`) e proteção contra injeções.
 2. **Módulo 2: Estabelecimentos, Filiais e Infraestrutura (TEN)** — Casos `TEN-001` a `TEN-030` (30 testes): Gestão de tenants/marcas (`restaurant` com `name_slug` e `cnpj`), filiais físicas (`physical_restaurant`), telefones de unidade (`restaurant_phone`) e isolamento multi-tenant.
@@ -20,6 +22,7 @@ A suíte está estruturada em **6 Módulos Coesos de Alta Profundidade (Deep Mod
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 testes): Pedidos desacoplados de CPF com `customer_name` opcional, especialização estrita (`local_order` com `"table"` vs `remote_order` com `"delivery_fee"`), congelamento de valor (`unit_price`), combos com `parent_order_id` e máquina de estados (`PENDING` -> `COMPLETED`).
 5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-030` (30 testes): Tipos de transação (`PIX`, `CREDIT`, `DEBIT`, `CASH`), geração de PIX com `pix_copy_paste`, recibos em JSONB (`receipt`), cupons com restrição composta `(restaurant_id, code)` e **ciclo de moedas (acúmulo anônimo por CPF vs exigência de `account` para resgate)**.
 6. **Módulo 6: Turnos Operacionais, Concorrência e Resiliência (OPS)** — Casos `OPS-001` a `OPS-020` (20 testes): Sessões de turno (`staff_session` com `shift_code` de 6 dígitos e `qr_token`), concorrência em pedidos e estoque, exaustão de pool de conexões e graceful shutdown.
+7. **Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB)** — Casos `WEB-001` a `WEB-050` (50 testes): Carrinho flutuante e gaveta de pedidos (`OrderCart` / `OrderSection`), abertura/fechamento de gaveta, incremento/decremento e remoção de itens, navegação e links no navbar, seleção de endereços (`AddressSection`), fluxo de autenticação e inputs de login (`Auth`), filtros do cardápio, modal de itens com adicionais (`ItemModal`) e finalização de checkout.
 
 ---
 
@@ -1136,3 +1139,257 @@ A suíte está estruturada em **6 Módulos Coesos de Alta Profundidade (Deep Mod
 - **Pré-condição:** Ciclo completo: Pedido local -> Pagamento PIX -> Acúmulo de moedas em `user_restaurant` por CPF.
 - **Passos:** Submeter requisições do fluxo completo.
 - **Esperado:** Todas as operações comitadas com sucesso e integridade total dos saldos e comprovantes gerados.
+
+---
+
+## Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB-001 a WEB-050)
+
+### WEB-001: Clique no Botão Flutuante do Carrinho para Abertura da Gaveta Lateral
+- **Pré-condição:** Usuário na página inicial ou na página do restaurante com o botão de carrinho flutuante visível.
+- **Passos:** Clicar no botão flutuante de carrinho (com ícone e badge de contagem).
+- **Esperado:** A gaveta lateral do carrinho desliza a partir da borda direita da tela (`translate-x-0`), exibindo o cabeçalho "Seu Pedido" e a lista de itens/estado vazio.
+
+### WEB-002: Fechamento do Carrinho pelo Botão 'X' no Cabeçalho da Gaveta
+- **Pré-condição:** Gaveta lateral do carrinho aberta na tela.
+- **Passos:** Clicar no botão 'X' (fechar) localizado no canto superior direito do cabeçalho da gaveta.
+- **Esperado:** A gaveta lateral do carrinho recolhe suavemente para fora da tela (`translate-x-full`) e o foco retorna à página.
+
+### WEB-003: Fechamento da Gaveta do Carrinho ao Clicar no Backdrop / Fundo Escurecido
+- **Pré-condição:** Gaveta lateral do carrinho aberta com backdrop escurecido cobrindo a área da página.
+- **Passos:** Clicar em qualquer ponto da área externa à gaveta (no elemento backdrop).
+- **Esperado:** A gaveta fecha imediatamente e o backdrop desaparece com transição de opacidade.
+
+### WEB-004: Fechamento da Gaveta do Carrinho pela Tecla 'Escape'
+- **Pré-condição:** Gaveta lateral do carrinho aberta e com foco ativo.
+- **Passos:** Pressionar a tecla `Escape` no teclado físico.
+- **Esperado:** O evento de teclado é capturado e a gaveta do carrinho é fechada.
+
+### WEB-005: Renderização de Estado Vazio do Carrinho ("Seu carrinho está vazio")
+- **Pré-condição:** Nenhum item adicionado à store do carrinho (`cart.items.length === 0`).
+- **Passos:** Abrir a gaveta do carrinho.
+- **Esperado:** Exibição do ícone ilustrativo de carrinho vazio, texto "Seu carrinho está vazio", instrução "Adicione itens para continuar" e valor total em "R$ 0,00".
+
+### WEB-006: Adição de Item Simples ao Carrinho e Atualização do Badge do Navbar
+- **Pré-condição:** Usuário visualizando itens do cardápio.
+- **Passos:** Clicar no botão de adicionar de um item do cardápio.
+- **Esperado:** O contador numérico no badge do carrinho é incrementado para 1 e o item passa a constar na listagem do carrinho com seu nome e preço unitário.
+
+### WEB-007: Botão de Incremento (+) de Quantidade de Item no Carrinho
+- **Pré-condição:** Item presente no carrinho com quantidade inicial = 1.
+- **Passos:** Abrir o carrinho e clicar no botão com ícone de soma (+) na linha do item.
+- **Esperado:** A quantidade do item é atualizada para 2, o subtotal do item é recalculado e o valor total do carrinho é atualizado.
+
+### WEB-008: Botão de Decremento (-) de Quantidade de Item no Carrinho
+- **Pré-condição:** Item presente no carrinho com quantidade = 2.
+- **Passos:** Abrir o carrinho e clicar no botão com ícone de subtração (-) na linha do item.
+- **Esperado:** A quantidade do item diminui para 1 e o total do carrinho é recalculado de acordo.
+
+### WEB-009: Remoção Automática do Item ao Decrementar Quantidade de 1 para 0
+- **Pré-condição:** Item presente no carrinho com quantidade = 1.
+- **Passos:** Clicar no botão (-) do item.
+- **Esperado:** O item é completamente removido da lista do carrinho. Se não houver outros itens, a visualização alterna para o estado vazio.
+
+### WEB-010: Atualização Reativa do Total do Pedido (R$) ao Alterar Quantidades
+- **Pré-condição:** Dois itens de valores distintos no carrinho.
+- **Passos:** Alterar a quantidade de um dos itens repetidas vezes.
+- **Esperado:** O display de valor "Total" na base do carrinho reflete imediatamente a soma exata dos itens multiplicados por suas respectivas quantidades sem arredondamentos errados.
+
+### WEB-011: Botão "No Restaurante" na Gaveta do Carrinho (Modalidade Salão)
+- **Pré-condição:** Carrinho com ao menos 1 item adicionado.
+- **Passos:** Clicar no botão "No Restaurante" no rodapé do carrinho.
+- **Esperado:** O tipo de pedido é configurado como `LOCAL` e a aplicação avança para a etapa de seleção/inserção de mesa ou comanda.
+
+### WEB-012: Botão "Deliver" / "Entrega" na Gaveta do Carrinho (Modalidade Delivery)
+- **Pré-condição:** Carrinho com ao menos 1 item adicionado.
+- **Passos:** Clicar no botão "Deliver" no rodapé do carrinho.
+- **Esperado:** O tipo de pedido é configurado como `REMOTE` e a aplicação abre os campos de taxa de entrega e endereço.
+
+### WEB-013: Botão "Finalizar Pedido" / Redirecionamento para Fluxo de Checkout
+- **Pré-condição:** Carrinho preenchido e modalidade selecionada.
+- **Passos:** Clicar no botão principal de finalizar pedido.
+- **Esperado:** A gaveta fecha e o usuário é redirecionado para a tela de revisão e pagamento (`/order` ou `/checkout`).
+
+### WEB-014: Persistência do Estado do Carrinho Entre Navegações de Páginas
+- **Pré-condição:** Itens adicionados ao carrinho na página do restaurante.
+- **Passos:** Navegar para a lista de restaurantes e depois retornar à página do restaurante.
+- **Esperado:** O contador do carrinho permanece inalterado e os itens continuam preservados na memória/store.
+
+### WEB-015: Clique no Logo Pratello na Barra de Navegação (Navegação para Início)
+- **Pré-condição:** Usuário em qualquer página interna ou detalhe de restaurante.
+- **Passos:** Clicar no logotipo Pratello posicionado na barra de navegação superior.
+- **Esperado:** A rota corrente é alterada para a página principal (`/` ou `/home`), restaurando a visualização inicial.
+
+### WEB-016: Clique no Link "Início" no Navbar
+- **Pré-condição:** Links de navegação desktop visíveis no navbar.
+- **Passos:** Clicar no link textual "Início".
+- **Esperado:** Redirecionamento instantâneo para a página inicial com indicador visual de link ativo.
+
+### WEB-017: Clique no Link "Cardápio" no Navbar
+- **Pré-condição:** Usuário na visualização de um restaurante com link "Cardápio" visível.
+- **Passos:** Clicar no link "Cardápio".
+- **Esperado:** A página realiza scroll suave ou navega até a seção do catálogo/cardápio do restaurante.
+
+### WEB-018: Clique no Link "Delivery" no Navbar
+- **Pré-condição:** Usuário em qualquer página da aplicação.
+- **Passos:** Clicar no link "Delivery" no navbar.
+- **Esperado:** A página carrega a listagem geral de estabelecimentos disponíveis para entrega (`/restaurantes`).
+
+### WEB-019: Botão de Menu Mobile (Hambúrguer) em Telas Menores
+- **Pré-condição:** Visualização em viewport de dispositivo móvel (< 768px).
+- **Passos:** Clicar no ícone de menu hambúrguer no canto do navbar.
+- **Esperado:** O menu mobile expande exibindo os links de navegação acessíveis por toque.
+
+### WEB-020: Chip de Endereço no Navbar: Abertura do Popover de Seleção
+- **Pré-condição:** Navbar visível com o chip de endereço corrente (ex: "Jaboatão dos Guararapes, PE").
+- **Passos:** Clicar no botão do chip de endereço.
+- **Esperado:** O popover `AddressSection` abre abaixo do chip e a seta indicadora rotaciona 180 graus.
+
+### WEB-021: Popover de Endereço: Seleção de Endereço Existente e Fechamento
+- **Pré-condição:** Popover de endereço aberto exibindo lista de endereços previamente cadastrados.
+- **Passos:** Clicar em um dos endereços sugeridos na lista.
+- **Esperado:** O endereço selecionado passa a ser exibido no chip do navbar, o popover fecha e as taxas de entrega são recalculadas.
+
+### WEB-022: Popover de Endereço: Botão "Adicionar novo endereço"
+- **Pré-condição:** Popover de endereço aberto.
+- **Passos:** Clicar no botão "Adicionar novo endereço" ou botão de ação de CEP.
+- **Esperado:** Exibição do formulário de entrada com campos para CEP, rua, bairro e número.
+
+### WEB-023: Popover de Endereço: Fechamento ao Clicar Fora (Click Outside)
+- **Pré-condição:** Popover de endereço aberto.
+- **Passos:** Clicar em qualquer elemento externo ao popover no corpo da página.
+- **Esperado:** O popover de endereços fecha imediatamente sem alterar o endereço ativo.
+
+### WEB-024: Botão "Entrar" no Navbar: Abertura do Menu Lateral de Acesso
+- **Pré-condição:** Usuário anônimo (não logado). Botão "Entrar" estilizado em laranja suave visível no navbar.
+- **Passos:** Clicar no botão "Entrar".
+- **Esperado:** A sidebar lateral esquerda de autenticação (`LeftSidebarSection`) abre com animação suave, exibindo as opções de login.
+
+### WEB-025: Menu Lateral de Acesso: Botão Fechar (X)
+- **Pré-condição:** Menu lateral de acesso aberto na tela.
+- **Passos:** Clicar no botão com ícone de fechar (X) no cabeçalho da sidebar.
+- **Esperado:** A sidebar esquerda é recolhida e a navegação da página volta ao estado interativo.
+
+### WEB-026: Menu Lateral de Acesso: Opção "Entrar como Cliente"
+- **Pré-condição:** Menu lateral de acesso aberto.
+- **Passos:** Clicar no botão "Entrar como Cliente".
+- **Esperado:** A sidebar fecha e o usuário é redirecionado para a tela de login (`/login`) em modo cliente.
+
+### WEB-027: Menu Lateral de Acesso: Opção "Entrar como Funcionário"
+- **Pré-condição:** Menu lateral de acesso aberto.
+- **Passos:** Clicar no botão "Entrar como Funcionário".
+- **Esperado:** A sidebar fecha e o usuário é direcionado para a interface de autenticação do time operacional/PDV.
+
+### WEB-028: Tela de Login: Foco e Digitação no Campo de Input "E-mail"
+- **Pré-condição:** Usuário na página de login (`Auth.svelte`).
+- **Passos:** Clicar no campo de texto de e-mail e digitar `cliente@exemplo.com`.
+- **Esperado:** O campo recebe foco com realce de borda visual e o texto digitado é refletido com precisão sem travamentos.
+
+### WEB-029: Tela de Login: Validação de E-mail com Formato Inválido ao Submeter
+- **Pré-condição:** Campo de e-mail preenchido com string sem formato válido (ex: `cliente_invalido`).
+- **Passos:** Clicar no botão "Entrar".
+- **Esperado:** O formulário impede a submissão e o navegador ou componente apresenta mensagem de validação de formato.
+
+### WEB-030: Tela de Login: Foco e Digitação no Campo de Input "Senha"
+- **Pré-condição:** Usuário no formulário de login.
+- **Passos:** Clicar no campo de senha e digitar uma sequência de caracteres.
+- **Esperado:** Os caracteres são ocultados por padrão através de caracteres de máscara (tipo `password`).
+
+### WEB-031: Tela de Login: Botão de Alternar Visibilidade da Senha (Ícone Olho)
+- **Pré-condição:** Campo de senha preenchido.
+- **Passos:** Clicar no botão com ícone de olho posicionado na extremidade direita do campo.
+- **Esperado:** O tipo do input alterna de `password` para `text`, revelando a senha em texto legível; ao clicar novamente, volta a mascarar.
+
+### WEB-032: Tela de Login: Checkbox Interativo "Lembrar de mim"
+- **Pré-condição:** Checkbox "Lembrar de mim" desmarcado por padrão.
+- **Passos:** Clicar no checkbox ou no rótulo de texto adjacente.
+- **Esperado:** O checkbox alterna para o estado marcado (checked) com feedback visual de preenchimento.
+
+### WEB-033: Tela de Login: Link "Esqueceu sua senha?"
+- **Pré-condição:** Usuário visualizando o bloco de login.
+- **Passos:** Clicar no link de recuperação de acesso "Esqueceu sua senha?".
+- **Esperado:** Redirecionamento para a página ou modal de redefinição de credenciais de acesso.
+
+### WEB-034: Tela de Login: Botão Submit "Entrar" com Campos Vazios
+- **Pré-condição:** Campos de e-mail e senha sem nenhum caractere preenchido.
+- **Passos:** Clicar no botão principal de submissão "Entrar".
+- **Esperado:** O envio da requisição é abortado e os campos obrigatórios vazios são destacados visualmente.
+
+### WEB-035: Tela de Login: Botão Submit "Entrar" com Credenciais Válidas
+- **Pré-condição:** E-mail e senha válidos inseridos nos respectivos campos.
+- **Passos:** Clicar no botão "Entrar" ou pressionar `Enter`.
+- **Esperado:** O botão exibe estado de carregamento, a autenticação é concluída e o usuário é redirecionado à página inicial com o avatar logado no navbar.
+
+### WEB-036: Tela de Login: Link "Crie uma conta" / "Novo aqui?"
+- **Pré-condição:** Usuário na página de login.
+- **Passos:** Clicar no link "Crie uma conta".
+- **Esperado:** Navegação para o formulário de cadastro de novos usuários com campos adicionais de nome e documento.
+
+### WEB-037: Perfil Autenticado no Navbar: Exibição de Iniciais e Nome
+- **Pré-condição:** Sessão iniciada com conta autenticada (ex: "Gregório Silva").
+- **Passos:** Observar a área esquerda do navbar.
+- **Esperado:** O botão "Entrar" é substituído pelo chip de perfil contendo a inicial "G", saudação "Olá Gregório" e indicador de status verde.
+
+### WEB-038: Menu Lateral do Usuário Autenticado: Botão "Fazer logout"
+- **Pré-condição:** Usuário logado na aplicação.
+- **Passos:** Clicar no chip de perfil para abrir a sidebar e em seguida clicar no botão "Fazer logout".
+- **Esperado:** A sessão é limpa na store e no storage, a sidebar fecha e o navbar retorna ao estado inicial deslogado com o botão "Entrar".
+
+### WEB-039: Campo de Busca de Restaurantes: Digitação e Filtragem em Tempo Real
+- **Pré-condição:** Usuário na página principal de restaurantes (`RestaurantsPage`).
+- **Passos:** Clicar no campo de busca com ícone de lupa e digitar "Burger".
+- **Esperado:** A lista de restaurantes é filtrada imediatamente, exibindo apenas estabelecimentos cujo nome ou especialidade contenham o termo.
+
+### WEB-040: Campo de Busca de Restaurantes: Limpeza do Texto de Pesquisa
+- **Pré-condição:** Campo de pesquisa preenchido com filtro ativo.
+- **Passos:** Apagar o texto da busca por completo.
+- **Esperado:** A grade de restaurantes restaura a exibição de todos os estabelecimentos disponíveis na região.
+
+### WEB-041: Botão "Explorar restaurantes" no Hero Banner da Página Principal
+- **Pré-condição:** Usuário no topo da página principal.
+- **Passos:** Clicar no botão de destaque com gradiente âmbar "Explorar restaurantes".
+- **Esperado:** A visualização desliza com scroll animado suave até a âncora da seção de restaurantes próximos (`#restaurantes-proximos`).
+
+### WEB-042: Carrossel de Destaques: Botões de Navegação Próximo/Anterior
+- **Pré-condição:** Carrossel de banners de restaurantes em exibição.
+- **Passos:** Clicar nas setas ou indicadores laterais de avanço e retrocesso de slide.
+- **Esperado:** O banner ativo transiciona suavemente apresentando o próximo destaque promocional com título e chamada para ação atualizados.
+
+### WEB-043: Card de Restaurante: Clique para Acessar o Estabelecimento
+- **Pré-condição:** Lista de restaurantes visível na página.
+- **Passos:** Clicar sobre o card de um restaurante específico (ex: "Pizzaria Bela Vista").
+- **Esperado:** A rota muda para a visualização do restaurante (`/r/:id`), carregando seu cardápio próprio e layout temático.
+
+### WEB-044: Filtros de Categoria no Cardápio (Combos, Pratos, Bebidas, Sobremesas)
+- **Pré-condição:** Usuário visualizando a página de cardápio do restaurante.
+- **Passos:** Clicar no botão de categoria de filtro "Bebidas".
+- **Esperado:** O botão da categoria assume estado ativo selecionado e a lista apresenta apenas os itens associados à categoria clicada.
+
+### WEB-045: Card de Item/Prato: Clique para Abrir o Modal de Detalhes
+- **Pré-condição:** Itens visíveis no catálogo.
+- **Passos:** Clicar no card de um item do cardápio (ex: "Hambúrguer Especial").
+- **Esperado:** O modal `ItemModal` abre em sobreposição central, exibindo foto ampliada, descrição completa, preço e opções de customização.
+
+### WEB-046: Modal do Item: Seleção e Desseleção de Opcionais/Adicionais
+- **Pré-condição:** Modal de item aberto contendo grupo de adicionais (ex: "Bacon Extra", "Molho Especial").
+- **Passos:** Clicar no seletor de um opcional e em seguida clicar novamente.
+- **Esperado:** O item adicional é marcado e o preço base no botão de adicionar sofre acréscimo proporcional; ao desmarcar, o valor decrementa de volta ao base.
+
+### WEB-047: Modal do Item: Botões de Controle de Quantidade (+ e -)
+- **Pré-condição:** Modal de item aberto com quantidade padrão igual a 1.
+- **Passos:** Clicar no botão (+) duas vezes e depois no botão (-) uma vez.
+- **Esperado:** O mostrador numérico de quantidade avança para 3 e depois recua para 2, recalculando o valor total daquele prato no modal.
+
+### WEB-048: Modal do Item: Botão "Adicionar ao Pedido"
+- **Pré-condição:** Modal de item aberto com quantidade e opcionais configurados.
+- **Passos:** Clicar no botão principal de ação "Adicionar ao Pedido (R$ XX,XX)".
+- **Esperado:** O prato com todas as suas personalizações é incluído na store do carrinho, o modal se fecha automaticamente e o carrinho é atualizado.
+
+### WEB-049: Modal do Item: Fechamento via Botão de Fechar ou Clique no Fundo
+- **Pré-condição:** Modal de item aberto na tela.
+- **Passos:** Clicar no botão (X) do modal ou no backdrop escurecido ao redor da caixa de diálogo.
+- **Esperado:** O modal é dispensado sem adicionar nada ao carrinho e mantendo os itens anteriores intactos.
+
+### WEB-050: Checkout: Seleção de Método de Pagamento e Botão de Confirmação
+- **Pré-condição:** Usuário na página de checkout com itens no carrinho.
+- **Passos:** Clicar no botão do método de pagamento desejado (PIX, Cartão ou Dinheiro) e clicar em "Confirmar Pedido".
+- **Esperado:** O método escolhido recebe realce ativo de seleção e o clique no botão de confirmação dispara a criação do pedido, abrindo a tela de acompanhamento e comprovante.

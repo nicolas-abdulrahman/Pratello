@@ -59,7 +59,7 @@
   <title>Pratello - Delivery de Comida</title>
 </svelte:head>
 
-<main class="page min-h-screen bg-[#FAF6F0] py-6 text-[#2A2017] antialiased">
+<main data-theme="brand" class="page min-h-screen bg-background py-6 text-text antialiased">
   <div class="page-container mx-auto flex max-w-7xl flex-col gap-12">
     <!-- Hero -->
     <section
@@ -189,27 +189,3 @@
     </section>
   </div>
 </main>
-
-<style>
-  /* ── Page-level spacing knobs ───────────────────────── */
-  .page {
-    /* side padding — was px-6 / lg:px-10, now smaller */
-    --page-padding-x: 1rem;   /* 16px on mobile */
-  }
-
-  .page-container {
-    padding-inline: var(--page-padding-x);
-  }
-
-  @media (min-width: 1024px) {
-    .page {
-      --page-padding-x: 1.5rem; /* 24px on desktop — reduced from 40px */
-    }
-  }
-
-  /* expose to children (RestaurantsSection bleeds past this) */
-  .page,
-  .page-container {
-    --page-padding-x-current: var(--page-padding-x);
-  }
-</style>
