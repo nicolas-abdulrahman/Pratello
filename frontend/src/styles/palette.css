@@ -34,9 +34,13 @@
   --color-restaurant-text-muted: #6b7280;
   --color-restaurant-border: #f3f4f6;
 
-  /* ── Navbar tokens (warm darker orange inspired by footer #f05a1f) ── */
-  --color-navbar-bg: #fcd9c9;
-  --color-navbar-border: #f8bfa8;
+  /* ── Navbar tokens: restaurant theme softer orange #e57442, brand theme soft banana #FAF4EA ── */
+  --color-brand-navbar-bg: #FAF4EA;
+  --color-brand-navbar-border: #EDE2D2;
+  --color-restaurant-navbar-bg: #e57442;
+  --color-restaurant-navbar-border: #cf6333;
+  --color-navbar-bg: #FAF4EA;
+  --color-navbar-border: #EDE2D2;
 }
 
 :root {
@@ -72,8 +76,13 @@
   --color-restaurant-text-muted: #6b7280;
   --color-restaurant-border: #f3f4f6;
 
-  --color-navbar-bg: #fcd9c9;
-  --color-navbar-border: #f8bfa8;
+  --color-brand-navbar-bg: #FAF4EA;
+  --color-brand-navbar-border: #EDE2D2;
+  --color-restaurant-navbar-bg: #e57442;
+  --color-restaurant-navbar-border: #cf6333;
+
+  --color-navbar-bg: #FAF4EA;
+  --color-navbar-border: #EDE2D2;
 }
 
 /* Brand theme override: soft banana background for RestaurantsPage */
@@ -89,8 +98,8 @@
   --color-border: var(--color-brand-border);
   --color-accent: var(--color-brand-accent);
   --color-accent-hover: var(--color-brand-accent-hover);
-  --color-navbar-bg: #fcd9c9;
-  --color-navbar-border: #f8bfa8;
+  --color-navbar-bg: #FAF4EA;
+  --color-navbar-border: #EDE2D2;
 }
 
 /* Restaurant theme override: white bg with orange for FrontPage / Restaurant */
@@ -106,6 +115,6 @@
   --color-border: var(--color-restaurant-border);
   --color-accent: var(--color-restaurant-primary);
   --color-accent-hover: var(--color-restaurant-primary-hover);
-  --color-navbar-bg: #fcd9c9;
-  --color-navbar-border: #f8bfa8;
+  --color-navbar-bg: #e57442;
+  --color-navbar-border: #cf6333;
 }

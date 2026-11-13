@@ -22,7 +22,7 @@
 <nav
   class="w-full border-b border-navbar-border bg-navbar-bg shadow-xs relative z-10 transition-colors"
 >
-  <div class="max-w-7xl mx-auto px-4 md:px-8 h-20 flex items-center justify-between gap-4">
+  <div class="max-w-7xl mx-auto px-4 md:px-8 h-20 flex items-center justify-between gap-4 relative">
     <div class="flex items-center gap-3">
       {#if $account.isLoggedIn}
         <button
@@ -48,7 +48,9 @@
       {:else}
         <button
           onclick={() => (isSidebarOpen = true)}
-          class="flex items-center gap-2 font-bold transition px-4 py-2 rounded-full bg-primary-soft hover:bg-white text-primary border border-primary/25 shadow-2xs hover:shadow-xs"
+          class={brand
+            ? "flex items-center gap-2 font-bold transition px-4 py-2 rounded-full bg-primary-soft hover:bg-white text-primary border border-primary/25 shadow-2xs hover:shadow-xs"
+            : "flex items-center gap-2 font-bold transition px-4 py-2 rounded-full bg-white hover:bg-white/90 text-[#f05a1f] border border-white/40 shadow-2xs hover:shadow-xs"}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
@@ -89,10 +91,28 @@
     </div>
 
     {#if showNavLinks}
-      <div class="hidden md:flex items-center gap-8 font-medium">
-        <a href="/" onclick={(e) => { e.preventDefault(); onGoHome(); }} class="text-stone-700 hover:text-primary transition-colors">Início</a>
-        <a href="/cardapio" onclick={(e) => { e.preventDefault(); onOpenMenu(); }} class="text-stone-700 hover:text-primary transition-colors cursor-pointer">Cardápio</a>
-        <a href="/restaurantes" onclick={(e) => { e.preventDefault(); onGoRestaurantes(); }} class="text-stone-700 hover:text-primary transition-colors cursor-pointer">Delivery</a>
+      <div class="hidden md:flex items-center gap-8 font-medium absolute left-1/2 -translate-x-1/2">
+        <a
+          href="/"
+          onclick={(e) => { e.preventDefault(); onGoHome(); }}
+          class={brand ? "text-stone-700 hover:text-primary transition-colors" : "text-white/95 hover:text-white transition-colors font-semibold drop-shadow-xs"}
+        >
+          Início
+        </a>
+        <a
+          href="/cardapio"
+          onclick={(e) => { e.preventDefault(); onOpenMenu(); }}
+          class={brand ? "text-stone-700 hover:text-primary transition-colors cursor-pointer" : "text-white/95 hover:text-white transition-colors cursor-pointer font-semibold drop-shadow-xs"}
+        >
+          Cardápio
+        </a>
+        <a
+          href="/restaurantes"
+          onclick={(e) => { e.preventDefault(); onGoRestaurantes(); }}
+          class={brand ? "text-stone-700 hover:text-primary transition-colors cursor-pointer" : "text-white/95 hover:text-white transition-colors cursor-pointer font-semibold drop-shadow-xs"}
+        >
+          Delivery
+        </a>
       </div>
     {/if}
   </div>
