@@ -1,8 +1,4 @@
 <script>
-  export let restaurant = { minOrder: 25.00 };
-  export let cart = [
-    { id: 1, name: "Combo Casal", price: 55.90, quantity: 1 }
-  ];
   
   // Prop to notify the parent section to open the form
   export let onCheckout = () => {};

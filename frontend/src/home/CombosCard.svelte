@@ -1,5 +1,5 @@
 <script>
-  import { addToCart } from '../lib/stores/cart.js';
+  import { add_item} from '../lib/stores/Cart';
   import ReviewProp from '../review/ReviewProp.svelte';
 
   let {
@@ -29,7 +29,7 @@
     isPopping = true;
     justAdded = true;
 
-    addToCart({
+    add_item({
       name: title,
       icon: image,
       price: parsePrice(price),

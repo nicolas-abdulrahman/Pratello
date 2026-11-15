@@ -6,6 +6,7 @@
 
   let {
     cartItemCount = 0,
+    slug = '',
     onOpenMenu = () => {},
     onGoHome = () => {},
     onGoRestaurantes = () => {},
@@ -70,7 +71,6 @@
           <svg class="w-4 h-4 text-primary" fill="currentColor" viewBox="0 0 20 20">
             <path clip-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" fill-rule="evenodd" />
           </svg>
-          <!-- 👇 MUST have the $ prefix -->
           <span class="font-bold">{$addressLabel}</span>
           <svg
             class={`w-3.5 h-3.5 text-stone-500 transition-transform ${isAddressOpen ? 'rotate-180' : ''}`}
@@ -93,21 +93,21 @@
     {#if showNavLinks}
       <div class="hidden md:flex items-center gap-8 font-medium absolute left-1/2 -translate-x-1/2">
         <a
-          href="/"
+          href={slug ? `/r/${slug}` : '/'}
           onclick={(e) => { e.preventDefault(); onGoHome(); }}
           class={brand ? "text-stone-700 hover:text-primary transition-colors" : "text-white/95 hover:text-white transition-colors font-semibold drop-shadow-xs"}
         >
           Início
         </a>
         <a
-          href="/cardapio"
+          href={slug ? `/r/${slug}/cardapio` : '/cardapio'}
           onclick={(e) => { e.preventDefault(); onOpenMenu(); }}
           class={brand ? "text-stone-700 hover:text-primary transition-colors cursor-pointer" : "text-white/95 hover:text-white transition-colors cursor-pointer font-semibold drop-shadow-xs"}
         >
           Cardápio
         </a>
         <a
-          href="/restaurantes"
+          href={slug ? `/r/${slug}/delivery` : '/restaurantes'}
           onclick={(e) => { e.preventDefault(); onGoRestaurantes(); }}
           class={brand ? "text-stone-700 hover:text-primary transition-colors cursor-pointer" : "text-white/95 hover:text-white transition-colors cursor-pointer font-semibold drop-shadow-xs"}
         >

@@ -111,7 +111,7 @@
     <RestaurantCard {...cardProps} />
   </div>
 
-  <div class="carousel-bleed">
+  <div class="carousel-slot">
     <div
       class="relative min-w-0 flex-1 overflow-hidden rounded-3xl"
       style="height: {height}px"
@@ -147,9 +147,7 @@
               <span class="block text-sm text-stone-600">{s.banner.subtitle}</span>
             {/if}
             {#if main}
-              <span
-                class="mt-2 inline-flex w-fit items-center rounded-full bg-amber-500 hover:bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-amber-500/20"
-              >
+              <span class="mt-2 inline-flex w-fit items-center rounded-full bg-amber-500 hover:bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-amber-500/20">
                 {s.banner.cta ?? 'Saiba mais'}
               </span>
             {/if}
@@ -169,40 +167,30 @@
 </section>
 
 <style>
-  /* ── Section-level spacing knobs ────────────────────── */
+  /* Load theme tokens (colors, spacing, breakpoints) so @apply resolves
+     semantic classes like bg-primary, border-border, gap-space-sm. */
+  @reference "../app.css";
+
   .restaurants-section {
-    display: grid;
-    gap: var(--section-gap);
+    @apply grid w-full items-center gap-space-sm;
+    margin: 0;
+    padding: 0;
   }
 
+  /* Responsive grid template — kept in a plain @media because @apply
+     doesn't accept `lg:` variants (Tailwind v4 edge case). */
   @media (min-width: 1024px) {
     .restaurants-section {
-      grid-template-columns: 1fr 1fr;
+      @apply grid-cols-[minmax(auto,25rem)_1fr];
     }
   }
 
   .card-slot {
-    display: flex;
-    width: 100%;
-    justify-content: center;
-    min-width: 0;
+    @apply flex w-full min-w-0 justify-start;
   }
 
-  /* Option B: on desktop, cancel the page's right padding,
-     then re-add a tiny inset so the carousel doesn't touch the edge. */
-  .carousel-bleed {
-    min-width: 0;
-  }
-
-  @media (min-width: 1024px) {
-    .carousel-bleed {
-      margin-right: calc(-1 * var(--page-padding-x-current) + var(--banner-right-inset));
-    }
-
-    /* flatten right rounding so it reads as a bleed, not a floating card */
-    .carousel-bleed :global(.relative.overflow-hidden.rounded-3xl) {
-      border-top-right-radius: 0;
-      border-bottom-right-radius: 0;
-    }
+  .carousel-slot {
+    @apply w-full min-w-0;
+    margin: 0;
   }
 </style>

@@ -1,6 +1,6 @@
 <script>
   import ReviewProp from '../review/ReviewProp.svelte';
-  import { addToCart } from '../lib/stores/cart.js';
+  import { add_item} from '../lib/stores/Cart';
 
   let { 
     isOpen = false, 
@@ -59,7 +59,7 @@
     if (isAdding) return;
     isAdding = true;
 
-    addToCart({
+    add_item({
       name: item.title,
       icon: item.image,
       price: parsePrice(item.newPrice),

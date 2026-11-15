@@ -1,4 +1,4 @@
-<script lang="ts">
+<script lang="ts">
   import { onMount } from 'svelte';
 
   type TagIcon = 'chef' | 'pin' | 'leaf';
@@ -15,9 +15,9 @@
     tags?: Tag[];
     ctaLabel?: string;
     onmenu?: () => void;
+    scrollSpeed?: number; // px per second
   };
 
-  // Generic placeholder logo. Transparent background, so it sits on the navy panel.
   const placeholderLogo =
     'data:image/svg+xml;utf8,' +
     encodeURIComponent(
@@ -54,118 +54,94 @@
     images = defaultImages,
     tags = defaultTags,
     ctaLabel = 'Ver Cardápio',
-    onmenu
+    onmenu,
+    scrollSpeed = 20
   }: Props = $props();
 
-  let scroller: HTMLUListElement | undefined = $state();
-  let active = $state(0);
+  let track = $state<HTMLDivElement>();
+  let rafId: number | undefined;
+  let offset = 0;
+  let lastTime = 0;
+  let oneSetWidth = 0;
 
-  function centerOn(i: number, behavior: ScrollBehavior = 'auto') {
-    const list = scroller;
-    const item = list?.children[i] as HTMLElement | undefined;
-    if (!list || !item) return;
-    const listBox = list.getBoundingClientRect();
-    const itemBox = item.getBoundingClientRect();
-    const itemCenter = itemBox.left - listBox.left + list.scrollLeft + itemBox.width / 2;
-    list.scrollTo({ left: itemCenter - list.clientWidth / 2, behavior });
+  const loopedImages = $derived([...images, ...images, ...images]);
+
+  function measure() {
+    if (!track) return;
+    const first = track.children[0] as HTMLElement | undefined;
+    const secondSetStart = track.children[images.length] as HTMLElement | undefined;
+    oneSetWidth = first && secondSetStart ? secondSetStart.offsetLeft - first.offsetLeft : 0;
   }
 
-  function onScroll() {
-    if (!scroller) return;
-    const listBox = scroller.getBoundingClientRect();
-    const mid = listBox.left + listBox.width / 2;
-    let best = 0;
-    let bestDist = Infinity;
-    Array.from(scroller.children).forEach((el, i) => {
-      const box = el.getBoundingClientRect();
-      const dist = Math.abs(box.left + box.width / 2 - mid);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = i;
-      }
-    });
-    active = best;
-  }
-
-  function select(i: number) {
-    active = i;
-    centerOn(i, 'smooth');
+  function tick(time: number) {
+    if (oneSetWidth > 0) {
+      const dt = lastTime ? (time - lastTime) / 1000 : 0;
+      offset = (offset + scrollSpeed * dt) % oneSetWidth;
+      if (track) track.style.transform = `translateX(-${offset}px)`;
+    }
+    lastTime = time;
+    rafId = requestAnimationFrame(tick);
   }
 
   onMount(() => {
-    const start = Math.floor(images.length / 2);
-    active = start;
-    centerOn(start);
+    measure();
+    rafId = requestAnimationFrame(tick);
+
+    const ro = new ResizeObserver(measure);
+    if (track) ro.observe(track);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   });
 </script>
 
-<article
-  class="w-full max-w-[25rem] overflow-hidden rounded-3xl bg-[#faf3e3] shadow-[0_20px_45px_-15px_rgba(60,40,20,0.35)]"
->
-  <!-- Logo panel: gold frame, navy field, thin inner gold rule -->
-  <div class="rounded-[1.75rem] bg-[linear-gradient(135deg,#f3dc92,#b98a3a_40%,#f0d487_60%,#a77a31)] p-2.5">
-    <div class="relative flex aspect-[5/4] items-center justify-center overflow-hidden rounded-[1.1rem] bg-[#FAF4EA]">
-      <img
-        src={logoSrc}
-        alt={logoAlt}
-        class="h-40 w-auto object-contain p-4"
-      />
-      <div class="pointer-events-none absolute inset-4 rounded-[0.9rem] border border-[#d4a84f]"></div>
+<article class="restaurant-card">
+  <!-- Logo panel -->
+  <div class="logo-frame">
+    <div class="logo-inner">
+      <img src={logoSrc} alt={logoAlt} class="h-40 w-auto object-contain p-4" />
+      <div class="logo-inner-rule"></div>
     </div>
   </div>
 
   <div class="p-card">
-    <h2 class="text-center font-serif text-4xl font-bold tracking-tight text-[#4a2514]">
-      {name}
-    </h2>
+    <h2 class="restaurant-name">{name}</h2>
 
     <!-- Meta row -->
-    <div class="mt-2 flex items-center justify-center gap-4 text-[#4a2514]">
+    <div class="restaurant-meta">
       <span class="flex items-center gap-1.5">
-        <svg viewBox="0 0 24 24" class="h-5 w-5 fill-[#f0b232]" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="star-icon h-5 w-5" aria-hidden="true">
           <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
         </svg>
         <span class="text-base font-medium">{rating.toFixed(1)}</span>
       </span>
-      <span class="h-5 w-px bg-[#4a2514]/20"></span>
-      <span class="flex items-center gap-1.5 text-[#9a5532]">
+      <span class="meta-divider"></span>
+      <span class="clock-icon flex items-center gap-1.5">
         <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
         </svg>
-        <span class="text-base font-medium text-[#4a2514]">{deliveryTime}</span>
+        <span class="text-base font-medium text-inherit">{deliveryTime}</span>
       </span>
     </div>
 
-    <!-- Carousel: bleeds to the card edges, centered item is larger -->
-    <div class="-mx-5 mt-5">
-      <ul
-        bind:this={scroller}
-        onscroll={onScroll}
-        class="flex snap-x snap-mandatory items-center gap-2.5 overflow-x-auto px-[calc(50%-3rem)] py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        aria-label="Dish gallery"
-      >
-        {#each images as img, i}
-          <li class="shrink-0 snap-center">
-            <button
-              type="button"
-              onclick={() => select(i)}
-              aria-label={`Show ${img.alt}`}
-              aria-current={i === active ? 'true' : undefined}
-              class="block overflow-hidden rounded-xl transition-[width,height,opacity,box-shadow] duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a5532]
-                {i === active ? 'h-[7.5rem] w-[7.5rem] shadow-lg' : 'h-24 w-24 opacity-85'}"
-            >
-              <img src={img.src} alt={img.alt} loading="lazy" class="h-full w-full object-cover" />
-            </button>
-          </li>
+    <!-- Carousel — always scrolling, never pauses -->
+    <div class="carousel-mask -mx-5 mt-5">
+      <div bind:this={track} class="carousel-track">
+        {#each loopedImages as img, i (i)}
+          <div class="carousel-item">
+            <img src={img.src} alt={img.alt} loading="lazy" class="h-full w-full object-cover" />
+          </div>
         {/each}
-      </ul>
+      </div>
     </div>
 
     <!-- Tags -->
     <ul class="mt-4 flex items-center justify-center gap-2.5">
       {#each tags as tag}
-        <li class="flex h-7 items-center gap-1.5 rounded-full bg-[#f1e4cc] px-2.5 text-xs font-medium text-[#6b3a22]">
+        <li class="tag-chip">
           <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             {#if tag.icon === 'chef'}
               <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z" />
@@ -183,12 +159,83 @@
       {/each}
     </ul>
 
-    <button
-      type="button"
-      onclick={() => onmenu?.()}
-      class="mt-5 w-full rounded-full bg-[#9a5532] py-3.5 text-base font-medium text-[#fdf6ea] shadow-md transition-colors hover:bg-[#84452a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a5532] active:scale-[0.99]"
-    >
+    <button type="button" onclick={() => onmenu?.()} class="cta-menu">
       {ctaLabel}
     </button>
   </div>
 </article>
+
+<style>
+  @reference "../app.css";
+
+  .restaurant-card {
+    --rc-gold-light:  #f3dc92;
+    --rc-gold:        #b98a3a;
+    --rc-gold-dark:   #a77a31;
+    --rc-gold-accent: #d4a84f;
+    --rc-cream:       #FAF4EA;
+    --rc-cream-dark:  #faf3e3;
+    --rc-brown:       #4a2514;
+    --rc-brown-mid:   #6b3a22;
+    --rc-orange:      #9a5532;
+    --rc-orange-dark: #84452a;
+    --rc-star:        #f0b232;
+    --rc-tag-bg:      #f1e4cc;
+
+    @apply w-full max-w-[25rem] overflow-hidden rounded-3xl;
+    background-color: var(--rc-cream-dark);
+    box-shadow: 0 20px 45px -15px rgba(60, 40, 20, 0.35);
+  }
+
+  .logo-frame {
+    @apply rounded-[1.75rem] p-2.5;
+    background: linear-gradient(135deg, var(--rc-gold-light), var(--rc-gold) 40%, var(--rc-gold-dark) 60%, var(--rc-gold));
+  }
+  .logo-inner {
+    @apply relative flex aspect-[5/4] items-center justify-center overflow-hidden rounded-[1.1rem];
+    background-color: var(--rc-cream);
+  }
+  .logo-inner-rule {
+    @apply pointer-events-none absolute inset-4 rounded-[0.9rem] border;
+    border-color: var(--rc-gold-accent);
+  }
+
+  .restaurant-name {
+    @apply text-center font-serif text-4xl font-bold tracking-tight;
+    color: var(--rc-brown);
+  }
+  .restaurant-meta {
+    @apply mt-2 flex items-center justify-center gap-4;
+    color: var(--rc-brown);
+  }
+  .star-icon  { fill: var(--rc-star); }
+  .clock-icon { color: var(--rc-orange); }
+  .meta-divider {
+    @apply h-5 w-px;
+    background-color: color-mix(in oklab, var(--rc-brown) 20%, transparent);
+  }
+
+  .carousel-mask { @apply overflow-hidden; }
+  .carousel-track {
+    @apply flex gap-3 py-2 will-change-transform;
+    transform: translateX(0);
+  }
+  .carousel-item {
+    @apply h-28 w-28 shrink-0 overflow-hidden rounded-xl shadow-md;
+  }
+
+  .tag-chip {
+    @apply flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium;
+    background-color: var(--rc-tag-bg);
+    color: var(--rc-brown-mid);
+  }
+
+  .cta-menu {
+    @apply mt-5 w-full rounded-full py-3.5 text-base font-medium shadow-md transition-colors;
+    background-color: var(--rc-orange);
+    color: #fdf6ea;
+  }
+  .cta-menu:hover         { background-color: var(--rc-orange-dark); }
+  .cta-menu:active        { transform: scale(0.99); }
+  .cta-menu:focus-visible { outline: 2px solid var(--rc-orange); outline-offset: 2px; }
+</style>

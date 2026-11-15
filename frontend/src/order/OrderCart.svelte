@@ -1,5 +1,5 @@
 <script>
-  import { cart } from '../lib/stores/cart.js';
+  import { cart } from '../lib/stores/Cart';
   import OrderSidebar from './OrderSidebar.svelte';
 
   // Accept the function from App.svelte
