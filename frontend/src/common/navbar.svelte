@@ -1,7 +1,7 @@
 <script lang="ts">
   import LeftSidebarSection from './LeftSidebarSection.svelte';
   import AddressSection from './AddressSection.svelte';
-  import { account } from '../lib/stores/account.js';
+  import { account } from '../lib/stores/account';
   import { addressLabel } from '../lib/stores/address.js';
 
   let {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { account } from '../lib/stores/account.js';
+  import { account } from '../lib/stores/account';
 
   let {
     open = false,

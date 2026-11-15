@@ -58,6 +58,28 @@ func setupRouter(apps ...*App) *http.ServeMux {
 	return mux
 }
 
+func migrateSchema(db *sql.DB) error {
+	if db == nil {
+		return nil
+	}
+	queries := []string{
+		`ALTER TABLE "account" ADD COLUMN IF NOT EXISTS "name" VARCHAR(500);`,
+		`ALTER TABLE "account" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+		`ALTER TABLE "physical_restaurant" ADD COLUMN IF NOT EXISTS "name" VARCHAR(500) NOT NULL DEFAULT '';`,
+		`ALTER TABLE "physical_restaurant" ADD COLUMN IF NOT EXISTS "owner_cnpj" VARCHAR(500) NOT NULL DEFAULT '';`,
+		`ALTER TABLE "physical_restaurant" ADD COLUMN IF NOT EXISTS "terminal_pin" VARCHAR(6) NOT NULL DEFAULT '123456';`,
+		`ALTER TABLE "physical_restaurant" ADD COLUMN IF NOT EXISTS "pin_updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+		`ALTER TABLE "physical_restaurant" ADD COLUMN IF NOT EXISTS "failed_pin_attempts" INT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE "physical_restaurant" ADD COLUMN IF NOT EXISTS "locked_until" TIMESTAMPTZ;`,
+	}
+	for _, q := range queries {
+		if _, err := db.Exec(q); err != nil {
+			log.Printf("Migration notice: query %q failed: %v", q, err)
+		}
+	}
+	return nil
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -79,6 +101,12 @@ func main() {
 		}
 	} else {
 		log.Println("DATABASE_URL not set; running with flexible in-memory store")
+	}
+
+	if db != nil {
+		if err := migrateSchema(db); err != nil {
+			log.Printf("Warning: schema migration had errors: %v\n", err)
+		}
 	}
 
 	app := NewApp(db)
