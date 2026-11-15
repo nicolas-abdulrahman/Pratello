@@ -104,6 +104,63 @@ paths:
               schema:
                 $ref: '#/components/schemas/Sysadmin'
 
+  /restaurants/{slug}/owners:
+    get:
+      summary: Listar proprietários da entidade lógica
+      tags: [Autenticação & Contas]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+      responses:
+        '200':
+          description: Lista de proprietários vinculados à entidade
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Owner'
+    post:
+      summary: Vincular ou promover conta como proprietário (OWNER)
+      tags: [Autenticação & Contas]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account_id]
+              properties:
+                account_id:
+                  type: integer
+      responses:
+        '201':
+          description: Proprietário associado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Owner'
+
+  /restaurants/{slug}/owners/{account_id}:
+    delete:
+      summary: Revogar proprietário (protegido contra orfandade da entidade)
+      tags: [Autenticação & Contas]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Proprietário desvinculado com sucesso
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /restaurants/{slug}/managers:
     get:
       summary: Listar gerentes do restaurante
@@ -331,7 +388,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/PhysicalRestaurant'
     post:
-      summary: Cadastrar filial física com endereço
+      summary: Cadastrar filial física com validação de CNPJ da filial e do proprietário
       tags: [Filiais & Unidades Físicas]
       parameters:
         - $ref: '#/components/parameters/RestaurantSlug'
@@ -343,11 +400,13 @@ paths:
               $ref: '#/components/schemas/CreateBranchRequest'
       responses:
         '201':
-          description: Filial criada
+          description: Filial criada com sucesso
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PhysicalRestaurant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /restaurants/{slug}/branches/{branch_id}:
     get:
@@ -469,6 +528,147 @@ paths:
       responses:
         '204':
           description: Telefone removido com sucesso
+
+  /restaurants/{slug}/branches/{branch_id}/employees:
+    get:
+      summary: Listar colaboradores de RH da filial
+      tags: [RH & Colaboradores]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+        - $ref: '#/components/parameters/BranchId'
+      responses:
+        '200':
+          description: Lista de colaboradores cadastrados no RH da filial
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Employee'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      summary: Cadastrar colaborador no RH da filial
+      description: Registro prévio de colaborador de RH. Não gera automaticamente conta de acesso ou login.
+      tags: [RH & Colaboradores]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+        - $ref: '#/components/parameters/BranchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEmployeeRequest'
+      responses:
+        '201':
+          description: Colaborador cadastrado no RH com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /restaurants/{slug}/branches/{branch_id}/employees/{employee_id}/invite:
+    post:
+      summary: Vincular conta global existente ao colaborador via convite
+      tags: [RH & Colaboradores]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+        - $ref: '#/components/parameters/BranchId'
+        - name: employee_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteEmployeeRequest'
+      responses:
+        '200':
+          description: Colaborador vinculado à conta com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /restaurants/{slug}/branches/{branch_id}/terminal/session:
+    post:
+      summary: Abrir sessão de terminal de salão via PIN compartilhado de 6 dígitos
+      description: >
+        Abre sessão de turno operacional (8 horas) atrelada exclusivamente ao terminal de salão (device_id).
+        Protegida contra força bruta por rate-limiting: 5 tentativas inválidas consecutivas causam lockout de 15 minutos.
+        Acesso de baixo privilégio restrito ao turno e à filial.
+      tags: [Terminais de Salão & Operação]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+        - $ref: '#/components/parameters/BranchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminalSessionRequest'
+      responses:
+        '200':
+          description: Sessão de terminal aberta com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerminalSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: PIN inválido ou terminal bloqueado temporariamente por tentativas excessivas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /restaurants/{slug}/branches/{branch_id}/terminal/orders:
+    get:
+      summary: Visualizar pedidos da filial no terminal de salão
+      description: >
+        Acesso exclusivo a pedidos da filial em sessão ativa de terminal.
+        Exige envio do token no cabeçalho Authorization Bearer e identificador do dispositivo no cabeçalho X-Device-Id.
+        Não concede acesso financeiro, relatórios ou dados pessoais (PII).
+      tags: [Terminais de Salão & Operação]
+      parameters:
+        - $ref: '#/components/parameters/RestaurantSlug'
+        - $ref: '#/components/parameters/BranchId'
+        - name: X-Device-Id
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Identificador único do dispositivo/terminal físico
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de pedidos da filial física
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ==========================================
   # CATÁLOGO, CARDÁPIO E ITENS
@@ -1495,8 +1695,18 @@ components:
         created_at:
           type: string
           format: date-time
+    # 3. owner
+    Owner:
+      type: object
+      properties:
+        id:
+          type: integer
+        restaurant_slug:
+          type: string
+        account_id:
+          type: integer
 
-    # 3. manager
+    # 4. manager
     Manager:
       type: object
       properties:
@@ -1576,19 +1786,35 @@ components:
       properties:
         id:
           type: integer
+        restaurant_id:
+          type: integer
         restaurant_slug:
           type: string
         name:
           type: string
+        cnpj:
+          type: string
+          example: '12.345.678/0001-90'
+        owner_cnpj:
+          type: string
+          example: '98.765.432/0001-10'
         address:
           $ref: '#/components/schemas/Address'
 
     CreateBranchRequest:
       type: object
-      required: [name, address]
+      required: [name, cnpj, owner_cnpj, address]
       properties:
         name:
           type: string
+        cnpj:
+          type: string
+          description: CNPJ da filial física
+          example: '12.345.678/0001-90'
+        owner_cnpj:
+          type: string
+          description: CNPJ do proprietário para verificação contra a entidade registrada
+          example: '98.765.432/0001-10'
         address:
           $ref: '#/components/schemas/Address'
 
@@ -1632,6 +1858,79 @@ components:
           type: string
         phone_type:
           type: string
+
+    # 8b. employee (registro de RH)
+    Employee:
+      type: object
+      properties:
+        id:
+          type: integer
+        physical_restaurant_id:
+          type: integer
+        name:
+          type: string
+        cpf:
+          type: string
+        position:
+          type: string
+        account_id:
+          type: integer
+          nullable: true
+          description: ID da conta global vinculada após convite (opcional)
+        created_at:
+          type: string
+          format: date-time
+
+    CreateEmployeeRequest:
+      type: object
+      required: [name, cpf, position]
+      properties:
+        name:
+          type: string
+          example: "Carlos Alberto"
+        cpf:
+          type: string
+          example: "123.456.789-00"
+        position:
+          type: string
+          example: "Cozinheiro"
+
+    InviteEmployeeRequest:
+      type: object
+      required: [account_id]
+      properties:
+        account_id:
+          type: integer
+          description: ID da conta global a vincular ao colaborador
+          example: 10
+
+    # 8c. terminal_session
+    TerminalSessionRequest:
+      type: object
+      required: [pin, device_id]
+      properties:
+        pin:
+          type: string
+          description: PIN numérico compartilhado de 6 dígitos da filial física
+          example: "123456"
+        device_id:
+          type: string
+          description: Identificador físico do terminal do salão
+          example: "pos-terminal-01"
+
+    TerminalSessionResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Token de sessão de terminal operacional
+        device_id:
+          type: string
+          description: Dispositivo vinculado à sessão
+        expires_at:
+          type: string
+          format: date-time
+          description: Data/hora de expiração do turno (8 horas após a abertura)
 
     # 9. menu
     Menu:

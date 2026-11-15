@@ -8,8 +8,8 @@
 
 A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Modules)** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência, Concorrência e Usabilidade Frontend:
 
-1. **Módulo 1: Identidade, Contas e Gestão (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Contas (`account`), documento flexível (`document` para CPF/CNPJ), papéis e tipos em estabelecimentos (`account_restaurant`), endereço de cobrança (`address`) e proteção contra injeções.
-2. **Módulo 2: Estabelecimentos, Filiais e Infraestrutura (TEN)** — Casos `TEN-001` a `TEN-030` (30 testes): Gestão de tenants/marcas (`restaurant` com `name_slug` e `cnpj`), filiais físicas (`physical_restaurant`), telefones de unidade (`restaurant_phone`) e isolamento multi-tenant.
+1. **Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Dois tipos globais de conta (`users` e `sysadmins`), cadastro (`account`), autenticação JWT Bearer, perfil (`/auth/me`), autoridade de entidade (`OWNER`) vs operacional (`MANAGER`), promoção e gestão de proprietários, prevenção estrita de orfandade de entidade e segurança.
+2. **Módulo 2: Estabelecimentos, Filiais, RH e Operação de Terminal (TEN)** — Casos `TEN-001` a `TEN-030` (30 testes): Restaurante lógico (`restaurant` com slugs únicos), filiais físicas (`physical_restaurant`) com verificação cruzada obrigatória de CNPJ (filial + matriz), quadro de colaboradores de RH (`employee` sem contas auto-geradas e fluxo de convite) e sessões de terminal operacional de chão via PIN compartilhado de 6 dígitos (8h de turno, rate-limiting/lockout de 5 tentativas, baixo privilégio e isolamento de blast radius).
 3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-045` (45 testes): Layout visual (`menu` com `CLASSICO` / `EXPERIENCIA`), categorias, itens (`menu_item`), ingredientes (`ingredient`), ficha técnica com medidas (`item_ingredient`), adicionais diretos (`item_side`), combos vinculados (`combo_item`) e promoções (`item_sale`).
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 testes): Pedidos desacoplados de CPF com `customer_name` opcional, avaliações (`order.review` e `order_item.review`), observações/ingredientes removidos (`order_item.notes`), especialização estrita (`local_order` com `"table"` vs `remote_order` com `"delivery_fee"`), congelamento de valor (`unit_price`), combos com `parent_order_id` e máquina de estados (`PENDING` -> `COMPLETED`).
 5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-030` (30 testes): Tipos de transação (`PIX`, `CREDIT`, `DEBIT`, `CASH`), geração de PIX com `pix_copy_paste`, recibos em JSONB (`receipt`), cupons com restrição composta `(restaurant_id, code)` e **ciclo de moedas (acúmulo anônimo por CPF vs exigência de `account` para resgate)**.
@@ -18,365 +18,352 @@ A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Mod
 
 ---
 
-## Módulo 1: Identidade, Contas e Gestão (IDP-001 a IDP-035)
+## Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP-001 a IDP-035)
 
-### IDP-001: Cadastro de Conta com E-mail e Senha Válidos
+### IDP-001: Cadastro de Conta Global com E-mail e Senha Válidos
 - **Pré-condição:** E-mail `admin@pratello.com` não cadastrado na tabela `account`.
-- **Passos:** POST `/auth/register`. Inspecionar `SELECT id, email, password, document, address_id FROM account WHERE email = ?`.
-- **Entradas:**
-  - Válida com CPF: `{"email": "admin@pratello.com", "password": "Password123!", "name": "Admin Pratello", "document": "52998224725", "phone": "11987654321"}`
-  - Válida com CNPJ: `{"email": "gestor@corp.com", "password": "Password123!", "name": "Gestor Corp", "document": "12345678000199", "phone": "11987654322"}`
-- **Esperado:** HTTP 201 Created. Senha protegida por hash. Campo `document` persistido sem formatação.
+- **Passos:** POST `/api/auth/register`. Inspecionar retorno e tabela `account`.
+- **Entradas:** `{"email": "admin@pratello.com", "password": "Password123!", "phone": "11987654321"}`.
+- **Esperado:** HTTP 201 Created. Registro persistido com senha hash (bcrypt), `id` autoincremental e `created_at` preenchido.
 
 ### IDP-002: Rejeição de E-mail Duplicado (Unique Constraint em `account`)
 - **Pré-condição:** Conta com e-mail `owner@bela.com` já gravada.
-- **Passos:** POST `/auth/register` com variações de caixa alta/baixa do mesmo e-mail.
+- **Passos:** POST `/api/auth/register` com variações de caixa alta/baixa do mesmo e-mail.
 - **Entradas:** `{"email": "OWNER@BELA.COM", "password": "OtherPassword99#"}`.
 - **Esperado:** HTTP 409 Conflict. Erro `email already registered`.
 
 ### IDP-003: Validação de Formato de E-mail Inválido
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter POST `/auth/register` com e-mails malformados.
-- **Entradas:** `"email": "usuario-sem-arroba.com"`, `"email": "usuario@"`, `"email": ""`
+- **Passos:** Submeter POST `/api/auth/register` com e-mails malformados.
+- **Entradas:** `"email": "usuario-sem-arroba.com"`, `"email": "usuario@"`, `"email": ""`.
 - **Esperado:** HTTP 400 Bad Request detalhando erro no campo `email`.
 
-### IDP-004: Políticas de Segurança e Complexidade de Senha
+### IDP-004: Políticas de Segurança e Comprimento de Senha
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter senhas com menos de 8 caracteres ou sem caracteres especiais.
-- **Entradas:** `"password": "123456"`, `"password": "abcdefgh"`.
-- **Esperado:** HTTP 400 Bad Request com violação de requisitos de senha.
+- **Passos:** Submeter senhas com menos de 6 caracteres.
+- **Entradas:** `"password": "12345"`, `"password": ""`.
+- **Esperado:** HTTP 400 Bad Request detalhando `password must be at least 6 characters long`.
 
-### IDP-005: Autenticação de Conta (`/auth/login`)
+### IDP-005: Autenticação de Conta (`/auth/login`) com Emissão de JWT Bearer
 - **Pré-condição:** Conta `user@pratello.com` existente.
-- **Passos:** POST `/auth/login` com credenciais corretas.
-- **Esperado:** HTTP 200 OK retornando token JWT e objeto `account` (sem o campo de senha).
+- **Passos:** POST `/api/auth/login` com credenciais corretas.
+- **Esperado:** HTTP 200 OK retornando `token` JWT assinado (HS256) e objeto `account` (sem campo de senha em texto plano).
 
 ### IDP-006: Rejeição de Credenciais Inválidas com Mensagem Anti-Enumeração
 - **Pré-condição:** Conta existente.
-- **Passos:** POST `/auth/login` com senha incorreta ou e-mail inexistente.
+- **Passos:** POST `/api/auth/login` com senha incorreta ou e-mail inexistente.
 - **Esperado:** HTTP 401 Unauthorized com mensagem neutra: `invalid email or password`.
 
-### IDP-007: Associação de Conta a Estabelecimento (`account_restaurant`)
-- **Pré-condição:** `account_id = 1` e `restaurant_id = 5` existentes.
-- **Passos:** POST `/restaurants/5/staff` associando papel de gerente.
-- **Entradas:** `{"account_id": 1, "account_type": "MANAGER", "document": "52998224725"}`.
-- **Esperado:** HTTP 201 Created. Registro gravado na tabela `account_restaurant`.
+### IDP-007: Associação de Papel Operacional `MANAGER` ao Restaurante
+- **Pré-condição:** `account_id = 1` existente e restaurante `slug = 'pizzaria-mario'`.
+- **Passos:** POST `/api/restaurants/pizzaria-mario/managers` com `{"account_id": 1}`.
+- **Esperado:** HTTP 201 Created. Registro gravado na tabela `account_restaurant` com `account_type = 'manager'`.
 
-### IDP-008: Unicidade Composta da Associação (`account_restaurant`)
-- **Pré-condição:** Vínculo de `account_id = 1` com `restaurant_id = 5` já existente.
-- **Passos:** Repetir a inserção para o mesmo restaurante.
-- **Esperado:** HTTP 409 Conflict violando o índice de chave primária composta `(id, restaurant_id)`.
+### IDP-008: Listagem de Gerentes do Restaurante
+- **Pré-condição:** Gerente vinculado ao restaurante `pizzaria-mario`.
+- **Passos:** GET `/api/restaurants/pizzaria-mario/managers`.
+- **Esperado:** HTTP 200 OK com array contendo `id`, `restaurant_slug` e `account_id` dos gerentes.
 
-### IDP-009: Associação da Conta com Endereço de Cobrança (`Address`)
-- **Pré-condição:** Endereço ID 10 cadastrado em `Address`.
-- **Passos:** Atualizar conta associando `address_id = 10`.
-- **Esperado:** HTTP 200 OK. FK referencial em `account.address_id` validada com sucesso.
+### IDP-009: Desvinculação de Gerente do Restaurante
+- **Pré-condição:** Gerente `account_id = 1` vinculado ao restaurante `pizzaria-mario`.
+- **Passos:** DELETE `/api/restaurants/pizzaria-mario/managers/1`.
+- **Esperado:** HTTP 204 No Content. Registro de gerência removido de `account_restaurant`.
 
-### IDP-010: Tentativa de Vincular `address_id` Inexistente na Conta
-- **Pré-condição:** Endereço ID 999999 não existe.
-- **Passos:** POST `/auth/register` com `{"address_id": 999999}`.
-- **Esperado:** HTTP 400 Bad Request (Foreign key constraint violation).
+### IDP-010: Promoção de Conta a `OWNER` por Outro Proprietário
+- **Pré-condição:** Usuário requisitante é `OWNER` de `pizzaria-mario`; conta alvo `account_id = 2` existente.
+- **Passos:** POST `/api/restaurants/pizzaria-mario/owners` com `{"account_id": 2}` e header `Authorization: Bearer <token_owner>`.
+- **Esperado:** HTTP 201 Created. Conta alvo recebe papel de `OWNER` com autoridade de entidade.
 
-### IDP-011: Validação de Campo `document` (CPF de 11 dígitos ou CNPJ de 14 dígitos)
+### IDP-011: Listagem de Proprietários da Marca
+- **Pré-condição:** Restaurante com proprietários cadastrados.
+- **Passos:** GET `/api/restaurants/pizzaria-mario/owners`.
+- **Esperado:** HTTP 200 OK com lista de todos os proprietários (`id`, `restaurant_slug`, `account_id`).
+
+### IDP-012: Prevenção Estrita de Orfandade de Entidade (Último Proprietário)
+- **Pré-condição:** Restaurante possui apenas 1 proprietário cadastrado.
+- **Passos:** DELETE `/api/restaurants/pizzaria-mario/owners/{account_id}` tentando remover o único proprietário.
+- **Esperado:** HTTP 409 Conflict. Rejeição com erro `cannot remove the last owner: entity cannot be orphaned`.
+
+### IDP-013: Remoção de Proprietário quando Múltiplos Proprietários Existem
+- **Pré-condição:** Restaurante possui 2 ou mais proprietários associados.
+- **Passos:** DELETE `/api/restaurants/pizzaria-mario/owners/{account_id}` por um proprietário ativo.
+- **Esperado:** HTTP 204 No Content. Associação removida com sucesso mantendo a entidade com proprietário remanescente.
+
+### IDP-014: Promoção de Conta a Superadministrador Global (`sysadmin`)
+- **Pré-condição:** Conta `account_id = 5` existente.
+- **Passos:** POST `/api/sysadmins` com `{"account_id": 5}`.
+- **Esperado:** HTTP 201 Created. Registro inserido na tabela `sysadmin`.
+
+### IDP-015: Listagem de Superadministradores Globais (`sysadmin`)
+- **Pré-condição:** Superadministradores cadastrados.
+- **Passos:** GET `/api/sysadmins`.
+- **Esperado:** HTTP 200 OK com array contendo `id`, `account_id` e `created_at`.
+
+### IDP-016: Consulta de Perfil Autenticado (`/auth/me`)
+- **Pré-condição:** Token JWT de autenticação válido.
+- **Passos:** GET `/api/auth/me` com header `Authorization: Bearer <token>`.
+- **Esperado:** HTTP 200 OK com dados da conta (`id`, `email`, `phone`, `created_at`).
+
+### IDP-017: Rejeição de `/auth/me` sem Token ou com Formato Inválido
 - **Pré-condição:** Nenhuma.
-- **Passos:** Testar valores no campo `document` da conta.
-- **Entradas:**
-  - Válido CPF: `"document": "52998224725"` (11 dígitos) -> HTTP 201.
-  - Válido CNPJ: `"document": "12345678000199"` (14 dígitos) -> HTTP 201.
-  - Inválido (tamanho 9): `"document": "123456789"` -> HTTP 400.
-  - Inválido (tamanho 12): `"document": "123456789012"` -> HTTP 400.
-- **Esperado:** Validação estrita de documentos corporativos e pessoais.
+- **Passos:** GET `/api/auth/me` sem header `Authorization` ou com `Bearer` vazio.
+- **Esperado:** HTTP 401 Unauthorized com `error: missing or invalid authorization token`.
 
-### IDP-012: Desvinculação de Conta de um Restaurante
-- **Pré-condição:** Registro em `account_restaurant` para `account_id = 2` e `restaurant_id = 5`.
-- **Passos:** DELETE `/restaurants/5/staff/2`.
-- **Esperado:** HTTP 204 No Content. Registro removido de `account_restaurant`. A tabela `account` permanece inalterada.
+### IDP-018: Rejeição de Token JWT Expirado
+- **Pré-condição:** Token assinado com timestamp de expiração no passado (> 24h).
+- **Passos:** GET `/api/auth/me` com token expirado.
+- **Esperado:** HTTP 401 Unauthorized `invalid or expired token`.
 
-### IDP-013: Obtenção de Dados da Própria Conta (`/auth/me`)
-- **Pré-condição:** Token de autenticação válido.
-- **Passos:** GET `/auth/me` com header `Authorization: Bearer <token>`.
-- **Esperado:** HTTP 200 OK com `id`, `name`, `email`, `document`, `phone` e lista de restaurantes associados via `account_restaurant`.
+### IDP-019: Rejeição de Token com Assinatura Forjada
+- **Pré-condição:** Token adulterado ou assinado com segredo HMAC incorreto.
+- **Passos:** Submeter requisição com o token adulterado.
+- **Esperado:** HTTP 401 Unauthorized `invalid or expired token`.
 
-### IDP-014: Rejeição de Token Expirado
-- **Pré-condição:** Token assinado com timestamp de expiração expirado.
-- **Passos:** GET `/auth/me`.
-- **Esperado:** HTTP 401 Unauthorized `token has expired`.
+### IDP-020: Verificação de Duplo Papel (`OWNER` e `MANAGER` Simultâneos)
+- **Pré-condição:** Conta vinculada simultaneamente como `owner` e `manager` no mesmo restaurante.
+- **Passos:** Consultar papéis da conta no restaurante.
+- **Esperado:** Ambos os papéis constam em `account_restaurant`, habilitando autoridade de entidade e operacional.
 
-### IDP-015: Rejeição de Token com Assinatura Forjada
-- **Pré-condição:** Token com payload alterado.
-- **Passos:** Requisição com o token adulterado.
-- **Esperado:** HTTP 401 Unauthorized `invalid signature`.
+### IDP-021: Barramento de Gerente tentando Promover Proprietário
+- **Pré-condição:** Usuário autenticado possui apenas papel `MANAGER`.
+- **Passos:** POST `/api/restaurants/pizzaria-mario/owners` com token de gerente.
+- **Esperado:** HTTP 403 Forbidden `forbidden: only an owner can promote another owner`.
 
-### IDP-016: Controle de Permissão por `account_type`
-- **Pré-condição:** Conta vinculada com `account_type = 'WAITER'`.
-- **Passos:** Tentar alterar configurações fiscais do restaurante.
-- **Esperado:** HTTP 403 Forbidden. Operação permitida apenas para `account_type = 'MANAGER'` ou `'ADMIN'`.
-
-### IDP-017: Prevenção de SQL Injection no Login
-- **Pré-condição:** Tabela `account` com registros ativos.
-- **Passos:** Submeter POST `/auth/login` com strings `' OR '1'='1`.
-- **Esperado:** HTTP 401 Unauthorized. Nenhuma instrução arbitrária executada.
-
-### IDP-018: Sanitização de Nome de Conta contra XSS
-- **Pré-condição:** Nenhuma.
-- **Passos:** Cadastrar conta com `{"name": "<script>alert(1)</script>Carlos"}`.
-- **Esperado:** Caracteres escapados no banco e na resposta JSON.
-
-### IDP-019: Rate Limiting em Tentativas Repetidas de Login
-- **Pré-condição:** Conta existente.
-- **Passos:** 10 tentativas com senha incorreta em 5 segundos.
-- **Esperado:** HTTP 429 Too Many Requests a partir da 5ª tentativa.
-
-### IDP-020: Atualização de Telefone e Nome da Conta
-- **Pré-condição:** Conta cadastrada.
-- **Passos:** PUT `/auth/me` com `{"name": "Novo Nome", "phone": "11988887777"}`.
-- **Esperado:** HTTP 200 OK com os dados atualizados.
-
-### IDP-021: Alteração de Senha com Verificação de Senha Anterior
-- **Pré-condição:** Senha atual `OldPass@123`.
-- **Passos:** Submeter nova senha informando a anterior.
-- **Esperado:** HTTP 200 OK. Hash atualizado; senha antiga invalidada.
-
-### IDP-022: Atualização de Endereço Residencial do Usuário
-- **Pré-condição:** Conta vinculada a um `Address`.
-- **Passos:** PUT no endereço da conta com novo CEP e número.
-- **Esperado:** HTTP 200 OK. Tabela `Address` atualizada.
+### IDP-022: Barramento de Gerente tentando Excluir Restaurante Lógico
+- **Pré-condição:** Usuário autenticado possui apenas papel `MANAGER`.
+- **Passos:** DELETE `/api/restaurants/pizzaria-mario` com token de gerente.
+- **Esperado:** HTTP 403 Forbidden (autoridade de destruição reservada exclusivamente ao `OWNER`).
 
 ### IDP-023: Vínculo da Mesma Conta em Diferentes Estabelecimentos
-- **Pré-condição:** `account_id = 3` vinculada a `restaurant_id = 1`.
-- **Passos:** Vincular `account_id = 3` a `restaurant_id = 2` com outro papel.
-- **Esperado:** HTTP 201 Created. A mesma conta pode atuar em múltiplos restaurantes.
+- **Pré-condição:** `account_id = 3` vinculada a `restaurante-a`.
+- **Passos:** Vincular `account_id = 3` como gerente em `restaurante-b`.
+- **Esperado:** HTTP 201 Created. A mesma conta transita entre estabelecimentos com papéis isolados.
 
-### IDP-024: Consulta de Todas as Contas Vinculadas a um Restaurante
-- **Pré-condição:** Restaurante ID 1 com 3 colaboradores.
-- **Passos:** GET `/restaurants/1/staff`.
-- **Esperado:** HTTP 200 OK com lista de 3 colaboradores e seus respectivos `account_type`.
+### IDP-024: Tentativa de Vincular `account_id` Inexistente
+- **Pré-condição:** `account_id = 99999` inexistente.
+- **Passos:** POST `/api/restaurants/pizzaria-mario/managers` com ID inexistente.
+- **Esperado:** HTTP 404 Not Found `restaurant or account not found`.
 
-### IDP-025: Tentativa de Vincular `account_id` Inexistente a um Restaurante
-- **Pré-condição:** `account_id = 88888` não cadastrado.
-- **Passos:** POST `/restaurants/1/staff` com ID inexistente.
-- **Esperado:** HTTP 404 Not Found (ou violação de chave estrangeira).
+### IDP-025: Tentativa de Gerenciar Papéis em Restaurante Inexistente
+- **Pré-condição:** Slug `restaurante-fantasma` inexistente.
+- **Passos:** GET `/api/restaurants/restaurante-fantasma/managers`.
+- **Esperado:** HTTP 404 Not Found `restaurant not found`.
 
-### IDP-026: Tentativa de Vincular Colaborador a `restaurant_id` Inexistente
-- **Pré-condição:** `restaurant_id = 9999` não cadastrado.
-- **Passos:** POST `/restaurants/9999/staff`.
-- **Esperado:** HTTP 404 Not Found.
+### IDP-026: Prevenção de SQL Injection no Login e Rotas de Autenticação
+- **Pré-condição:** Tabela `account` com registros ativos.
+- **Passos:** Submeter POST `/api/auth/login` com strings `' OR '1'='1`.
+- **Esperado:** HTTP 401 Unauthorized. Prepared Statements garantem execução parametrizada segura.
 
-### IDP-027: Logout com Invalidação de Sessão
-- **Pré-condição:** Token válido.
-- **Passos:** POST `/auth/logout`. Reutilizar o token na sequência.
-- **Esperado:** Segunda chamada rejeitada com HTTP 401 Unauthorized.
-
-### IDP-028: Preservação de Caracteres UTF-8 em `account.name`
+### IDP-027: Sanitização de Dados de Entrada da Conta contra Injeção
 - **Pré-condição:** Nenhuma.
-- **Passos:** Salvar conta com acentuação e caracteres especiais (`"João Peña de Alcântara"`).
+- **Passos:** Cadastrar conta com payload contendo caracteres de controle ou tags maliciosas.
+- **Esperado:** Dados sanitizados e validados com precisão sem corromper o banco.
+
+### IDP-028: Preservação de Caracteres UTF-8 em Campos Textuais
+- **Pré-condição:** Nenhuma.
+- **Passos:** Cadastrar conta e telefone com caracteres internacionais.
 - **Esperado:** HTTP 201 Created com codificação UTF-8 preservada.
 
 ### IDP-029: Validação de Payload JSON Vazio ou Truncado
 - **Pré-condição:** Nenhuma.
-- **Passos:** Enviar body `{"email":` sem fechar.
-- **Esperado:** HTTP 400 Bad Request `invalid JSON syntax`.
+- **Passos:** Enviar body `{"email":` sem fechar as chaves.
+- **Esperado:** HTTP 400 Bad Request `invalid request body`.
 
 ### IDP-030: Rejeição de E-mail com Mais de 255 Caracteres
 - **Pré-condição:** Nenhuma.
-- **Passos:** POST `/auth/register` com e-mail de 256 caracteres.
+- **Passos:** POST `/api/auth/register` com e-mail excedendo 255 caracteres.
 - **Esperado:** HTTP 400 Bad Request violando o limite da coluna `varchar(255)`.
 
-### IDP-031: Consulta de Permissões de um Usuário por Restaurante
-- **Pré-condição:** `account_id = 1` é `MANAGER` no restaurante 10.
-- **Passos:** GET `/restaurants/10/staff/1/role`.
-- **Esperado:** HTTP 200 OK retornando `{"account_type": "MANAGER"}`.
+### IDP-031: Consulta de Papéis Consolidados de um Usuário (`GetAccountRoles`)
+- **Pré-condição:** Conta com papéis configurados.
+- **Passos:** Inspecionar retorno de autoridade via camada de serviço.
+- **Esperado:** Retorno correto de `[]string{"owner", "manager"}` ou `[]string{"sysadmin"}`.
 
-### IDP-032: Exclusão de Conta sem Dependências Fiscais
-- **Pré-condição:** Conta recém-criada sem vínculos operacionais.
-- **Passos:** DELETE `/auth/me`.
-- **Esperado:** HTTP 204 No Content. Registro excluído.
+### IDP-032: Exclusão de Conta sem Dependências Proprietárias Ativas
+- **Pré-condição:** Conta recém-criada sem restaurante vinculado.
+- **Passos:** DELETE `/api/auth/me`.
+- **Esperado:** HTTP 204 No Content. Registro excluído com sucesso.
 
-### IDP-033: Bloqueio de Exclusão de Conta Vinculada a Restaurante Ativo
-- **Pré-condição:** Conta vinculada como `MANAGER` em restaurante ativo.
+### IDP-033: Bloqueio de Exclusão de Conta se for Única Proprietária
+- **Pré-condição:** Conta é a única proprietária de restaurante ativo.
 - **Passos:** Tentar excluir conta.
-- **Esperado:** HTTP 409 Conflict. Exige desvincular ou transferir a gerência previamente.
+- **Esperado:** HTTP 409 Conflict exigindo transferência prévia de propriedade (prevenção de orfandade).
 
 ### IDP-034: Validação de Formato do Campo `phone` na Conta
 - **Pré-condição:** Nenhuma.
-- **Passos:** Cadastrar conta com telefone contendo letras.
-- **Esperado:** HTTP 400 Bad Request `phone must contain only digits`.
+- **Passos:** Cadastrar conta informando telefone no padrão internacional ou nacional.
+- **Esperado:** HTTP 201 Created persistindo o telefone formatado.
 
-### IDP-035: Recuperação de Senha via Token Temporário
-- **Pré-condição:** Conta existente.
-- **Passos:** POST `/auth/forgot-password`. Utilizar token gerado para redefinir senha via POST `/auth/reset-password`.
-- **Esperado:** HTTP 200 OK. Senha redefinida.
+### IDP-035: Armazenamento e Verificação Segura de Senha via Bcrypt
+- **Pré-condição:** Nenhuma.
+- **Passos:** Registrar conta e inspecionar a coluna `password` na tabela `account`.
+- **Esperado:** Hash bcrypt com salt aleatório (`$2a$...`), garantindo que senhas nunca sejam armazenadas em texto plano.
 
 ---
 
-## Módulo 2: Estabelecimentos, Filiais e Infraestrutura (TEN-001 a TEN-030)
+## Módulo 2: Estabelecimentos, Filiais, RH e Operação de Terminal (TEN-001 a TEN-030)
 
-### TEN-001: Criação de Restaurante (`restaurant`) com `name_slug` e `cnpj`
+### TEN-001: Criação de Restaurante Lógico (`restaurant`) com `name` e `slug`
 - **Pré-condição:** Slug `pizzaria-bela` disponível.
-- **Passos:** POST `/restaurants`.
-- **Entradas:** `{"name": "Pizzaria Bela", "name_slug": "pizzaria-bela", "brand": "Bela Alimentos", "cnpj": "12345678000199"}`.
-- **Esperado:** HTTP 201 Created. Registro inserido na tabela `restaurant` com ID autoincremental e `created_at = now()`.
+- **Passos:** POST `/api/restaurants`.
+- **Entradas:** `{"name": "Pizzaria Bela", "slug": "pizzaria-bela", "description": "Pizzas artesanais napolitanas"}`.
+- **Esperado:** HTTP 201 Created. Registro inserido na tabela `restaurant` com `slug` único e data de criação preenchida.
 
-### TEN-002: Validação de Formato de `name_slug`
+### TEN-002: Validação e Normalização de Formato de `slug`
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter POST `/restaurants` com slugs inválidos.
-- **Entradas:** `"name_slug": "pizza com espaço"`, `"name_slug": "PIZZA_MAIUSCULA"`.
-- **Esperado:** HTTP 400 Bad Request. Aceito somente `^[a-z0-9-]+$`.
+- **Passos:** Submeter POST `/api/restaurants` com nomes que exigem normalização para slug kebab-case.
+- **Entradas:** `"name": "Trattoria & Cia São Paulo"`.
+- **Esperado:** HTTP 201 Created com slug normalizado para `trattoria-cia-sao-paulo`.
 
-### TEN-003: Unicidade de `name_slug` entre Restaurantes
-- **Pré-condição:** Restaurante com `name_slug = 'bela-pizza'` já cadastrado.
-- **Passos:** Submeter outro restaurante com o mesmo `name_slug`.
-- **Esperado:** HTTP 409 Conflict `restaurant slug already exists`.
+### TEN-003: Unicidade de `slug` entre Restaurantes Lógicos
+- **Pré-condição:** Restaurante com `slug = 'bela-pizza'` já cadastrado.
+- **Passos:** Submeter outro restaurante com o mesmo `slug`.
+- **Esperado:** HTTP 409 Conflict com mensagem `restaurant with this slug already exists`.
 
-### TEN-004: Validação de CNPJ do Estabelecimento (Algoritmo Módulo 11)
-- **Pré-condição:** Nenhuma.
-- **Passos:** Cadastrar restaurante com CNPJ de dígitos verificadores errados.
-- **Entradas:** `"cnpj": "12345678000100"`.
-- **Esperado:** HTTP 400 Bad Request `invalid CNPJ verification digits`.
-
-### TEN-005: Consulta de Restaurante por ID e por `name_slug`
-- **Pré-condição:** Restaurante ID 1 com slug `pizzaria-bela`.
-- **Passos:** GET `/restaurants/1` e GET `/restaurants/by-slug/pizzaria-bela`.
-- **Esperado:** Ambas as requisições devolvem HTTP 200 OK com o mesmo payload.
-
-### TEN-006: Atualização de Dados Cadastrais do Restaurante
-- **Pré-condição:** Restaurante ID 1 existente.
-- **Passos:** PUT `/restaurants/1` com novo `name` e `brand`.
-- **Esperado:** HTTP 200 OK. Dados alterados.
-
-### TEN-007: Criação de Unidade Física (`physical_restaurant`) com Endereço
-- **Pré-condição:** Restaurante ID 1 existente.
-- **Passos:** POST `/restaurants/1/branches`.
+### TEN-004: Criação de Filial Física (`physical_restaurant`) com Verificação de CNPJ da Matriz
+- **Pré-condição:** Restaurante lógico com CNPJ cadastrado; usuário com papel de `MANAGER` ou `OWNER`.
+- **Passos:** POST `/api/restaurants/{slug}/branches`.
 - **Entradas:**
   ```json
   {
-    "cnpj": "12345678000270",
-    "address": {
-      "CEP": "51020010",
-      "number": 500,
-      "apt": "Loja 1",
-      "complementary": "Em frente à praia"
-    }
+    "name": "Filial Jardins",
+    "cnpj": "99.888.777/0001-11",
+    "owner_cnpj": "12.345.678/0001-99"
   }
   ```
-- **Esperado:** HTTP 201 Created. Linha inserida em `Address`, e chave primária composta `(id, restaurant_id, address_id)` criada em `physical_restaurant`.
+- **Esperado:** HTTP 201 Created. Sistema valida que `owner_cnpj` corresponde ao CNPJ da matriz e cadastra a filial com PIN inicial `123456`.
 
-### TEN-008: Validação de Número Inteiro Obrigatório em `Address.number`
+### TEN-005: Rejeição de Filial Física com CNPJ da Matriz Incorreto
+- **Pré-condição:** Restaurante matriz registrado com CNPJ `12.345.678/0001-99`.
+- **Passos:** POST `/api/restaurants/{slug}/branches` enviando `owner_cnpj` divergente (`00.000.000/0000-00`).
+- **Esperado:** HTTP 400 Bad Request `owner CNPJ verification failed: does not match restaurant registration`.
+
+### TEN-006: Rejeição de Criação de Filial por Usuário sem Papel de `MANAGER` ou `OWNER`
+- **Pré-condição:** Usuário autenticado sem vínculos no restaurante.
+- **Passos:** Tentar POST `/api/restaurants/{slug}/branches`.
+- **Esperado:** HTTP 403 Forbidden `forbidden: requires manager or owner role`.
+
+### TEN-007: Listagem de Filiais Físicas por Restaurante Lógico
+- **Pré-condição:** Restaurante possui 2 filiais físicas cadastradas.
+- **Passos:** GET `/api/restaurants/{slug}/branches`.
+- **Esperado:** HTTP 200 OK com array contendo as unidades físicas e seus respectivos CNPJs.
+
+### TEN-008: Consulta de Dados de Filial Física por ID
+- **Pré-condição:** Filial ID 1 cadastrada.
+- **Passos:** GET `/api/restaurants/{slug}/branches/1`.
+- **Esperado:** HTTP 200 OK com `id`, `restaurant_slug`, `name`, `cnpj`, `owner_cnpj`.
+
+### TEN-009: Autoridade Operacional do `MANAGER`: Gestão de Filiais Físicas
+- **Pré-condição:** Usuário com papel `MANAGER` no restaurante.
+- **Passos:** Criar e atualizar dados operacionais da filial física.
+- **Esperado:** Operações permitidas em conformidade com o escopo operacional do gerente.
+
+### TEN-010: Cadastro de Colaborador no Quadro de RH da Filial (`employee`)
+- **Pré-condição:** Filial física ID 1 existente; requisitante é `MANAGER` ou `OWNER`.
+- **Passos:** POST `/api/restaurants/{slug}/branches/1/employees`.
+- **Entradas:** `{"name": "Carlos Silva", "cpf": "123.456.789-00", "position": "Garçom"}`.
+- **Esperado:** HTTP 201 Created. Registro inserido na tabela `employee`.
+
+### TEN-011: Registro de Colaborador Estritamente como RH (Sem Conta Auto-Gerada)
+- **Pré-condição:** Colaborador recém-cadastrado via rota de RH.
+- **Passos:** Verificar o campo `account_id` do registro criado.
+- **Esperado:** `account_id` é `NULL`. O sistema não gera credenciais ou login de usuário automaticamente para funcionários.
+
+### TEN-012: Listagem do Quadro de Colaboradores de RH por Filial
+- **Pré-condição:** Filial possui 3 colaboradores de RH cadastrados.
+- **Passos:** GET `/api/restaurants/{slug}/branches/1/employees` por um gerente ou proprietário.
+- **Esperado:** HTTP 200 OK com a lista completa de colaboradores (`id`, `name`, `cpf`, `position`, `account_id`).
+
+### TEN-013: Fluxo de Convite: Vinculação de Conta de Usuário ao Colaborador de RH
+- **Pré-condição:** Colaborador de RH ID 1 cadastrado; usuário `account_id = 10` existente que necessita de acesso.
+- **Passos:** POST `/api/restaurants/{slug}/branches/1/employees/1/invite` com `{"account_id": 10}`.
+- **Esperado:** HTTP 200 OK. Campo `account_id` atualizado para `10`. Acesso concedido mediante convite explícito.
+
+### TEN-014: Rejeição de Convite para Colaborador com `account_id` Inexistente
+- **Pré-condição:** Colaborador de RH ID 1 existente; `account_id = 99999` inexistente.
+- **Passos:** POST `/api/restaurants/{slug}/branches/1/employees/1/invite` com ID inexistente.
+- **Esperado:** HTTP 404 Not Found `employee or account not found`.
+
+### TEN-015: Rejeição de Gestão de RH sem Permissão de `MANAGER` ou `OWNER`
+- **Pré-condição:** Usuário comum sem papel operacional ou de proprietário no restaurante.
+- **Passos:** Tentar cadastrar colaborador ou enviar convite na filial.
+- **Esperado:** HTTP 403 Forbidden `forbidden: requires manager or owner role`.
+
+### TEN-016: Abertura de Sessão de Terminal de Salão via PIN Compartilhado de 6 Dígitos
+- **Pré-condição:** Filial física ID 1 configurada com PIN de terminal `123456`.
+- **Passos:** POST `/api/restaurants/{slug}/branches/1/terminal/session`.
+- **Entradas:** `{"pin": "123456", "device_id": "pos-tablet-balcao"}`.
+- **Esperado:** HTTP 200 OK retornando token de sessão de 64 caracteres hexadecimais, `expires_at` e `device_id`.
+
+### TEN-017: Validação de Formato Estrito do PIN do Terminal (6 Dígitos Numéricos)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Enviar endereço com número ausente ou como texto alfabético (`"number": "S/N"`).
-- **Esperado:** HTTP 400 Bad Request `number must be an integer`. Se não houver número, deve ser convencionado valor `0` com complemento `"S/N"`.
+- **Passos:** Enviar PIN com tamanho incorreto (`"12345"` ou `"1234567"`).
+- **Esperado:** HTTP 400 Bad Request `pin must be exactly 6 digits`.
 
-### TEN-009: Validação do Campo `Address.CEP`
+### TEN-018: Rejeição de PIN de Terminal Incorreto
+- **Pré-condição:** PIN correto é `123456`.
+- **Passos:** Enviar PIN `"999999"`.
+- **Esperado:** HTTP 401 Unauthorized `invalid terminal PIN`. Contador de falhas incrementado.
+
+### TEN-019: Proteção contra Força Bruta: Lockout do Terminal após 5 Falhas Consecutivas
+- **Pré-condição:** Terminal ativo.
+- **Passos:** Submeter 5 tentativas consecutivas com PIN incorreto.
+- **Esperado:** Na 5ª falha e em tentativas subsequentes, retorno HTTP 429 Too Many Requests `terminal is locked due to too many failed attempts (try again in 15 minutes)`.
+
+### TEN-020: Vínculo Estrito de Dispositivo no Terminal de Salão (`device_id`)
+- **Pré-condição:** Sessão aberta para `device_id = 'pos-tablet-01'`.
+- **Passos:** Inspecionar token de sessão gerado.
+- **Esperado:** Token associado permanentemente ao identificador físico do terminal na tabela `terminal_session`.
+
+### TEN-021: Expiração da Sessão de Terminal Alinhada ao Turno de Trabalho (8 Horas)
+- **Pré-condição:** Sessão de terminal aberta.
+- **Passos:** Verificar o campo `expires_at` da sessão retornada.
+- **Esperado:** Timestamp calculado exatamente como `now() + 8 hours`. Após 8 horas, o token é invalidado automaticamente.
+
+### TEN-022: Rotação/Redefinição do PIN Compartilhado a Cada 8 Horas
+- **Pré-condição:** Filial física ativa.
+- **Passos:** Gerente ou proprietário atualiza o PIN de 6 dígitos da filial ou executa rotação periódica.
+- **Esperado:** PIN atualizado, tentativas com o PIN antigo passam a ser rejeitadas com HTTP 401.
+
+### TEN-023: Visualizador Operacional de Pedidos da Filial no Terminal
+- **Pré-condição:** Token de sessão de terminal ativo para a filial ID 1.
+- **Passos:** GET `/api/restaurants/{slug}/branches/1/terminal/orders` com header `X-Terminal-Session: <token>`.
+- **Esperado:** HTTP 200 OK retornando comandas/pedidos operacionais daquela unidade física.
+
+### TEN-024: Princípio do Menor Privilégio na Sessão de Terminal
+- **Pré-condição:** Token de sessão de terminal ativo.
+- **Passos:** Tentar utilizar o token de terminal para acessar endpoints administrativos, relatórios de faturamento ou dados cadastrais (PII) de clientes.
+- **Esperado:** HTTP 401/403 Forbidden. A sessão de terminal é restrita estritamente à visualização de pedidos de chão.
+
+### TEN-025: Isolamento de Blast Radius da Sessão de Terminal
+- **Pré-condição:** Sessão de terminal emitida exclusivamente para a filial ID 1.
+- **Passos:** Tentar consultar pedidos da filial ID 2 utilizando o mesmo token de terminal.
+- **Esperado:** HTTP 403 Forbidden `terminal session is not scoped to this branch`. O blast radius de vazamento de PIN fica confinado àquela filial.
+
+### TEN-026: Não-Atribuibilidade Individual das Ações na Sessão de Terminal
+- **Pré-condição:** Ações de leitura realizadas no terminal do salão.
+- **Passos:** Analisar log da requisição de terminal.
+- **Esperado:** Ação atribuída ao `device_id` e ao terminal compartilhado, sem identificador de conta pessoal (`account_id`), operando como conveniência de piso.
+
+### TEN-027: Autoridade Operacional do `MANAGER`: Adição e Gestão de Cardápio e Pratos
+- **Pré-condição:** Usuário com papel de `MANAGER`.
+- **Passos:** Criar novos pratos e categorias no restaurante lógico via POST `/api/restaurants/{slug}/dishes`.
+- **Esperado:** HTTP 201 Created. Gerentes possuem autoridade operacional plena para atualizar ofertas e cardápio.
+
+### TEN-028: Barramento de `MANAGER` na Exclusão do Restaurante Lógico
+- **Pré-condição:** Usuário possui apenas papel de `MANAGER`.
+- **Passos:** DELETE `/api/restaurants/{slug}`.
+- **Esperado:** HTTP 403 Forbidden. Destruição do restaurante e alteração cadastral/fiscal estrutural é autoridade exclusiva de `OWNER`.
+
+### TEN-029: Isolamento Multi-Tenant em Unidades Físicas e RH
+- **Pré-condição:** Restaurante A e Restaurante B possuem filiais distintas.
+- **Passos:** Gerente do Restaurante A tenta cadastrar colaboradores ou consultar terminais na filial do Restaurante B.
+- **Esperado:** HTTP 403 Forbidden ou HTTP 404 Not Found garantindo isolamento entre tenants.
+
+### TEN-030: Sanitização e Validação de Documentos Fiscais (CNPJ de Filial e Matriz)
 - **Pré-condição:** Nenhuma.
-- **Passos:** Submeter CEPs inválidos.
-- **Entradas:** `"CEP": "123"` (3 dígitos), `"CEP": "510200101"` (9 dígitos).
-- **Esperado:** HTTP 400 Bad Request.
-
-### TEN-010: Cadastro de Telefone de Unidade Física (`restaurant_phone`)
-- **Pré-condição:** Unidade física ID 10 existente.
-- **Passos:** POST `/branches/10/phones`.
-- **Entradas:** `{"phone": "81999990000", "label": "Delivery WhatsApp"}`.
-- **Esperado:** HTTP 201 Created. Registro inserido em `restaurant_phone` com `physical_restaurant_id = 10`.
-
-### TEN-011: Telefone com Label Padrão (`label = 'Principal'`)
-- **Pré-condição:** Unidade física existente.
-- **Passos:** POST `/branches/10/phones` omitindo `label`.
-- **Esperado:** HTTP 201 Created. Coluna `label` persistida com valor default `'Principal'`.
-
-### TEN-012: Listagem de Unidades Físicas por Restaurante
-- **Pré-condição:** Restaurante ID 1 possui 2 filiais cadastradas.
-- **Passos:** GET `/restaurants/1/branches`.
-- **Esperado:** HTTP 200 OK com array contendo as 2 unidades e seus respectivos endereços.
-
-### TEN-013: Remoção de Unidade Física sem Histórico de Pedidos
-- **Pré-condição:** Unidade física recém-criada sem pedidos.
-- **Passos:** DELETE `/branches/10`.
-- **Esperado:** HTTP 204 No Content. Unidade e telefones associados removidos.
-
-### TEN-014: Bloqueio de Exclusão de Unidade Física com Pedidos Associados
-- **Pré-condição:** Unidade física possui registros em `order`.
-- **Passos:** DELETE `/branches/10`.
-- **Esperado:** HTTP 409 Conflict violando integridade referencial com a tabela `order`.
-
-### TEN-015: Atualização de Dados da Unidade Física (CNPJ da Filial)
-- **Pré-condição:** Unidade física existente.
-- **Passos:** PUT `/branches/10` atualizando o CNPJ da filial.
-- **Esperado:** HTTP 200 OK. CNPJ alterado após validação.
-
-### TEN-016: Consulta de Unidade Física por ID Inexistente
-- **Pré-condição:** ID 99999 inexistente.
-- **Passos:** GET `/branches/99999`.
-- **Esperado:** HTTP 404 Not Found `branch not found`.
-
-### TEN-017: Múltiplos Telefones para a Mesma Unidade Física
-- **Pré-condição:** Unidade física cadastrada.
-- **Passos:** Inserir telefone principal e telefone de suporte.
-- **Esperado:** Registros aceitos e listados corretamente em GET `/branches/10/phones`.
-
-### TEN-018: Atualização de Endereço de Unidade Física
-- **Pré-condição:** Unidade física vinculada a `address_id = 5`.
-- **Passos:** PUT `/branches/10/address` com novos dados de logradouro.
-- **Esperado:** HTTP 200 OK. Registro em `Address` atualizado.
-
-### TEN-019: Isolamento Multi-Tenant em Unidades Físicas
-- **Pré-condição:** Restaurante 1 e Restaurante 2 possuem filiais próprias.
-- **Passos:** Tentar associar uma filial do Restaurante 2 à rota do Restaurante 1.
-- **Esperado:** HTTP 403 Forbidden ou HTTP 404 Not Found.
-
-### TEN-020: Criação de Restaurante com CNPJ em Branco (Opcional no DBML)
-- **Pré-condição:** Nenhuma.
-- **Passos:** POST `/restaurants` omitindo campo `cnpj`.
-- **Esperado:** HTTP 201 Created com coluna `cnpj` nula (`NULL`).
-
-### TEN-021: Busca de Restaurantes por Filtro de Nome
-- **Pré-condição:** Restaurantes cadastrados.
-- **Passos:** GET `/restaurants?name=Napoli`.
-- **Esperado:** Retorno filtrado apenas com restaurantes cujo nome contém "Napoli".
-
-### TEN-022: Paginação da Listagem de Restaurantes
-- **Pré-condição:** 30 restaurantes cadastrados.
-- **Passos:** GET `/restaurants?limit=10&page=2`.
-- **Esperado:** Retorno exato dos registros 11 a 20.
-
-### TEN-023: Exclusão de Telefone de Unidade Física
-- **Pré-condição:** Telefone cadastrado para a unidade 10.
-- **Passos:** DELETE `/branches/10/phones`.
-- **Esperado:** HTTP 204 No Content.
-
-### TEN-024: Verificação de CEP Inexistente via Integração de Correios
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter CEP `00000000`.
-- **Esperado:** HTTP 400 Bad Request `unrecognized or invalid CEP`.
-
-### TEN-025: Sanitização de Nome de Restaurante
-- **Pré-condição:** Nenhuma.
-- **Passos:** Criar restaurante com tags HTML no nome.
-- **Esperado:** Tags removidas ou escapadas no retorno.
-
-### TEN-026: Verificação de Chave Composta de `physical_restaurant`
-- **Pré-condição:** Unidade física com `(id=1, restaurant_id=1, address_id=1)`.
-- **Passos:** Tentar inserir linha com chave primária idêntica.
-- **Esperado:** HTTP 409 Conflict.
-
-### TEN-027: Cadastro de Filial com CNPJ da Matriz
-- **Pré-condição:** Restaurante matriz com CNPJ `12345678000199`.
-- **Passos:** Cadastrar filial com CNPJ `12345678000270` (mesma raiz).
-- **Esperado:** HTTP 201 Created.
-
-### TEN-028: Remoção de Endereço sem Referência Ativa
-- **Pré-condição:** Endereço criado que teve filial excluída.
-- **Passos:** Executar limpeza de endereços órfãos.
-- **Esperado:** Registro em `Address` removido sem impacto em outras entidades.
-
-### TEN-029: Inclusão de `brand` com Tamanho Limite de 500 Caracteres
-- **Pré-condição:** Nenhuma.
-- **Passos:** POST restaurante com `brand` de 500 caracteres.
-- **Esperado:** HTTP 201 Created.
-
-### TEN-030: Rejeição de `brand` Excedendo 500 Caracteres
-- **Pré-condição:** Nenhuma.
-- **Passos:** POST com `brand` de 501 caracteres.
-- **Esperado:** HTTP 400 Bad Request.
+- **Passos:** Submeter requisições com CNPJs formatados com pontuação ou dígitos alfanuméricos.
+- **Esperado:** Pontuação normalizada (`.`, `-`, `/`), rejeição estrita de strings com menos de 14 dígitos válidos.
 
 ---
 
