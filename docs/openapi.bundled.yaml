@@ -1,0 +1,4588 @@
+openapi: 3.0.3
+info:
+  title: Pratello API
+  version: 2.1.0
+  description: |
+    SaaS for restaurants — complete API.
+
+    ## Auth model
+    An account can hold up to two verified auth methods:
+    - **email + password** (verified by email confirmation)
+    - **phone** (verified by SMS OTP)
+
+    At least one verified method must exist for the account to log in.
+    An unverified phone is **contact data only** — it cannot be used for OTP login.
+    Login via either method returns the same `TokenPair` (identical JWT claims).
+
+    ## Auth levels
+    - `public` — no auth
+    - `user` — any authenticated account (bearer JWT)
+    - `manager` — MANAGER or OWNER of the logical restaurant
+    - `owner` — OWNER of the logical restaurant (entity-level actions)
+    - `employee` — employee record of the branch
+    - `terminal` — PIN terminal session (read-only orders, branch-scoped)
+    - `sysadmin` — global sysadmin
+
+    Terminal sessions are bearer JWTs obtained via
+    `POST /restaurants/{slug}/branches/{branch_id}/terminal-sessions` using the
+    branch's shared 6-digit PIN (rotates every 8h). Scoped to one branch,
+    read-only orders, device-bound, expires with the shift.
+
+    ## Money
+    All monetary values are **integer cents** (BRL), fields suffixed `_cents`.
+
+    ## Idempotency
+    All payment-mutating endpoints require an `Idempotency-Key` header.
+
+    ## Soft deletes
+    Restaurants, branches, items, employees, and coupons are soft-deleted
+    (archived), preserving order history integrity.
+
+    ## Loyalty
+    CPF can be attached to any order **without an account** — points accrue.
+    **Redeeming** points requires an account whose CPF has been claimed via SMS.
+    A CPF-only wallet is visible to restaurant staff and dormant for the customer
+    until claimed.
+servers:
+  - url: http://localhost:8080/api/v1
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Accounts
+  - name: Restaurants
+  - name: Owners
+  - name: Managers
+  - name: Branches
+  - name: OperatingHours
+  - name: Tables
+  - name: Employees
+  - name: TerminalSessions
+  - name: StaffSessions
+  - name: Menu
+  - name: Categories
+  - name: Items
+  - name: Ingredients
+  - name: Sides
+  - name: Combos
+  - name: Sales
+  - name: Coupons
+  - name: Loyalty
+  - name: Orders
+  - name: Payments
+  - name: Sysadmins
+  - name: Audit
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register with email + password (phone optional, unverified)
+      description: |
+        The `phone` field, if provided, is stored as **unverified contact data**.
+        It cannot be used for OTP login until verified via `POST /me/phone/verify`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login with email + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/me:
+    get:
+      tags:
+        - Auth
+      summary: Get current account
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/register/phone/request-code:
+    post:
+      tags:
+        - Auth
+      summary: Start phone-only registration — sends SMS code
+      description: |
+        Always returns 202 (whether or not the phone is eligible) to prevent
+        phone-number enumeration. If the phone already belongs to an account,
+        the user should use `/auth/login/phone/request-code` instead.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+              properties:
+                phone:
+                  type: string
+      responses:
+        '202':
+          description: Code sent if number is eligible
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/register/phone/verify:
+    post:
+      tags:
+        - Auth
+      summary: Complete phone-only registration with SMS code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+                - code
+              properties:
+                phone:
+                  type: string
+                code:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Account created (phone-only, verified)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/login/phone/request-code:
+    post:
+      tags:
+        - Auth
+      summary: Request SMS login code (verified phones only)
+      description: |
+        Always returns 202 to prevent enumeration. Unverified phones are
+        silently ignored (no code sent, no account lookup).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+              properties:
+                phone:
+                  type: string
+      responses:
+        '202':
+          description: Code sent if phone is verified and belongs to an account
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/login/phone/verify:
+    post:
+      tags:
+        - Auth
+      summary: Complete phone login with SMS code — same JWT as email login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+                - code
+              properties:
+                phone:
+                  type: string
+                code:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Exchange refresh token for a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Revoke current refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '204':
+          description: Revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/logout-all:
+    post:
+      tags:
+        - Auth
+      summary: Revoke all refresh tokens and active JTIs for this account
+      responses:
+        '204':
+          description: All sessions revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /me/phone/request-code:
+    post:
+      tags:
+        - Auth
+      summary: Add or change phone — sends verification code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+              properties:
+                phone:
+                  type: string
+      responses:
+        '202':
+          description: Code sent
+        '409':
+          description: Phone already used by another account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /me/phone/verify:
+    post:
+      tags:
+        - Auth
+      summary: Confirm new phone with SMS code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+                - code
+              properties:
+                phone:
+                  type: string
+                code:
+                  type: string
+      responses:
+        '200':
+          description: Phone verified and attached to this account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /me/phone:
+    delete:
+      tags:
+        - Auth
+      summary: Remove phone from account
+      description: Rejected with 409 if this is the last verified auth method.
+      responses:
+        '204':
+          description: Removed
+        '409':
+          description: Cannot remove last verified auth method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /me/email:
+    put:
+      tags:
+        - Auth
+      summary: Add or change email + password on this account
+      description: |
+        Used by phone-only accounts to add an email auth method.
+        If an email already exists, requires `current_password` to confirm.
+        New email requires confirmation via `/me/email/verify` before
+        it becomes an active auth method.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                current_password:
+                  type: string
+      responses:
+        '202':
+          description: Email set, confirmation email sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Auth
+      summary: Remove email + password from account
+      description: Rejected with 409 if this is the last verified auth method.
+      responses:
+        '204':
+          description: Removed
+        '409':
+          description: Cannot remove last verified auth method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /me/email/verify:
+    post:
+      tags:
+        - Auth
+      summary: Confirm email via token from confirmation email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /me/addresses:
+    get:
+      tags:
+        - Accounts
+      summary: List my saved addresses
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedAddress'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Accounts
+      summary: Save a new address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAddressRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedAddress'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /me/addresses/{address_id}:
+    parameters:
+      - name: address_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Accounts
+      summary: Update saved address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAddressRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedAddress'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Accounts
+      summary: Delete saved address
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants:
+    get:
+      tags:
+        - Restaurants
+      summary: List restaurants (public discovery)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRestaurants'
+    post:
+      tags:
+        - Restaurants
+      summary: Create restaurant (caller becomes first OWNER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRestaurantRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restaurant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /me/restaurants:
+    get:
+      tags:
+        - Restaurants
+      summary: My memberships
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyRestaurant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /restaurants/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Restaurants
+      summary: Get restaurant
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restaurant'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Restaurants
+      summary: Update restaurant (OWNER)
+      description: Slug is immutable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRestaurantRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restaurant'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Restaurants
+      summary: Soft-delete restaurant (OWNER)
+      responses:
+        '204':
+          description: Archived
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/owners:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Owners
+      summary: List owners
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Membership'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Owners
+      summary: Appoint owner (requires OWNER consent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppointOwnerRequest'
+      responses:
+        '201':
+          description: Appointed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/owners/{account_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/AccountIdParam'
+    delete:
+      tags:
+        - Owners
+      summary: Remove owner (last owner cannot be removed)
+      responses:
+        '204':
+          description: Removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Cannot remove the last owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /restaurants/{slug}/managers:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Managers
+      summary: List managers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Membership'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Managers
+      summary: Add manager (OWNER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddManagerRequest'
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/managers/{account_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/AccountIdParam'
+    delete:
+      tags:
+        - Managers
+      summary: Remove manager (OWNER)
+      responses:
+        '204':
+          description: Removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/branches:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Branches
+      summary: List branches
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBranches'
+    post:
+      tags:
+        - Branches
+      summary: Create branch (OWNER, CNPJ verification required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBranchRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /restaurants/{slug}/branches/{branch_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags:
+        - Branches
+      summary: Get branch
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Branches
+      summary: Update branch (manager+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBranchRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Branches
+      summary: Deactivate branch (OWNER)
+      responses:
+        '204':
+          description: Deactivated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/branches/{branch_id}/address:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    put:
+      tags:
+        - Branches
+      summary: Update address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Address'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/phones:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags:
+        - Branches
+      summary: List phones
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Phone'
+    post:
+      tags:
+        - Branches
+      summary: Add phone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePhoneRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Phone'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/phones/{phone_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - name: phone_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      tags:
+        - Branches
+      summary: Remove phone
+      responses:
+        '204':
+          description: Removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/branches/{branch_id}/hours:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags:
+        - OperatingHours
+      summary: Get operating hours
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperatingHour'
+    put:
+      tags:
+        - OperatingHours
+      summary: Replace operating hours
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/OperatingHour'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperatingHour'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/tables:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags:
+        - Tables
+      summary: List tables
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Table'
+    post:
+      tags:
+        - Tables
+      summary: Create table
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTableRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Table'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/tables/{table_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - name: table_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Tables
+      summary: Update table
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTableRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Table'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - Tables
+      summary: Delete table
+      responses:
+        '204':
+          description: Removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/employees:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags:
+        - Employees
+      summary: List employees
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEmployees'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Employees
+      summary: Create employee record (manager+)
+      description: |
+        Creates an HR record. Employee does NOT get a login unless an invite
+        is sent and accepted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEmployeeRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/employees/{employee_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - name: employee_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Employees
+      summary: Get employee
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Employees
+      summary: Update employee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEmployeeRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Employees
+      summary: Deactivate employee (soft)
+      responses:
+        '204':
+          description: Deactivated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/branches/{branch_id}/employees/{employee_id}/invite:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - name: employee_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      tags:
+        - Employees
+      summary: Send login invite
+      responses:
+        '202':
+          description: Invite sent
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/branches/{branch_id}/terminal-sessions:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    post:
+      tags:
+        - TerminalSessions
+      summary: Open terminal session with branch shared PIN
+      description: |
+        The 6-digit PIN is shared per branch and rotates every 8 hours.
+        Returns a device-bound token scoped to this branch, read-only orders
+        access, expiring with the shift. Aggressively rate-limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pin
+              properties:
+                pin:
+                  type: string
+                  pattern: ^\d{6}$
+      responses:
+        '201':
+          description: Session opened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerminalSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /restaurants/{slug}/branches/{branch_id}/staff-sessions:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags:
+        - StaffSessions
+      summary: List staff shifts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StaffSession'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/staff-sessions/open:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    post:
+      tags:
+        - StaffSessions
+      summary: Open shift, generate QR token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - shift_code
+              properties:
+                shift_code:
+                  type: string
+      responses:
+        '201':
+          description: Opened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSession'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/staff-sessions/{session_id}/close:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      tags:
+        - StaffSessions
+      summary: Close shift
+      responses:
+        '200':
+          description: Closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSession'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /staff-sessions/check-in:
+    post:
+      tags:
+        - StaffSessions
+      summary: Employee check-in (account derived from token)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - qr_token
+              properties:
+                qr_token:
+                  type: string
+      responses:
+        '201':
+          description: Checked in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffCheckIn'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /staff-sessions/{id}/check-out:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      tags:
+        - StaffSessions
+      summary: Employee check-out
+      responses:
+        '200':
+          description: Checked out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffCheckIn'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /restaurants/{slug}/menu:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Menu
+      summary: Get menu layout
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuLayout'
+    put:
+      tags:
+        - Menu
+      summary: Update menu layout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMenuLayoutRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuLayout'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/categories:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Categories
+      summary: List categories
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+    post:
+      tags:
+        - Categories
+      summary: Create category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/categories/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Categories
+      summary: Update category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Categories
+      summary: Delete category (409 if has items unless force=true)
+      parameters:
+        - name: force
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Category has items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /restaurants/{slug}/items:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Items
+      summary: List items (public; branch_id affects per-branch availability)
+      security: []
+      parameters:
+        - name: category_id
+          in: query
+          schema:
+            type: integer
+        - name: branch_id
+          in: query
+          description: When provided, is_available reflects this branch
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedItems'
+    post:
+      tags:
+        - Items
+      summary: Create item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateItemRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+    get:
+      tags:
+        - Items
+      summary: Get item detail
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Items
+      summary: Full update (all fields required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - Items
+      summary: Partial update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Items
+      summary: Archive item (soft)
+      responses:
+        '204':
+          description: Archived
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/branches/{branch_id}/items/{item_id}/availability:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+    put:
+      tags:
+        - Items
+      summary: Set per-branch availability override
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - is_available
+              properties:
+                is_available:
+                  type: boolean
+      responses:
+        '200':
+          description: OK
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/ingredients:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Ingredients
+      summary: List ingredients
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Ingredient'
+    post:
+      tags:
+        - Ingredients
+      summary: Create ingredient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                default_unit:
+                  type: string
+                  enum:
+                    - g
+                    - kg
+                    - ml
+                    - l
+                    - un
+                    - cs
+                    - colher
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ingredient'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/ingredients/{ingredient_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - name: ingredient_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Ingredients
+      summary: Update ingredient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                default_unit:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ingredient'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - Ingredients
+      summary: Delete ingredient (409 if used)
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Ingredient in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /restaurants/{slug}/items/{item_id}/ingredients:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+    get:
+      tags:
+        - Ingredients
+      summary: List item ingredients
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemIngredient'
+    post:
+      tags:
+        - Ingredients
+      summary: Associate ingredient to item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ingredient_id
+              properties:
+                ingredient_id:
+                  type: integer
+                quantity:
+                  type: number
+                unit:
+                  type: string
+                  enum:
+                    - g
+                    - kg
+                    - ml
+                    - l
+                    - un
+                    - cs
+                    - colher
+                is_removable:
+                  type: boolean
+                  default: false
+      responses:
+        '201':
+          description: Associated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemIngredient'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/ingredients/{item_ingredient_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+      - name: item_ingredient_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Ingredients
+      summary: Update item-ingredient association
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity:
+                  type: number
+                unit:
+                  type: string
+                is_removable:
+                  type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemIngredient'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - Ingredients
+      summary: Dissociate ingredient from item
+      responses:
+        '204':
+          description: Dissociated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/sides:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+    get:
+      tags:
+        - Sides
+      summary: List side groups
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Side'
+    post:
+      tags:
+        - Sides
+      summary: Create side group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                min_options:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                max_options:
+                  type: integer
+                  minimum: 1
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Side'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/sides/{side_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+      - name: side_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Sides
+      summary: Update side group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - min_options
+                - max_options
+              properties:
+                title:
+                  type: string
+                min_options:
+                  type: integer
+                max_options:
+                  type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Side'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - Sides
+      summary: Delete side group
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/sides/{side_id}/options:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+      - name: side_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      tags:
+        - Sides
+      summary: Add option
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - additional_price_cents
+              properties:
+                name:
+                  type: string
+                additional_price_cents:
+                  type: integer
+                  minimum: 0
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SideOption'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/sides/{side_id}/options/{option_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+      - name: side_id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: option_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Sides
+      summary: Update option
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - additional_price_cents
+              properties:
+                name:
+                  type: string
+                additional_price_cents:
+                  type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SideOption'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - Sides
+      summary: Delete option
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/combo-items:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+    get:
+      tags:
+        - Combos
+      summary: List combo composition
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComboItem'
+    post:
+      tags:
+        - Combos
+      summary: Add item to combo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sub_item_id
+                - quantity
+              properties:
+                sub_item_id:
+                  type: integer
+                quantity:
+                  type: integer
+                  minimum: 1
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComboItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/combo-items/{combo_item_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+      - name: combo_item_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      tags:
+        - Combos
+      summary: Update combo item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - quantity
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComboItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - Combos
+      summary: Remove combo item
+      responses:
+        '204':
+          description: Removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/sales:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+    get:
+      tags:
+        - Sales
+      summary: List item sales
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemSale'
+    post:
+      tags:
+        - Sales
+      summary: Create item sale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateItemSaleRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemSale'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/items/{item_id}/sales/{sale_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+      - name: sale_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      tags:
+        - Sales
+      summary: Cancel sale
+      responses:
+        '204':
+          description: Cancelled
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/coupons:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Coupons
+      summary: List coupons
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCoupons'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Coupons
+      summary: Create coupon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCouponRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coupon'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/coupons/{code}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - Coupons
+      summary: Validate coupon (public)
+      security: []
+      parameters:
+        - name: subtotal_cents
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Coupon status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouponValidation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Coupons
+      summary: Update coupon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCouponRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coupon'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - Coupons
+      summary: Deactivate coupon
+      responses:
+        '204':
+          description: Deactivated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /loyalty/customers:
+    post:
+      tags:
+        - Loyalty
+      summary: Register a loyalty CPF (no account required)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - cpf
+              properties:
+                cpf:
+                  type: string
+                  pattern: ^\d{11}$
+                name:
+                  type: string
+                phone:
+                  type: string
+      responses:
+        '201':
+          description: Created (or returned existing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoyaltyCustomer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /loyalty/customers/{customer_ref}:
+    parameters:
+      - name: customer_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Loyalty
+      summary: Get loyalty record (staff, or account that claimed it)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoyaltyCustomer'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /restaurants/{slug}/loyalty/customers/{customer_ref}/wallet:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - name: customer_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Loyalty
+      summary: Get wallet by CPF (staff — no account required)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/loyalty/customers/{customer_ref}/wallet/transactions:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - name: customer_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Loyalty
+      summary: Wallet transaction history (staff)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWalletTransactions'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Loyalty
+      summary: Credit/debit points (staff, idempotent)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - points_delta
+                - reason
+              properties:
+                points_delta:
+                  type: integer
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletTransaction'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Idempotency key mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /me/loyalty/{slug}/wallet:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Loyalty
+      summary: My wallet (requires account with claimed CPF)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+        '403':
+          description: No CPF claimed for this account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /me/loyalty/{slug}/redeem:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    post:
+      tags:
+        - Loyalty
+      summary: Redeem points (account-only, CPF must be claimed)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - points
+              properties:
+                points:
+                  type: integer
+                  minimum: 1
+                order_id:
+                  type: integer
+      responses:
+        '200':
+          description: Redeemed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletTransaction'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Insufficient balance or CPF not claimed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /me/loyalty/claim/request-code:
+    post:
+      tags:
+        - Loyalty
+      summary: Request SMS code to claim a CPF wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - cpf
+              properties:
+                cpf:
+                  type: string
+                  pattern: ^\d{11}$
+      responses:
+        '202':
+          description: Code sent (always — prevents enumeration)
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /me/loyalty/claim:
+    post:
+      tags:
+        - Loyalty
+      summary: Claim a CPF wallet with SMS code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - cpf
+                - sms_code
+              properties:
+                cpf:
+                  type: string
+                  pattern: ^\d{11}$
+                sms_code:
+                  type: string
+      responses:
+        '200':
+          description: Wallet linked to this account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoyaltyCustomer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: CPF already claimed by another account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /restaurants/{slug}/branches/{branch_id}/orders:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags:
+        - Orders
+      summary: List branch orders (manager/owner/employee/terminal)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOrders'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /restaurants/{slug}/branches/{branch_id}/orders/local:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    post:
+      tags:
+        - Orders
+      summary: Open dine-in order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLocalOrderRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Table already has an open order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /restaurants/{slug}/branches/{branch_id}/orders/remote:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    post:
+      tags:
+        - Orders
+      summary: Create delivery order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRemoteOrderRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /orders/{order_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdParam'
+    get:
+      tags:
+        - Orders
+      summary: Get order detail
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /orders/{order_id}/status:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdParam'
+    patch:
+      tags:
+        - Orders
+      summary: Update order status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  $ref: '#/components/schemas/OrderStatus'
+                note:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderSummary'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /orders/{order_id}/items:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdParam'
+    post:
+      tags:
+        - Orders
+      summary: Add item (with side selections)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddOrderItemRequest'
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderItem'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Order is not open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /orders/{order_id}/items/{order_item_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdParam'
+      - name: order_item_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      tags:
+        - Orders
+      summary: Void order item (audited)
+      parameters:
+        - name: reason
+          in: query
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Voided
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Order is not open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /orders/{order_id}/transactions:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdParam'
+    get:
+      tags:
+        - Payments
+      summary: List transactions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Payments
+      summary: Start payment (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Idempotency key reused with different payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /transactions/{transaction_id}:
+    parameters:
+      - name: transaction_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Payments
+      summary: Get transaction
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /transactions/{transaction_id}/pix:
+    parameters:
+      - name: transaction_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Payments
+      summary: Get PIX QR / status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PixCharge'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Payments
+      summary: Generate PIX charge (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyParam'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PixCharge'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /transactions/{transaction_id}/refund:
+    parameters:
+      - name: transaction_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      tags:
+        - Payments
+      summary: Refund (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount_cents:
+                  type: integer
+                  description: Partial refund; omit for full
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Not refundable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /orders/{order_id}/receipt:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdParam'
+    get:
+      tags:
+        - Payments
+      summary: Get receipt
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /sysadmins:
+    get:
+      tags:
+        - Sysadmins
+      summary: List sysadmins (sysadmin only)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sysadmin'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Sysadmins
+      summary: Promote to sysadmin (existing sysadmin + confirmation code)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - account_id
+                - confirmation_code
+              properties:
+                account_id:
+                  type: integer
+                confirmation_code:
+                  type: string
+      responses:
+        '201':
+          description: Promoted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sysadmin'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /audit:
+    get:
+      tags:
+        - Audit
+      summary: List audit entries
+      parameters:
+        - name: restaurant_slug
+          in: query
+          schema:
+            type: string
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditEntries'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT accepted from any of:
+        - `POST /auth/login`
+        - `POST /auth/login/phone/verify`
+        - `POST /auth/register/phone/verify`
+        - `POST /auth/refresh`
+        - `POST /restaurants/{slug}/branches/{branch_id}/terminal-sessions`
+
+        User and terminal tokens share the same header. The server distinguishes
+        on the `typ` claim (`user` vs `terminal`). Terminal tokens only grant
+        read-only orders access scoped to one branch — the server rejects them
+        on any endpoint requiring a user, manager, owner, employee, or sysadmin role.
+  parameters:
+    SlugParam:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+    BranchIdParam:
+      name: branch_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ItemIdParam:
+      name: item_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    OrderIdParam:
+      name: order_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    AccountIdParam:
+      name: account_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeParam:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    IdempotencyKeyParam:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 64
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+    Unauthorized:
+      description: Missing/invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limited
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    ValidationError:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        fields:
+          type: array
+          items:
+            type: object
+            required:
+              - field
+              - message
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+        phone:
+          type: string
+          description: Stored as unverified contact data. Use /me/phone/verify to enable OTP login.
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    TokenPair:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          enum:
+            - Bearer
+        expires_in:
+          type: integer
+          description: seconds
+    Account:
+      type: object
+      required:
+        - id
+        - created_at
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Null for phone-only accounts
+        email_verified:
+          type: boolean
+        phone:
+          type: string
+          nullable: true
+          description: Null for email-only accounts
+        phone_verified:
+          type: boolean
+          description: Only verified phones can be used for OTP login
+        created_at:
+          type: string
+          format: date-time
+        two_factor_enabled:
+          type: boolean
+    JwtClaims:
+      type: object
+      description: |
+        Informational only. Clients must not trust these claims for authorization —
+        the server is the source of truth. Provided so clients can make UI decisions.
+      properties:
+        sub:
+          type: integer
+        typ:
+          type: string
+          enum:
+            - user
+            - terminal
+        role:
+          type: string
+          enum:
+            - OWNER
+            - MANAGER
+            - EMPLOYEE
+            - TERMINAL
+        restaurant_slug:
+          type: string
+          nullable: true
+        branch_id:
+          type: integer
+          nullable: true
+        scopes:
+          type: array
+          items:
+            type: string
+        jti:
+          type: string
+        iat:
+          type: integer
+        exp:
+          type: integer
+    Address:
+      type: object
+      required:
+        - cep
+        - street
+        - number
+      properties:
+        cep:
+          type: string
+          pattern: ^\d{8}$
+        street:
+          type: string
+        number:
+          type: string
+        apt:
+          type: string
+        complement:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+    SavedAddress:
+      type: object
+      required:
+        - id
+        - address
+        - is_default
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+          example: Home
+        address:
+          $ref: '#/components/schemas/Address'
+        is_default:
+          type: boolean
+    CreateAddressRequest:
+      type: object
+      required:
+        - address
+      properties:
+        label:
+          type: string
+        address:
+          $ref: '#/components/schemas/Address'
+        is_default:
+          type: boolean
+          default: false
+    Restaurant:
+      type: object
+      required:
+        - slug
+        - name
+        - created_at
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateRestaurantRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+          description: Immutable after creation. Auto-generated if omitted.
+        description:
+          type: string
+    UpdateRestaurantRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    MyRestaurant:
+      type: object
+      required:
+        - restaurant
+        - role
+      properties:
+        restaurant:
+          $ref: '#/components/schemas/Restaurant'
+        role:
+          type: string
+          enum:
+            - OWNER
+            - MANAGER
+            - EMPLOYEE
+    Membership:
+      type: object
+      required:
+        - account_id
+        - role
+      properties:
+        account_id:
+          type: integer
+        account_email:
+          type: string
+          format: email
+          nullable: true
+        account_phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum:
+            - OWNER
+            - MANAGER
+        created_at:
+          type: string
+          format: date-time
+    AppointOwnerRequest:
+      type: object
+      required:
+        - account_id
+      properties:
+        account_id:
+          type: integer
+    AddManagerRequest:
+      type: object
+      required:
+        - account_id
+      properties:
+        account_id:
+          type: integer
+    Branch:
+      type: object
+      required:
+        - id
+        - restaurant_slug
+        - name
+        - cnpj
+        - address
+        - is_active
+        - cnpj_verified
+      properties:
+        id:
+          type: integer
+        restaurant_slug:
+          type: string
+        name:
+          type: string
+        cnpj:
+          type: string
+          pattern: ^\d{14}$
+        owner_cnpj:
+          type: string
+          pattern: ^\d{14}$
+        cnpj_verified:
+          type: boolean
+        address:
+          $ref: '#/components/schemas/Address'
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateBranchRequest:
+      type: object
+      required:
+        - name
+        - cnpj
+        - owner_cnpj
+        - address
+      properties:
+        name:
+          type: string
+        cnpj:
+          type: string
+          pattern: ^\d{14}$
+          description: Verified against Receita Federal
+        owner_cnpj:
+          type: string
+          pattern: ^\d{14}$
+          description: CNPJ of the owner entity on record
+        address:
+          $ref: '#/components/schemas/Address'
+    UpdateBranchRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+    Phone:
+      type: object
+      required:
+        - id
+        - phone_number
+      properties:
+        id:
+          type: integer
+        branch_id:
+          type: integer
+        phone_number:
+          type: string
+        phone_type:
+          type: string
+          enum:
+            - whatsapp
+            - landline
+            - mobile
+            - other
+    CreatePhoneRequest:
+      type: object
+      required:
+        - phone_number
+      properties:
+        phone_number:
+          type: string
+        phone_type:
+          type: string
+          enum:
+            - whatsapp
+            - landline
+            - mobile
+            - other
+    OperatingHour:
+      type: object
+      required:
+        - weekday
+        - opens_at
+        - closes_at
+        - is_closed
+      properties:
+        weekday:
+          type: integer
+          minimum: 0
+          maximum: 6
+        opens_at:
+          type: string
+          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+        closes_at:
+          type: string
+          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+        is_closed:
+          type: boolean
+    Table:
+      type: object
+      required:
+        - id
+        - branch_id
+        - number
+        - is_active
+      properties:
+        id:
+          type: integer
+        branch_id:
+          type: integer
+        number:
+          type: integer
+        seats:
+          type: integer
+        display_order:
+          type: integer
+        is_active:
+          type: boolean
+    CreateTableRequest:
+      type: object
+      required:
+        - number
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        seats:
+          type: integer
+          minimum: 1
+        display_order:
+          type: integer
+        is_active:
+          type: boolean
+          default: true
+    Employee:
+      type: object
+      required:
+        - id
+        - branch_id
+        - name
+        - position
+        - is_active
+      properties:
+        id:
+          type: integer
+        branch_id:
+          type: integer
+        name:
+          type: string
+        cpf:
+          type: string
+          pattern: ^\d{11}$
+          nullable: true
+        position:
+          type: string
+          enum:
+            - WAITER
+            - COOK
+            - CASHIER
+            - BARTENDER
+            - HOST
+            - OTHER
+        account_id:
+          type: integer
+          nullable: true
+          description: Populated once invite is accepted
+        is_active:
+          type: boolean
+        hired_at:
+          type: string
+          format: date
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateEmployeeRequest:
+      type: object
+      required:
+        - name
+        - position
+      properties:
+        name:
+          type: string
+        cpf:
+          type: string
+          pattern: ^\d{11}$
+        position:
+          type: string
+          enum:
+            - WAITER
+            - COOK
+            - CASHIER
+            - BARTENDER
+            - HOST
+            - OTHER
+        email:
+          type: string
+          format: email
+          description: If provided, an invite is sent immediately
+        phone:
+          type: string
+          description: If provided instead of email, invite is sent via SMS
+        hired_at:
+          type: string
+          format: date
+    UpdateEmployeeRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        position:
+          type: string
+          enum:
+            - WAITER
+            - COOK
+            - CASHIER
+            - BARTENDER
+            - HOST
+            - OTHER
+        is_active:
+          type: boolean
+    TerminalSession:
+      type: object
+      required:
+        - access_token
+        - expires_at
+        - branch_id
+        - scopes
+      properties:
+        access_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        branch_id:
+          type: integer
+        scopes:
+          type: array
+          items:
+            type: string
+          example:
+            - orders:read
+    StaffSession:
+      type: object
+      required:
+        - id
+        - branch_id
+        - shift_code
+        - opened_at
+      properties:
+        id:
+          type: integer
+        branch_id:
+          type: integer
+        shift_code:
+          type: string
+        qr_token:
+          type: string
+        opened_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+    StaffCheckIn:
+      type: object
+      required:
+        - id
+        - staff_session_id
+        - account_id
+        - checked_in_at
+      properties:
+        id:
+          type: integer
+        staff_session_id:
+          type: integer
+        account_id:
+          type: integer
+        checked_in_at:
+          type: string
+          format: date-time
+        checked_out_at:
+          type: string
+          format: date-time
+          nullable: true
+    MenuLayout:
+      type: object
+      required:
+        - restaurant_slug
+      properties:
+        restaurant_slug:
+          type: string
+        name:
+          type: string
+        template_style:
+          type: string
+          example: classic
+        accent_color:
+          type: string
+          pattern: ^#[0-9A-Fa-f]{6}$
+        typography:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    UpdateMenuLayoutRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        template_style:
+          type: string
+        accent_color:
+          type: string
+          pattern: ^#[0-9A-Fa-f]{6}$
+        typography:
+          type: string
+    Category:
+      type: object
+      required:
+        - id
+        - name
+        - display_order
+      properties:
+        id:
+          type: integer
+        restaurant_slug:
+          type: string
+        name:
+          type: string
+        display_order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    CreateCategoryRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        display_order:
+          type: integer
+    UpdateCategoryRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        display_order:
+          type: integer
+    Item:
+      type: object
+      required:
+        - id
+        - category_id
+        - name
+        - base_price_cents
+        - is_combo
+        - is_available
+      properties:
+        id:
+          type: integer
+        category_id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        base_price_cents:
+          type: integer
+        photo_url:
+          type: string
+        is_combo:
+          type: boolean
+        is_available:
+          type: boolean
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateItemRequest:
+      type: object
+      required:
+        - category_id
+        - name
+        - base_price_cents
+      properties:
+        category_id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        base_price_cents:
+          type: integer
+          minimum: 0
+        photo_url:
+          type: string
+        is_combo:
+          type: boolean
+          default: false
+        is_available:
+          type: boolean
+          default: true
+    UpdateItemRequest:
+      type: object
+      required:
+        - category_id
+        - name
+        - base_price_cents
+        - is_combo
+        - is_available
+      properties:
+        category_id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        base_price_cents:
+          type: integer
+          minimum: 0
+        photo_url:
+          type: string
+        is_combo:
+          type: boolean
+        is_available:
+          type: boolean
+    PatchItemRequest:
+      type: object
+      properties:
+        category_id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        base_price_cents:
+          type: integer
+          minimum: 0
+        photo_url:
+          type: string
+        is_combo:
+          type: boolean
+        is_available:
+          type: boolean
+    ItemDetail:
+      allOf:
+        - $ref: '#/components/schemas/Item'
+        - type: object
+          properties:
+            ingredients:
+              type: array
+              items:
+                $ref: '#/components/schemas/ItemIngredient'
+            sides:
+              type: array
+              items:
+                $ref: '#/components/schemas/Side'
+    Ingredient:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        default_unit:
+          type: string
+          enum:
+            - g
+            - kg
+            - ml
+            - l
+            - un
+            - cs
+            - colher
+    ItemIngredient:
+      type: object
+      required:
+        - id
+        - item_id
+        - ingredient_id
+        - name
+        - is_removable
+      properties:
+        id:
+          type: integer
+        item_id:
+          type: integer
+        ingredient_id:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: string
+          enum:
+            - g
+            - kg
+            - ml
+            - l
+            - un
+            - cs
+            - colher
+        is_removable:
+          type: boolean
+    Side:
+      type: object
+      required:
+        - id
+        - item_id
+        - title
+        - min_options
+        - max_options
+        - options
+      properties:
+        id:
+          type: integer
+        item_id:
+          type: integer
+        title:
+          type: string
+        min_options:
+          type: integer
+        max_options:
+          type: integer
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/SideOption'
+    SideOption:
+      type: object
+      required:
+        - id
+        - side_id
+        - name
+        - additional_price_cents
+        - is_available
+      properties:
+        id:
+          type: integer
+        side_id:
+          type: integer
+        name:
+          type: string
+        additional_price_cents:
+          type: integer
+          minimum: 0
+        is_available:
+          type: boolean
+    ComboItem:
+      type: object
+      required:
+        - id
+        - combo_id
+        - sub_item_id
+        - sub_item_name
+        - quantity
+      properties:
+        id:
+          type: integer
+        combo_id:
+          type: integer
+        sub_item_id:
+          type: integer
+        sub_item_name:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+    ItemSale:
+      type: object
+      required:
+        - id
+        - item_id
+        - discount_type
+        - discount_value
+        - starts_at
+        - ends_at
+      properties:
+        id:
+          type: integer
+        item_id:
+          type: integer
+        discount_type:
+          type: string
+          enum:
+            - percent
+            - fixed_cents
+        discount_value:
+          type: integer
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+    CreateItemSaleRequest:
+      type: object
+      required:
+        - discount_type
+        - discount_value
+        - starts_at
+        - ends_at
+      properties:
+        discount_type:
+          type: string
+          enum:
+            - percent
+            - fixed_cents
+        discount_value:
+          type: integer
+          minimum: 1
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+    Coupon:
+      type: object
+      required:
+        - id
+        - restaurant_slug
+        - code
+        - discount_type
+        - discount_value
+        - used_count
+        - is_active
+      properties:
+        id:
+          type: integer
+        restaurant_slug:
+          type: string
+        code:
+          type: string
+        discount_type:
+          type: string
+          enum:
+            - percent
+            - fixed_cents
+        discount_value:
+          type: integer
+        min_order_cents:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        max_uses:
+          type: integer
+          nullable: true
+        used_count:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    CreateCouponRequest:
+      type: object
+      required:
+        - code
+        - discount_type
+        - discount_value
+      properties:
+        code:
+          type: string
+        discount_type:
+          type: string
+          enum:
+            - percent
+            - fixed_cents
+        discount_value:
+          type: integer
+          minimum: 1
+        min_order_cents:
+          type: integer
+          minimum: 0
+        expires_at:
+          type: string
+          format: date-time
+        max_uses:
+          type: integer
+          minimum: 1
+    UpdateCouponRequest:
+      type: object
+      properties:
+        discount_value:
+          type: integer
+        min_order_cents:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+        max_uses:
+          type: integer
+        is_active:
+          type: boolean
+    CouponValidation:
+      type: object
+      required:
+        - valid
+        - code
+      properties:
+        valid:
+          type: boolean
+        code:
+          type: string
+        reason:
+          type: string
+          enum:
+            - EXPIRED
+            - MAX_USES_REACHED
+            - MIN_ORDER_NOT_MET
+            - INACTIVE
+        discount_cents:
+          type: integer
+          description: Present only when valid=true
+    LoyaltyCustomer:
+      type: object
+      required:
+        - cpf
+        - created_at
+      properties:
+        cpf:
+          type: string
+          pattern: ^\d{11}$
+        name:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        account_id:
+          type: integer
+          nullable: true
+          description: Populated after the CPF owner claims the record
+        claimed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    Wallet:
+      type: object
+      required:
+        - user_cpf
+        - restaurant_slug
+        - points_balance
+      properties:
+        user_cpf:
+          type: string
+        restaurant_slug:
+          type: string
+        points_balance:
+          type: integer
+    WalletTransaction:
+      type: object
+      required:
+        - id
+        - points_delta
+        - balance_after
+        - reason
+        - created_at
+      properties:
+        id:
+          type: integer
+        points_delta:
+          type: integer
+        balance_after:
+          type: integer
+        reason:
+          type: string
+        order_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    OrderStatus:
+      type: string
+      enum:
+        - pending
+        - preparing
+        - ready
+        - delivered
+        - cancelled
+    OrderType:
+      type: string
+      enum:
+        - local
+        - remote
+    OrderSummary:
+      type: object
+      required:
+        - id
+        - branch_id
+        - order_type
+        - status
+        - subtotal_cents
+        - discount_cents
+        - freight_cents
+        - total_cents
+        - created_at
+      properties:
+        id:
+          type: integer
+        branch_id:
+          type: integer
+        user_id:
+          type: integer
+          nullable: true
+        order_type:
+          $ref: '#/components/schemas/OrderType'
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        subtotal_cents:
+          type: integer
+        discount_cents:
+          type: integer
+        freight_cents:
+          type: integer
+        total_cents:
+          type: integer
+        coupon_code:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrderSummary'
+        - type: object
+          properties:
+            local_info:
+              type: object
+              nullable: true
+              properties:
+                table_id:
+                  type: integer
+                table_number:
+                  type: integer
+            remote_info:
+              type: object
+              nullable: true
+              properties:
+                delivery_address:
+                  $ref: '#/components/schemas/Address'
+                phone:
+                  type: string
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrderItem'
+            transactions:
+              type: array
+              items:
+                $ref: '#/components/schemas/Transaction'
+    OrderItem:
+      type: object
+      required:
+        - id
+        - order_id
+        - item_id
+        - item_name
+        - unit_price_cents
+        - quantity
+        - line_total_cents
+      properties:
+        id:
+          type: integer
+        order_id:
+          type: integer
+        item_id:
+          type: integer
+        item_name:
+          type: string
+        unit_price_cents:
+          type: integer
+        quantity:
+          type: integer
+        notes:
+          type: string
+        parent_order_item_id:
+          type: integer
+          nullable: true
+        selected_options:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelectedOption'
+        line_total_cents:
+          type: integer
+        voided_at:
+          type: string
+          format: date-time
+          nullable: true
+        voided_reason:
+          type: string
+          nullable: true
+    SelectedOption:
+      type: object
+      required:
+        - side_id
+        - side_title
+        - option_id
+        - option_name
+        - additional_price_cents
+        - quantity
+      properties:
+        side_id:
+          type: integer
+        side_title:
+          type: string
+        option_id:
+          type: integer
+        option_name:
+          type: string
+        additional_price_cents:
+          type: integer
+        quantity:
+          type: integer
+    AddOrderItemRequest:
+      type: object
+      required:
+        - item_id
+        - quantity
+      properties:
+        item_id:
+          type: integer
+        quantity:
+          type: integer
+          minimum: 1
+        notes:
+          type: string
+        parent_order_item_id:
+          type: integer
+        selected_options:
+          type: array
+          items:
+            type: object
+            required:
+              - side_id
+              - option_id
+            properties:
+              side_id:
+                type: integer
+              option_id:
+                type: integer
+              quantity:
+                type: integer
+                minimum: 1
+                default: 1
+    CreateLocalOrderRequest:
+      type: object
+      required:
+        - table_number
+        - items
+      properties:
+        user_id:
+          type: integer
+          description: Attach order to a logged-in account
+        customer_cpf:
+          type: string
+          pattern: ^\d{11}$
+          description: |
+            Attach order to a loyalty CPF with no account. Mutually exclusive
+            with user_id. If both given, 400.
+        table_number:
+          type: integer
+          description: Server resolves to a Table (creates if not exists)
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AddOrderItemRequest'
+        coupon_code:
+          type: string
+    CreateRemoteOrderRequest:
+      type: object
+      required:
+        - phone
+        - items
+      properties:
+        user_id:
+          type: integer
+        customer_cpf:
+          type: string
+          pattern: ^\d{11}$
+          description: Mutually exclusive with user_id
+        delivery_address_id:
+          type: integer
+          description: Reference a saved address from /me/addresses
+        delivery_address:
+          $ref: '#/components/schemas/Address'
+          description: Inline address — used if delivery_address_id is omitted
+        phone:
+          type: string
+        freight_cents:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AddOrderItemRequest'
+        coupon_code:
+          type: string
+    Transaction:
+      type: object
+      required:
+        - id
+        - order_id
+        - amount_cents
+        - payment_method
+        - status
+        - created_at
+      properties:
+        id:
+          type: integer
+        order_id:
+          type: integer
+        amount_cents:
+          type: integer
+        payment_method:
+          type: string
+          enum:
+            - credit_card
+            - debit_card
+            - pix
+            - cash
+        status:
+          type: string
+          enum:
+            - pending
+            - paid
+            - failed
+            - refunded
+            - partially_refunded
+        refunded_cents:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateTransactionRequest:
+      type: object
+      required:
+        - payment_method
+        - amount_cents
+      properties:
+        payment_method:
+          type: string
+          enum:
+            - credit_card
+            - debit_card
+            - pix
+            - cash
+        amount_cents:
+          type: integer
+          minimum: 1
+    PixCharge:
+      type: object
+      required:
+        - transaction_id
+        - copy_paste_code
+        - qr_code_base64
+        - expires_at
+      properties:
+        transaction_id:
+          type: integer
+        copy_paste_code:
+          type: string
+        qr_code_base64:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+    Receipt:
+      type: object
+      required:
+        - receipt_code
+        - order_id
+        - issued_at
+        - receipt
+      properties:
+        receipt_code:
+          type: string
+        order_id:
+          type: integer
+        issued_at:
+          type: string
+          format: date-time
+        receipt:
+          type: object
+          additionalProperties: true
+    Sysadmin:
+      type: object
+      required:
+        - id
+        - account_id
+        - created_at
+      properties:
+        id:
+          type: integer
+        account_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    AuditEntry:
+      type: object
+      required:
+        - id
+        - action
+        - entity_type
+        - entity_id
+        - created_at
+      properties:
+        id:
+          type: integer
+        actor_account_id:
+          type: integer
+          nullable: true
+        actor_role:
+          type: string
+          nullable: true
+        restaurant_slug:
+          type: string
+          nullable: true
+        action:
+          type: string
+          example: owner.appointed
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+    PaginatedRestaurants:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Restaurant'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedBranches:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Branch'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedEmployees:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Employee'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedItems:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedOrders:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderSummary'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedCoupons:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Coupon'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedWalletTransactions:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletTransaction'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedAuditEntries:
+      type: object
+      required:
+        - data
+        - page
+        - page_size
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
