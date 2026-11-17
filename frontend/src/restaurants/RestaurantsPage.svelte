@@ -2,7 +2,44 @@
   import RestaurantsSection from './RestaurantsSection.svelte';
 
   const heroImage =
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuCFmhePNwlSmB1YMgPzKwDCZj-s8i0PFk__wiHGFFC85DdcjxRKbGbiqkpd4iOs4lEGMOBrbxWJ5hncUO4i3O3XJfowTDv_VIXcSD0e3HcsjoJazcXB1h6LU2bNt3l5MJDaZzA7RYqkVn4uM1Y86lYlX9RqCNkLqmF-YTYEy3TKmju2xNphN-q2JmojJuCkifhTCAFao_XM1XiPwetyFQF0VhVP6KAAqO0Ebg1CXdnmG00NsCbrcwLO';
+    'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&h=900&fit=crop&auto=format&q=80';
+
+  type Tag = { icon: 'chef' | 'pin' | 'leaf'; label?: string };
+  type GalleryImage = { src: string; alt: string };
+  type Banner = {
+    id: string;
+    eyebrow?: string;
+    title: string;
+    subtitle?: string;
+    cta?: string;
+    imageSrc?: string;
+    imageAlt?: string;
+  };
+  type Restaurant = {
+    key: string;
+    name: string;
+    rating: number;
+    deliveryTime: string;
+    logoSrc?: string;
+    images?: GalleryImage[];
+    tags?: Tag[];
+    banners: Banner[];
+  };
+
+  /** Turn "João Burger" → "joao-burger" for safe URLs. */
+  function slugify(value: string): string {
+    return value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+  }
+
+  /** Works in plain Svelte/Vite. Swap for `goto(path)` from `$app/navigation` on SvelteKit. */
+  function navigateTo(path: string) {
+    window.location.assign(path);
+  }
 
   const categories = [
     { emoji: '🍔', label: 'Hambúrguer', active: true },
@@ -16,41 +53,78 @@
     { emoji: '🧁', label: 'Doces', active: false }
   ];
 
-  const restaurants = [
+  const joaoBurgerImages: GalleryImage[] = [
+    { src: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Cheeseburger clássico' },
+    { src: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Bacon burger' },
+    { src: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Batatas fritas' },
+    { src: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Combo burger + fritas' },
+    { src: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Refrigerante gelado' }
+  ];
+
+  const restaurants: Restaurant[] = [
     {
-      key: 'restaurante-um',
-      name: 'Restaurante Um',
-      rating: 4.8,
-      deliveryTime: '30-45 min',
+      key: 'joao-burger',
+      name: 'João Burger',
+      rating: 4.9,
+      deliveryTime: '25-35 min',
+      logoSrc:
+        'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSNazKnntMiV0xmffkq5Zii4PUMFnhCOm_2wpvehU3zP4_wh-sxgWqGfja6&s=10',
+      images: joaoBurgerImages,
+      tags: [
+        { icon: 'chef' },
+        { icon: 'pin', label: 'local' },
+        { icon: 'leaf', label: 'artesanal' }
+      ],
       banners: [
-        { id: 'r1-a', eyebrow: 'Oferta da semana', title: 'Promoção do dia', subtitle: 'Economize 30% no prato principal', cta: 'Pedir agora' },
-        { id: 'r1-b', title: 'Frete grátis acima de R$ 50', subtitle: 'Para pedidos selecionados' },
-        { id: 'r1-c', title: 'Combo para duas pessoas', subtitle: 'Sobremesa por conta da casa' },
-        { id: 'r1-d', title: 'Novidade no cardápio', subtitle: 'Experimente antes que acabe' }
+        {
+          id: 'jb-a',
+          eyebrow: 'Oferta da semana',
+          title: 'Combo duplo João Burger',
+          subtitle: 'Dois burgers + fritas + refri por R$ 59,90',
+          cta: 'Pedir agora',
+          imageSrc:
+            'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=1200&h=600&fit=crop&auto=format&q=80',
+          imageAlt: 'Combo duplo de hambúrguer com fritas'
+        },
+        {
+          id: 'jb-b',
+          eyebrow: 'Novidade',
+          title: 'Smash Bacon Supremo',
+          subtitle: 'Blend 180g, cheddar, bacon crocante e molho da casa',
+          cta: 'Conhecer',
+          imageSrc:
+            'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=1200&h=600&fit=crop&auto=format&q=80',
+          imageAlt: 'Smash bacon burger'
+        },
+        {
+          id: 'jb-c',
+          eyebrow: 'Fritas',
+          title: 'Fritas rústicas com cheddar',
+          subtitle: 'Porção generosa pra dividir (ou não)',
+          imageSrc:
+            'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=1200&h=600&fit=crop&auto=format&q=80',
+          imageAlt: 'Batatas fritas'
+        },
+        {
+          id: 'jb-d',
+          eyebrow: 'Bebida',
+          title: 'Refrigerante gelado',
+          subtitle: 'Lata 350ml pra acompanhar seu burger',
+          imageSrc:
+            'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=1200&h=600&fit=crop&auto=format&q=80',
+          imageAlt: 'Refrigerante gelado'
+        }
       ]
     },
     {
+      // Kept as restaurant 2, but with empty content.
       key: 'restaurante-dois',
       name: 'Restaurante Dois',
-      rating: 4.6,
-      deliveryTime: '25-40 min',
-      banners: [
-        { id: 'r2-a', eyebrow: 'Destaque', title: 'Pratos da casa', subtitle: 'Receitas de família todos os dias', cta: 'Ver cardápio' },
-        { id: 'r2-b', title: 'Cupom de 15% OFF', subtitle: 'Válido até domingo' },
-        { id: 'r2-c', title: 'Almoço executivo', subtitle: 'Das 11h às 15h' }
-      ]
-    },
-    {
-      key: 'restaurante-tres',
-      name: 'Restaurante Três',
-      rating: 4.9,
-      deliveryTime: '35-50 min',
-      banners: [
-        { id: 'r3-a', eyebrow: 'Mais pedido', title: 'Massas artesanais', subtitle: 'Feitas na hora, todos os dias', cta: 'Pedir agora' },
-        { id: 'r3-b', title: 'Entrega grátis no primeiro pedido' },
-        { id: 'r3-c', title: 'Vinhos com desconto', subtitle: 'Escolha o seu' },
-        { id: 'r3-d', title: 'Sobremesas da semana', subtitle: 'Experimente o petit gâteau' }
-      ]
+      rating: 0,
+      deliveryTime: '—',
+      images: [],
+      tags: [],
+      banners: []
     }
   ];
 </script>
@@ -92,7 +166,7 @@
           <div class="relative flex h-72 w-72 items-center justify-center sm:h-80 sm:w-80">
             <div class="hero-image-halo"></div>
             <img
-              alt="Hambúrguer artesanal Pratello"
+              alt="Hambúrguer artesanal"
               src={heroImage}
               class="relative z-10 h-full w-full rounded-3xl object-cover shadow-xl transition duration-300 hover:scale-[1.02]"
             />
@@ -171,7 +245,16 @@
     <div class="flex flex-col gap-y-space-xl py-space-sm">
       {#each restaurants.slice(0, 2) as r (r.key)}
         <RestaurantsSection
-          cardProps={{ name: r.name, rating: r.rating, deliveryTime: r.deliveryTime }}
+          cardProps={{
+            name: r.name,
+            rating: r.rating,
+            deliveryTime: r.deliveryTime,
+            logoSrc: r.logoSrc,
+            logoAlt: `${r.name} logo`,
+            images: r.images,
+            tags: r.tags,
+            onmenu: () => navigateTo(`/r/${slugify(r.name)}`)
+          }}
           banners={r.banners}
         />
       {/each}
@@ -180,16 +263,8 @@
 </main>
 
 <style>
-  /* Give @apply access to the theme from app.css without re-emitting it. */
   @reference "../app.css";
 
-  /* ─────────────────────────────────────────────────────────
-     Component-scoped styles for the chunky one-off visuals.
-     ───────────────────────────────────────────────────────── */
-
-  /* Hero card: three-stop gradient + border/padding composition.
-     Responsive padding is in a plain @media so it doesn't rely on
-     @apply with an `lg:` variant (edge-case in Tailwind v4). */
   .hero-banner {
     @apply relative overflow-hidden rounded-3xl border border-border p-8 shadow-sm;
     background-image: linear-gradient(to right, #F6EDE0, #FAF4EA, #F7EFE2);
@@ -198,37 +273,31 @@
     .hero-banner { @apply p-10; }
   }
 
-  /* Warm halo behind the hero (bottom-right) */
   .hero-glow {
     @apply pointer-events-none absolute -bottom-20 -right-10 h-96 w-96 rounded-full blur-3xl;
     background-color: color-mix(in oklab, var(--color-primary) 20%, transparent);
   }
 
-  /* Organic blob on the mid-right of the hero */
   .hero-blob-decorative {
     @apply pointer-events-none absolute right-60 top-1/2 h-64 w-64 -translate-y-1/2;
     background-color: color-mix(in oklab, var(--color-primary) 10%, transparent);
     border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
   }
 
-  /* Animated pulse halo behind the hero image */
   .hero-image-halo {
     @apply absolute inset-0 animate-pulse rounded-full opacity-30 blur-2xl;
     background-image: linear-gradient(to top right, #fbbf24, #fde047);
   }
 
-  /* Primary CTA pill */
   .cta-primary {
     @apply inline-flex items-center gap-2.5 rounded-full bg-primary px-6 py-3.5 text-sm font-semibold text-white shadow-md shadow-primary/25 transition duration-200 hover:bg-primary-hover hover:shadow-lg;
   }
 
-  /* Search + filter bar */
   .search-panel {
     @apply flex flex-col items-center gap-3 rounded-2xl border border-border p-2 shadow-xs sm:flex-row;
     background-color: color-mix(in oklab, var(--color-surface-hover) 80%, transparent);
   }
 
-  /* Category chip: base + `is-active` modifier */
   .category-chip {
     @apply flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs shadow-2xs transition;
     @apply border-border bg-surface font-medium text-text-muted hover:bg-surface-hover;

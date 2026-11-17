@@ -1,19 +1,44 @@
-package main
+package db
 
 import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
 )
 
+func TestOpen_And_Migrate_Idempotent(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://nick@localhost:5432/pratello?sslmode=disable"
+	}
+
+	database, err := Open(dbURL)
+	if err != nil {
+		t.Skipf("PostgreSQL not reachable at %s, skipping: %v", dbURL, err)
+	}
+	defer database.Close()
+
+	if err := Migrate(database); err != nil {
+		t.Fatalf("First Migrate failed: %v", err)
+	}
+
+	if err := Migrate(database); err != nil {
+		t.Fatalf("Second Migrate (idempotency check) failed: %v", err)
+	}
+
+	stats := database.Stats()
+	if stats.MaxOpenConnections != 25 {
+		t.Errorf("Expected MaxOpenConns 25, got %d", stats.MaxOpenConnections)
+	}
+}
+
 // TestFullOrderLifecycleIntegration verifies the full end-to-end lifecycle:
-// 1. Database schema initialization from server/cmd/schema.sql.
+// 1. Database schema initialization via Migrate.
 // 2. Owner account creation and restaurant establishment (with physical restaurant, address, phone).
 // 3. Dish catalog setup with removable ingredients and add-on sides.
 // 4. Customer account creation and order placement with ingredient removal notes and side additions.
@@ -36,23 +61,12 @@ func TestFullOrderLifecycleIntegration(t *testing.T) {
 	}
 
 	// -----------------------------------------------------------------
-	// 1. Initialize DB Schema from server/cmd/schema.sql
+	// 1. Initialize DB Schema via Migrate
 	// -----------------------------------------------------------------
-	schemaPath := "schema.sql"
-	if _, err := os.Stat(schemaPath); os.IsNotExist(err) {
-		// Fallback for execution from repository root
-		schemaPath = filepath.Join("server", "cmd", "schema.sql")
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Failed to execute Migrate: %v", err)
 	}
-
-	schemaBytes, err := os.ReadFile(schemaPath)
-	if err != nil {
-		t.Fatalf("Failed to read schema.sql at %s: %v", schemaPath, err)
-	}
-
-	if _, err := db.Exec(string(schemaBytes)); err != nil {
-		t.Fatalf("Failed to execute schema.sql: %v", err)
-	}
-	t.Log("✅ Database schema initialized successfully from schema.sql")
+	t.Log("✅ Database schema initialized successfully via Migrate")
 
 	// Unique test identifier to avoid collision across test runs
 	testRunID := time.Now().UnixNano()

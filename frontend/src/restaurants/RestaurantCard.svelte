@@ -1,4 +1,4 @@
-<script lang="ts">
+<script lang="ts">
   import { onMount } from 'svelte';
 
   type TagIcon = 'chef' | 'pin' | 'leaf';
@@ -32,11 +32,11 @@
     );
 
   const defaultImages: GalleryImage[] = [
-    { src: 'https://picsum.photos/seed/dish1/240/240', alt: 'Dish 1' },
-    { src: 'https://picsum.photos/seed/dish2/240/240', alt: 'Dish 2' },
-    { src: 'https://picsum.photos/seed/dish3/240/240', alt: 'Dish 3' },
-    { src: 'https://picsum.photos/seed/dish4/240/240', alt: 'Dish 4' },
-    { src: 'https://picsum.photos/seed/dish5/240/240', alt: 'Dish 5' }
+    { src: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Cheeseburger' },
+    { src: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Bacon burger' },
+    { src: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Batatas fritas' },
+    { src: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Combo' },
+    { src: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Milkshake' }
   ];
 
   const defaultTags: Tag[] = [
@@ -101,7 +101,7 @@
   <!-- Logo panel -->
   <div class="logo-frame">
     <div class="logo-inner">
-      <img src={logoSrc} alt={logoAlt} class="h-40 w-auto object-contain p-4" />
+      <img src={logoSrc} alt={logoAlt} class="logo-img" />
       <div class="logo-inner-rule"></div>
     </div>
   </div>
@@ -194,6 +194,10 @@
   .logo-inner {
     @apply relative flex aspect-[5/4] items-center justify-center overflow-hidden rounded-[1.1rem];
     background-color: var(--rc-cream);
+  }
+  .logo-img {
+    @apply h-full w-full object-cover;
+    object-position: center;
   }
   .logo-inner-rule {
     @apply pointer-events-none absolute inset-4 rounded-[0.9rem] border;

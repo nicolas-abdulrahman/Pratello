@@ -125,40 +125,47 @@
         {@const box = slotBox(s.d)}
         {@const main = s.d === 0}
         {@const faded = Math.abs(s.d) === 2}
+        {@const hasImage = !!s.banner.imageSrc}
         <button
           type="button"
           disabled={faded}
           aria-current={main ? 'true' : undefined}
           aria-label={s.banner.title}
           onclick={() => (main ? onselect?.(s.banner) : go(s.d))}
-          class="absolute inset-x-0 flex overflow-hidden rounded-3xl text-left shadow-lg {main
-            ? 'bg-gradient-to-br from-[#FAF3E0] via-[#FAF4EA] to-[#F7EFE2] text-[#2A2017] border border-[#EDE2D2]'
-            : 'bg-[#F4EDE2] text-[#2A2017] border border-[#E6DDCE]'}"
+          class="absolute inset-x-0 overflow-hidden rounded-3xl text-left shadow-lg {hasImage
+            ? 'text-white border border-black/10'
+            : 'bg-gradient-to-br from-[#FAF3E0] via-[#FAF4EA] to-[#F7EFE2] text-[#2A2017] border border-[#EDE2D2]'}"
           style="top: {box.top}px; height: {box.h}px; opacity: {box.opacity}; z-index: {box.z}; transition: top {transitionMs}ms ease-in-out, height {transitionMs}ms ease-in-out, opacity {transitionMs}ms ease-in-out;"
         >
-          <span class="relative z-10 flex w-[58%] min-w-0 flex-col justify-center {main ? 'gap-3 p-8' : 'gap-1 p-5'}">
+          {#if hasImage}
+            <img
+              src={s.banner.imageSrc}
+              alt={s.banner.imageAlt ?? ''}
+              class="absolute inset-0 h-full w-full object-cover"
+              loading="lazy"
+            />
+            <span class="absolute inset-0 bg-gradient-to-r from-black/80 via-black/55 to-black/20"></span>
+          {/if}
+
+          <span class="relative z-10 flex h-full flex-col justify-center {main ? 'gap-3 p-8' : 'gap-1 p-5'}">
             {#if main && s.banner.eyebrow}
-              <span class="text-xs font-semibold uppercase tracking-wider text-amber-800">{s.banner.eyebrow}</span>
+              <span class="text-xs font-semibold uppercase tracking-wider {hasImage ? 'text-amber-300' : 'text-amber-800'}">
+                {s.banner.eyebrow}
+              </span>
             {/if}
-            <span class="block font-serif font-bold leading-tight text-stone-900 {main ? 'text-3xl' : 'text-xl'}">
+            <span class="block font-serif font-bold leading-tight {main ? 'text-3xl' : 'text-xl'}">
               {s.banner.title}
             </span>
             {#if main && s.banner.subtitle}
-              <span class="block text-sm text-stone-600">{s.banner.subtitle}</span>
+              <span class="block text-sm {hasImage ? 'text-white/85' : 'text-stone-600'}">
+                {s.banner.subtitle}
+              </span>
             {/if}
             {#if main}
               <span class="mt-2 inline-flex w-fit items-center rounded-full bg-amber-500 hover:bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-amber-500/20">
                 {s.banner.cta ?? 'Saiba mais'}
               </span>
             {/if}
-          </span>
-
-          <span class="absolute inset-y-0 right-0 w-[42%] overflow-hidden">
-            <img
-              src={s.banner.imageSrc ?? placeholderImage}
-              alt={s.banner.imageAlt ?? ''}
-              class="h-full w-full object-contain p-6"
-            />
           </span>
         </button>
       {/each}
@@ -167,8 +174,6 @@
 </section>
 
 <style>
-  /* Load theme tokens (colors, spacing, breakpoints) so @apply resolves
-     semantic classes like bg-primary, border-border, gap-space-sm. */
   @reference "../app.css";
 
   .restaurants-section {
@@ -177,8 +182,6 @@
     padding: 0;
   }
 
-  /* Responsive grid template — kept in a plain @media because @apply
-     doesn't accept `lg:` variants (Tailwind v4 edge case). */
   @media (min-width: 1024px) {
     .restaurants-section {
       @apply grid-cols-[minmax(auto,25rem)_1fr];
