@@ -1,7 +1,10 @@
 openapi: 3.0.3
+# ============================================================
+# info.description (replace the current description)
+# ============================================================
 info:
   title: Pratello API
-  version: 2.1.0
+  version: 2.2.1
   description: |
     SaaS for restaurants — complete API.
 
@@ -10,83 +13,78 @@ info:
     - **email + password** (verified by email confirmation)
     - **phone** (verified by SMS OTP)
 
-    At least one verified method must exist for the account to log in.
-    An unverified phone is **contact data only** — it cannot be used for OTP login.
     Login via either method returns the same `TokenPair` (identical JWT claims).
+    At least one verified method must exist for the account to log in.
+
+    ### Shadow accounts
+    When a CPF is entered on an order (at the register) and no account exists
+    for it, a **shadow account** is created automatically: only `cpf` is set,
+    no email/phone/password. Shadows can accrue loyalty coins but **cannot log
+    in**. They are graduated to real accounts in one of two ways:
+
+    - **At registration** — the user provides their CPF; if it matches a shadow,
+      the shadow is graduated in place (email/password written onto it, existing
+      wallets become immediately accessible).
+    - **At claim** — an already-logged-in account calls `PUT /me/cpf`; if the
+      CPF is on a shadow, wallets move to the current account and the shadow is
+      deleted.
+
+    If the CPF is already on a **real** account, both paths return `409`.
 
     ## Auth levels
-    - `public` — no auth
-    - `user` — any authenticated account (bearer JWT)
-    - `manager` — MANAGER or OWNER of the logical restaurant
-    - `owner` — OWNER of the logical restaurant (entity-level actions)
-    - `employee` — employee record of the branch
-    - `terminal` — PIN terminal session (read-only orders, branch-scoped)
-    - `sysadmin` — global sysadmin
+    - `public`   — no auth
+    - `user`     — any authenticated account (bearer JWT)
+    - `manager`  — MANAGER or OWNER of the logical restaurant
+    - `owner`    — OWNER of the logical restaurant (entity-level actions)
+    - `employee` — employee record at the branch (permissions by position)
+    - `analyst`  — read-only across all branches of a logical restaurant
+    - `sysadmin` — global platform admin
 
-    Terminal sessions are bearer JWTs obtained via
-    `POST /restaurants/{slug}/branches/{branch_id}/terminal-sessions` using the
-    branch's shared 6-digit PIN (rotates every 8h). Scoped to one branch,
-    read-only orders, device-bound, expires with the shift.
+    There is no separate terminal/PIN auth layer. Every device (customer phone,
+    employee phone, shared tablet) authenticates via account login.
 
     ## Money
     All monetary values are **integer cents** (BRL), fields suffixed `_cents`.
 
     ## Idempotency
-    All payment-mutating endpoints require an `Idempotency-Key` header.
+    Payment-mutating endpoints require an `Idempotency-Key` header. Keys are
+    stored in Redis (24h TTL), not in Postgres.
 
     ## Soft deletes
     Restaurants, branches, items, employees, and coupons are soft-deleted
     (archived), preserving order history integrity.
 
     ## Loyalty
-    CPF can be attached to any order **without an account** — points accrue.
-    **Redeeming** points requires an account whose CPF has been claimed via SMS.
-    A CPF-only wallet is visible to restaurant staff and dormant for the customer
-    until claimed.
+    Coins accrue against the wallet of the account resolved from the CPF on the
+    order. Redeeming requires a **real** account (shadows cannot log in). See
+    "Shadow accounts" above for how shadows become real.
 
-servers:
-  - url: http://localhost:8080/api/v1
-
-security:
-  - bearerAuth: []
-
-tags:
-  - name: Auth
-  - name: Accounts
-  - name: Restaurants
-  - name: Owners
-  - name: Managers
-  - name: Branches
-  - name: OperatingHours
-  - name: Tables
-  - name: Employees
-  - name: TerminalSessions
-  - name: StaffSessions
-  - name: Menu
-  - name: Categories
-  - name: Items
-  - name: Ingredients
-  - name: Sides
-  - name: Combos
-  - name: Sales
-  - name: Coupons
-  - name: Loyalty
-  - name: Orders
-  - name: Payments
-  - name: Sysadmins
-  - name: Audit
-
+# ============================================================
+# paths — AUTH (replace the entire /auth/* and /me/* section)
+# ============================================================
 paths:
-  # ============================================================
-  # AUTH — email+password
-  # ============================================================
+  # ----------------------------------------------------------
+  # Registration — email + password
+  # ----------------------------------------------------------
   /auth/register:
     post:
       tags: [Auth]
-      summary: Register with email + password (phone optional, unverified)
+      summary: Register with email + password (CPF optional)
       description: |
-        The `phone` field, if provided, is stored as **unverified contact data**.
-        It cannot be used for OTP login until verified via `POST /me/phone/verify`.
+        Creates a real account.
+
+        **CPF handling:**
+        - If `cpf` is omitted → no shadow interaction; new account has no CPF.
+        - If `cpf` is on a **shadow account** → shadow is graduated in place:
+          the existing shadow row is updated with `email` and `password`, and
+          its wallets become immediately accessible. The returned tokens belong
+          to the (now real) account that was the shadow.
+        - If `cpf` is on a **real account** → `409 Conflict`.
+        - If `cpf` is unused → stored on the new account.
+
+        **Phone handling:** `phone`, if provided, is stored as **unverified
+        contact data**. It cannot be used for OTP login until verified via
+        `POST /me/phone/verify`.
       security: []
       requestBody:
         required: true
@@ -96,7 +94,7 @@ paths:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: Created
+          description: Account created (or shadow graduated in place)
           content:
             application/json:
               schema:
@@ -109,6 +107,7 @@ paths:
     post:
       tags: [Auth]
       summary: Login with email + password
+      description: Shadows cannot log in (no password). Only real accounts.
       security: []
       requestBody:
         required: true
@@ -126,30 +125,17 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
-  /auth/me:
-    get:
-      tags: [Auth]
-      summary: Get current account
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Account'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  # ============================================================
-  # AUTH — phone-only registration
-  # ============================================================
+  # ----------------------------------------------------------
+  # Registration — phone only
+  # ----------------------------------------------------------
   /auth/register/phone/request-code:
     post:
       tags: [Auth]
       summary: Start phone-only registration — sends SMS code
       description: |
-        Always returns 202 (whether or not the phone is eligible) to prevent
-        phone-number enumeration. If the phone already belongs to an account,
-        the user should use `/auth/login/phone/request-code` instead.
+        Always returns `202` (whether or not the phone is eligible) to prevent
+        phone-number enumeration. Use `/auth/login/phone/request-code` if the
+        phone already belongs to an account.
       security: []
       requestBody:
         required: true
@@ -167,7 +153,11 @@ paths:
   /auth/register/phone/verify:
     post:
       tags: [Auth]
-      summary: Complete phone-only registration with SMS code
+      summary: Complete phone-only registration with SMS code (CPF optional)
+      description: |
+        Same CPF/shadow graduation logic as `POST /auth/register`.
+        If `cpf` matches a shadow account, the shadow is graduated in place.
+        If it matches a real account, `409 Conflict`.
       security: []
       requestBody:
         required: true
@@ -180,9 +170,13 @@ paths:
                 phone: { type: string }
                 code: { type: string }
                 name: { type: string }
+                cpf:
+                  type: string
+                  pattern: '^[0-9]{11}$'
+                  description: Optional. Graduates a matching shadow account.
       responses:
         '201':
-          description: Account created (phone-only, verified)
+          description: Account created (or shadow graduated)
           content:
             application/json:
               schema:
@@ -191,16 +185,16 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
-  # ============================================================
-  # AUTH — phone OTP login
-  # ============================================================
+  # ----------------------------------------------------------
+  # Login — phone OTP
+  # ----------------------------------------------------------
   /auth/login/phone/request-code:
     post:
       tags: [Auth]
       summary: Request SMS login code (verified phones only)
       description: |
-        Always returns 202 to prevent enumeration. Unverified phones are
-        silently ignored (no code sent, no account lookup).
+        Always returns `202` to prevent enumeration. Unverified phones and
+        shadow accounts (no phone) are silently ignored.
       security: []
       requestBody:
         required: true
@@ -218,7 +212,7 @@ paths:
   /auth/login/phone/verify:
     post:
       tags: [Auth]
-      summary: Complete phone login with SMS code — same JWT as email login
+      summary: Complete phone login — same JWT as email login
       security: []
       requestBody:
         required: true
@@ -240,9 +234,9 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
-  # ============================================================
-  # AUTH — tokens / session lifecycle
-  # ============================================================
+  # ----------------------------------------------------------
+  # Session lifecycle
+  # ----------------------------------------------------------
   /auth/refresh:
     post:
       tags: [Auth]
@@ -286,14 +280,92 @@ paths:
   /auth/logout-all:
     post:
       tags: [Auth]
-      summary: Revoke all refresh tokens and active JTIs for this account
+      summary: Revoke all refresh tokens and bump token_version
       responses:
         '204': { description: All sessions revoked }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
-  # ============================================================
-  # AUTH METHOD MANAGEMENT
-  # ============================================================
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current account
+      description: |
+        Always returns a real account (shadows cannot authenticate). If the
+        account was graduated from a shadow, its `cpf` will be set and
+        `cpf_claimed_at` populated.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ----------------------------------------------------------
+  # CPF management (NEW — replaces "claim_loyalty" flow)
+  # ----------------------------------------------------------
+  /me/cpf:
+    put:
+      tags: [Auth]
+      summary: Claim a CPF on the current account
+      description: |
+        Links a CPF to the logged-in account.
+
+        **Behavior:**
+        - CPF is unused → set on this account.
+        - CPF is on a **shadow account** → merge: all wallets move to the
+          current account, the shadow row is deleted, then the CPF is set on
+          the current account. This is how an existing user absorbs a shadow
+          that was created by a cashier before they signed up.
+        - CPF is on a **real account** (including this one) → `409 Conflict`.
+        - Current account already has a different CPF → `409 Conflict`
+          (CPFs are identity — contact support to change).
+
+        **No SMS verification is required** because shadow accounts have no
+        contact method to verify against. The user is asserting ownership of
+        the CPF, same as they would to a cashier. The UNIQUE constraint on
+        `account.cpf` prevents two claims for the same CPF.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cpf]
+              properties:
+                cpf:
+                  type: string
+                  pattern: '^[0-9]{11}$'
+      responses:
+        '200':
+          description: CPF linked (shadow merged if applicable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: CPF already belongs to a real account, or account already has a different CPF
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [Auth]
+      summary: Remove CPF from the current account
+      description: |
+        Unlinks the CPF from this account. Existing wallets are **not** affected
+        — wallets are keyed by `account_id`, not by CPF, so coins remain
+        accessible. A future order with the same CPF will create a new shadow.
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ----------------------------------------------------------
+  # Auth method management — phone
+  # ----------------------------------------------------------
   /me/phone/request-code:
     post:
       tags: [Auth]
@@ -333,7 +405,7 @@ paths:
                 code: { type: string }
       responses:
         '200':
-          description: Phone verified and attached to this account
+          description: Phone verified and attached
           content:
             application/json:
               schema:
@@ -344,7 +416,7 @@ paths:
     delete:
       tags: [Auth]
       summary: Remove phone from account
-      description: Rejected with 409 if this is the last verified auth method.
+      description: Rejected with 409 if this would leave no verified auth method.
       responses:
         '204': { description: Removed }
         '409':
@@ -354,15 +426,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  # ----------------------------------------------------------
+  # Auth method management — email
+  # ----------------------------------------------------------
   /me/email:
     put:
       tags: [Auth]
-      summary: Add or change email + password on this account
+      summary: Add or change email + password
       description: |
-        Used by phone-only accounts to add an email auth method.
-        If an email already exists, requires `current_password` to confirm.
-        New email requires confirmation via `/me/email/verify` before
-        it becomes an active auth method.
+        New email requires confirmation via `POST /me/email/verify` before
+        becoming an active auth method. If an email is already set, requires
+        `current_password` to confirm.
       requestBody:
         required: true
         content:
@@ -388,10 +462,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
     delete:
       tags: [Auth]
-      summary: Remove email + password from account
-      description: Rejected with 409 if this is the last verified auth method.
+      summary: Remove email + password
+      description: Rejected with 409 if this would leave no verified auth method.
       responses:
         '204': { description: Removed }
         '409':
@@ -423,72 +498,74 @@ paths:
                 $ref: '#/components/schemas/Account'
         '400': { $ref: '#/components/responses/BadRequest' }
 
+# ============================================================
+# components — schemas (only the ones that changed)
+# ============================================================
+components:
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+        phone:
+          type: string
+          description: Stored as unverified contact data. Verify via /me/phone/verify.
+        cpf:
+          type: string
+          pattern: '^[0-9]{11}$'
+          description: |
+            Optional. If this CPF belongs to a shadow account, the shadow is
+            graduated in place (email + password written onto it). If it
+            belongs to a real account, returns 409.
 
-  # ============================================================
-  # MY ADDRESSES
-  # ============================================================
-  /me/addresses:
-    get:
-      tags: [Accounts]
-      summary: List my saved addresses
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SavedAddress'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-    post:
-      tags: [Accounts]
-      summary: Save a new address
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateAddressRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SavedAddress'
-        '400': { $ref: '#/components/responses/BadRequest' }
+    Account:
+      type: object
+      required: [id, created_at, is_shadow]
+      properties:
+        id: { type: integer }
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Null for phone-only or shadow accounts
+        email_verified: { type: boolean }
+        phone:
+          type: string
+          nullable: true
+        phone_verified: { type: boolean }
+        name: { type: string, nullable: true }
+        cpf:
+          type: string
+          pattern: '^[0-9]{11}$'
+          nullable: true
+          description: |
+            Set at registration/claim, or (for shadows) created by the order
+            flow when a cashier entered this CPF.
+        cpf_claimed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set when the CPF was attached to this account
+        is_shadow:
+          type: boolean
+          description: |
+            Computed. True when `email`, `phone`, and `password` are all null.
+            Shadow accounts cannot authenticate — they exist only to hold
+            wallets created by the order flow until graduated.
+        two_factor_enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      description: |
+        An account represents a person in the system.
 
-  /me/addresses/{address_id}:
-    parameters:
-      - name: address_id
-        in: path
-        required: true
-        schema: { type: integer }
-    put:
-      tags: [Accounts]
-      summary: Update saved address
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateAddressRequest'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SavedAddress'
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [Accounts]
-      summary: Delete saved address
-      responses:
-        '204': { description: Deleted }
-        '404': { $ref: '#/components/responses/NotFound' }
-
+        - **Real** accounts have `email` and/or `phone` and can log in.
+        - **Shadow** accounts have only `cpf` (and possibly `name`) — they are
+          created automatically by `POST /orders/...` when a CPF is provided
+          for loyalty accrual and no account exists. Shadows cannot log in.
+          They graduate to real via `POST /auth/register*` with a matching
+          CPF, or `PUT /me/cpf` from an already-logged-in account.
   # ============================================================
   # RESTAURANTS
   # ============================================================
