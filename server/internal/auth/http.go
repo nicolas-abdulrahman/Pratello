@@ -19,6 +19,7 @@ type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Phone    string `json:"phone,omitempty"`
+	CPF      string `json:"cpf,omitempty"`
 }
 
 type userResponse struct {
@@ -119,6 +120,21 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/register", p), h.register)
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/login", p), h.login)
 		mux.HandleFunc(fmt.Sprintf("GET %s/auth/me", p), h.me)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/refresh", p), h.refresh)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/logout", p), h.logout)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/logout-all", p), h.logoutAll)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/login/phone/request-code", p), h.requestPhoneLogin)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/login/phone/verify", p), h.verifyPhoneLogin)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/register/phone/request-code", p), h.requestPhoneRegistration)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/register/phone/verify", p), h.registerPhone)
+		mux.HandleFunc(fmt.Sprintf("POST %s/me/phone/request-code", p), h.addPhone)
+		mux.HandleFunc(fmt.Sprintf("POST %s/me/phone/verify", p), h.verifyPhone)
+		mux.HandleFunc(fmt.Sprintf("DELETE %s/me/phone", p), h.removePhone)
+		mux.HandleFunc(fmt.Sprintf("PUT %s/me/cpf", p), h.claimCPF)
+		mux.HandleFunc(fmt.Sprintf("DELETE %s/me/cpf", p), h.removeCPF)
+		mux.HandleFunc(fmt.Sprintf("PUT %s/me/email", p), h.setEmail)
+		mux.HandleFunc(fmt.Sprintf("DELETE %s/me/email", p), h.removeEmail)
+		mux.HandleFunc(fmt.Sprintf("POST %s/me/email/verify", p), h.verifyEmail)
 
 		// Superadministradores
 		mux.HandleFunc(fmt.Sprintf("GET %s/sysadmins", p), h.listSysadmins)
@@ -163,20 +179,20 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		Email:    req.Email,
 		Password: req.Password,
 		Phone:    req.Phone,
+		CPF:      req.CPF,
 	})
 	if err != nil {
 		h.mapServiceError(w, err)
 		return
 	}
 
+	pair, err := h.svc.IssueTokens(r.Context(), user.ID)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(userResponse{
-		ID:        user.ID,
-		Name:      user.Name,
-		Email:     user.Email,
-		Phone:     user.Phone,
-		CreatedAt: user.CreatedAt,
-	})
+	_ = json.NewEncoder(w).Encode(pair)
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
@@ -188,23 +204,68 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, user, err := h.svc.Login(r.Context(), req.Email, req.Password)
+	_, user, err := h.svc.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		h.mapServiceError(w, err)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(loginResponse{
-		Token: token,
-		Account: userResponse{
-			ID:        user.ID,
-			Name:      user.Name,
-			Email:     user.Email,
-			Phone:     user.Phone,
-			CreatedAt: user.CreatedAt,
-		},
-	})
+	pair, err := h.svc.IssueTokens(r.Context(), user.ID)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(pair)
+}
+
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.RefreshToken == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	pair, err := h.svc.Refresh(r.Context(), req.RefreshToken)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(pair)
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	var req refreshRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.RefreshToken == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := h.svc.Logout(r.Context(), claims.AccountID, req.RefreshToken); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) logoutAll(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	if err := h.svc.LogoutAll(r.Context(), claims.AccountID); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
@@ -216,20 +277,13 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.svc.GetAccountByID(r.Context(), claims.AccountID)
+	user, err := h.svc.Account(r.Context(), claims.AccountID)
 	if err != nil {
 		h.mapServiceError(w, err)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(userResponse{
-		ID:        user.ID,
-		Name:      user.Name,
-		Email:     user.Email,
-		Phone:     user.Phone,
-		CreatedAt: user.CreatedAt,
-	})
+	writeAccount(w, user)
 }
 
 func (h *Handler) listSysadmins(w http.ResponseWriter, r *http.Request) {
@@ -577,7 +631,7 @@ func (h *Handler) authenticate(r *http.Request) (*AccountClaims, error) {
 	if token == "" {
 		return nil, ErrUnauthorized
 	}
-	return h.svc.ParseToken(token)
+	return h.svc.Authenticate(r.Context(), token)
 }
 
 func extractBearerToken(r *http.Request) string {
@@ -616,7 +670,7 @@ func (h *Handler) mapServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrNotFound):
 		h.writeError(w, http.StatusNotFound, "recurso não encontrado")
 	case errors.Is(err, ErrConflict):
-		h.writeError(w, http.StatusConflict, "este e-mail já está cadastrado")
+		h.writeError(w, http.StatusConflict, err.Error())
 	default:
 		h.writeError(w, http.StatusInternalServerError, err.Error())
 	}

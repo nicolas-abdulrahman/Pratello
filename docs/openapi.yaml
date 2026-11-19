@@ -11,7 +11,7 @@ info:
     ## Auth model
     An account can hold up to two verified auth methods:
     - **email + password** (verified by email confirmation)
-    - **phone** (verified by SMS OTP)
+    - **phone** (verified by a six-digit WhatsApp PIN)
 
     Login via either method returns the same `TokenPair` (identical JWT claims).
     At least one verified method must exist for the account to log in.
@@ -71,7 +71,8 @@ paths:
       tags: [Auth]
       summary: Register with email + password (CPF optional)
       description: |
-        Creates a real account.
+        Creates a real account. Confirmation is mocked and succeeds immediately;
+        no confirmation token or user action is required.
 
         **CPF handling:**
         - If `cpf` is omitted → no shadow interaction; new account has no CPF.
@@ -131,7 +132,7 @@ paths:
   /auth/register/phone/request-code:
     post:
       tags: [Auth]
-      summary: Start phone-only registration — sends SMS code
+      summary: Start phone-only registration — sends WhatsApp PIN
       description: |
         Always returns `202` (whether or not the phone is eligible) to prevent
         phone-number enumeration. Use `/auth/login/phone/request-code` if the
@@ -153,8 +154,9 @@ paths:
   /auth/register/phone/verify:
     post:
       tags: [Auth]
-      summary: Complete phone-only registration with SMS code (CPF optional)
+      summary: Complete phone-only registration with six-digit WhatsApp PIN (CPF optional)
       description: |
+        PIN verification is mocked, so the client need not submit a code.
         Same CPF/shadow graduation logic as `POST /auth/register`.
         If `cpf` matches a shadow account, the shadow is graduated in place.
         If it matches a real account, `409 Conflict`.
@@ -165,10 +167,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [phone, code]
+              required: [phone]
               properties:
                 phone: { type: string }
-                code: { type: string }
+                code: { type: string, pattern: '^[0-9]{6}$' }
                 name: { type: string }
                 cpf:
                   type: string
@@ -191,10 +193,11 @@ paths:
   /auth/login/phone/request-code:
     post:
       tags: [Auth]
-      summary: Request SMS login code (verified phones only)
+      summary: Request WhatsApp login PIN (verified phones only)
       description: |
         Always returns `202` to prevent enumeration. Unverified phones and
         shadow accounts (no phone) are silently ignored.
+        Delivery and PIN verification are currently mocked.
       security: []
       requestBody:
         required: true
@@ -213,6 +216,9 @@ paths:
     post:
       tags: [Auth]
       summary: Complete phone login — same JWT as email login
+      description: |
+        Verification is mocked: clients do not need to supply a PIN. Only an
+        already verified phone can be used to log in.
       security: []
       requestBody:
         required: true
@@ -220,10 +226,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [phone, code]
+              required: [phone]
               properties:
                 phone: { type: string }
-                code: { type: string }
+                code: { type: string, pattern: '^[0-9]{6}$' }
       responses:
         '200':
           description: OK
@@ -322,7 +328,7 @@ paths:
         - Current account already has a different CPF → `409 Conflict`
           (CPFs are identity — contact support to change).
 
-        **No SMS verification is required** because shadow accounts have no
+        **No phone verification is required** because shadow accounts have no
         contact method to verify against. The user is asserting ownership of
         the CPF, same as they would to a cashier. The UNIQUE constraint on
         `account.cpf` prevents two claims for the same CPF.
@@ -369,7 +375,10 @@ paths:
   /me/phone/request-code:
     post:
       tags: [Auth]
-      summary: Add or change phone — sends verification code
+      summary: Add or change phone — sends WhatsApp PIN
+      description: |
+        Verification is mocked, so the phone is attached and marked verified
+        immediately after the notification succeeds.
       requestBody:
         required: true
         content:
@@ -392,17 +401,17 @@ paths:
   /me/phone/verify:
     post:
       tags: [Auth]
-      summary: Confirm new phone with SMS code
+      summary: Retrieve the account after mocked phone confirmation
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [phone, code]
+              required: [phone]
               properties:
                 phone: { type: string }
-                code: { type: string }
+                code: { type: string, pattern: '^[0-9]{6}$' }
       responses:
         '200':
           description: Phone verified and attached
@@ -434,8 +443,8 @@ paths:
       tags: [Auth]
       summary: Add or change email + password
       description: |
-        New email requires confirmation via `POST /me/email/verify` before
-        becoming an active auth method. If an email is already set, requires
+        Confirmation is mocked, so the email becomes active immediately.
+        If an email is already set, requires
         `current_password` to confirm.
       requestBody:
         required: true
@@ -479,14 +488,13 @@ paths:
   /me/email/verify:
     post:
       tags: [Auth]
-      summary: Confirm email via token from confirmation email
+      summary: Retrieve account after mocked email confirmation
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required: [token]
               properties:
                 token: { type: string }
       responses:

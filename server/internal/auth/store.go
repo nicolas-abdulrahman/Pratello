@@ -17,12 +17,17 @@ import (
 // -------------------------------------------------------------
 
 type Account struct {
-	ID        int
-	Name      string
-	Email     string
-	Password  string
-	Phone     string
-	CreatedAt time.Time
+	ID            int
+	Name          string
+	Email         string
+	EmailVerified bool
+	Password      string
+	Phone         string
+	PhoneVerified bool
+	CPF           string
+	CPFClaimedAt  *time.Time
+	TokenVersion  int
+	CreatedAt     time.Time
 }
 
 type Sysadmin struct {
@@ -153,9 +158,9 @@ type sqlStore struct {
 func (s *sqlStore) CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error) {
 	var a Account
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO "account" (name, email, password, phone, created_at)
-		 VALUES ($1, $2, $3, $4, NOW())
-		 RETURNING id, COALESCE(name, ''), email, password, COALESCE(phone, ''), COALESCE(created_at, NOW())`,
+		`INSERT INTO "account" (name, email, email_verified, password_hash, phone, created_at)
+		 VALUES (NULLIF($1, ''), $2, TRUE, $3, NULLIF($4, ''), NOW())
+		 RETURNING id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password_hash, ''), COALESCE(phone, ''), created_at`,
 		name, strings.ToLower(strings.TrimSpace(email)), passwordHash, phone,
 	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt)
 	if err != nil {
@@ -170,11 +175,11 @@ func (s *sqlStore) CreateAccount(ctx context.Context, name, email, passwordHash,
 func (s *sqlStore) GetAccountByEmail(ctx context.Context, email string) (*Account, error) {
 	var a Account
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(name, ''), email, password, COALESCE(phone, ''), COALESCE(created_at, NOW())
+		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password_hash, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at
 		 FROM "account"
 		 WHERE LOWER(email) = $1`,
 		strings.ToLower(strings.TrimSpace(email)),
-	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt)
+	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt, &a.TokenVersion, &a.EmailVerified, &a.PhoneVerified, &a.CPF, &a.CPFClaimedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -187,11 +192,11 @@ func (s *sqlStore) GetAccountByEmail(ctx context.Context, email string) (*Accoun
 func (s *sqlStore) GetAccountByID(ctx context.Context, id int) (*Account, error) {
 	var a Account
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(name, ''), email, password, COALESCE(phone, ''), COALESCE(created_at, NOW())
+		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password_hash, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at
 		 FROM "account"
 		 WHERE id = $1`,
 		id,
-	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt)
+	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt, &a.TokenVersion, &a.EmailVerified, &a.PhoneVerified, &a.CPF, &a.CPFClaimedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -783,6 +788,7 @@ type memoryStore struct {
 	employees        map[int]*Employee
 	nextEmpID        int
 	terminalSessions map[string]*TerminalSession
+	refreshTokens    map[string]refreshRecord
 }
 
 func NewMemoryStore() *memoryStore {
@@ -801,6 +807,7 @@ func NewMemoryStore() *memoryStore {
 		employees:        make(map[int]*Employee),
 		nextEmpID:        1,
 		terminalSessions: make(map[string]*TerminalSession),
+		refreshTokens:    make(map[string]refreshRecord),
 	}
 }
 
@@ -812,19 +819,28 @@ func (m *memoryStore) CreateAccount(ctx context.Context, name, email, passwordHa
 	if _, exists := m.byEmail[normEmail]; exists {
 		return nil, ErrConflict
 	}
+	if phone != "" {
+		for _, existing := range m.accounts {
+			if existing.Phone == phone {
+				return nil, ErrConflict
+			}
+		}
+	}
 
 	a := &Account{
-		ID:        m.nextAcctID,
-		Name:      name,
-		Email:     normEmail,
-		Password:  passwordHash,
-		Phone:     phone,
-		CreatedAt: time.Now(),
+		ID:            m.nextAcctID,
+		Name:          name,
+		Email:         normEmail,
+		EmailVerified: true,
+		Password:      passwordHash,
+		Phone:         phone,
+		CreatedAt:     time.Now(),
 	}
 	m.nextAcctID++
 	m.accounts[a.ID] = a
 	m.byEmail[normEmail] = a
-	return a, nil
+	copy := *a
+	return &copy, nil
 }
 
 func (m *memoryStore) GetAccountByEmail(ctx context.Context, email string) (*Account, error) {
@@ -836,7 +852,8 @@ func (m *memoryStore) GetAccountByEmail(ctx context.Context, email string) (*Acc
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return a, nil
+	copy := *a
+	return &copy, nil
 }
 
 func (m *memoryStore) GetAccountByID(ctx context.Context, id int) (*Account, error) {
@@ -847,7 +864,8 @@ func (m *memoryStore) GetAccountByID(ctx context.Context, id int) (*Account, err
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return a, nil
+	copy := *a
+	return &copy, nil
 }
 
 func (m *memoryStore) ListSysadmins(ctx context.Context) ([]Sysadmin, error) {

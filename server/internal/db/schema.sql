@@ -102,6 +102,8 @@ CREATE TABLE IF NOT EXISTS account (
     password_hash        VARCHAR(255),
     phone                VARCHAR(20) UNIQUE,
     phone_verified       BOOLEAN NOT NULL DEFAULT FALSE,
+    cpf                  VARCHAR(11) UNIQUE,
+    cpf_claimed_at       TIMESTAMPTZ,
     name                 VARCHAR(255),
     address_id           INT REFERENCES address(id) ON DELETE SET NULL,
     two_factor_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
@@ -109,11 +111,20 @@ CREATE TABLE IF NOT EXISTS account (
     token_version        INT NOT NULL DEFAULT 0,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    -- At least one auth method must exist.
-    CONSTRAINT chk_account_has_method CHECK (email IS NOT NULL OR phone IS NOT NULL),
+    -- CPF-only accounts hold loyalty balances until registration.
+    CONSTRAINT chk_account_has_method CHECK (email IS NOT NULL OR phone IS NOT NULL OR cpf IS NOT NULL),
+    CONSTRAINT chk_account_cpf CHECK (cpf IS NULL OR cpf ~ '^[0-9]{11}$'),
     -- If an email exists, a password must exist too.
     CONSTRAINT chk_account_email_password CHECK (email IS NULL OR password_hash IS NOT NULL)
 );
+ALTER TABLE account ADD COLUMN IF NOT EXISTS cpf VARCHAR(11);
+ALTER TABLE account ADD COLUMN IF NOT EXISTS cpf_claimed_at TIMESTAMPTZ;
+ALTER TABLE account DROP CONSTRAINT IF EXISTS chk_account_has_method;
+ALTER TABLE account ADD CONSTRAINT chk_account_has_method CHECK (email IS NOT NULL OR phone IS NOT NULL OR cpf IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS account_cpf_unique ON account (cpf);
+CREATE UNIQUE INDEX IF NOT EXISTS account_phone_unique ON account (phone) WHERE phone IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS account_email_lower_unique ON account (LOWER(email)) WHERE email IS NOT NULL;
+DROP TRIGGER IF EXISTS trg_account_updated ON account;
 CREATE TRIGGER trg_account_updated BEFORE UPDATE ON account
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -180,6 +191,7 @@ CREATE TABLE IF NOT EXISTS restaurant (
     CONSTRAINT chk_restaurant_accent_color
         CHECK (menu_accent_color IS NULL OR menu_accent_color ~ '^#[0-9A-Fa-f]{6}$')
 );
+DROP TRIGGER IF EXISTS trg_restaurant_updated ON restaurant;
 CREATE TRIGGER trg_restaurant_updated BEFORE UPDATE ON restaurant
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -232,6 +244,7 @@ CREATE TABLE IF NOT EXISTS menu_item (
 );
 CREATE INDEX IF NOT EXISTS menu_item_restaurant_category
     ON menu_item (restaurant_id, category_id) WHERE archived_at IS NULL;
+DROP TRIGGER IF EXISTS trg_menu_item_updated ON menu_item;
 CREATE TRIGGER trg_menu_item_updated BEFORE UPDATE ON menu_item
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -301,6 +314,7 @@ CREATE TABLE IF NOT EXISTS coupon (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (restaurant_id, code)
 );
+DROP TRIGGER IF EXISTS trg_coupon_updated ON coupon;
 CREATE TRIGGER trg_coupon_updated BEFORE UPDATE ON coupon
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -332,6 +346,7 @@ CREATE TABLE IF NOT EXISTS physical_restaurant (
 );
 CREATE INDEX IF NOT EXISTS physical_restaurant_restaurant
     ON physical_restaurant (restaurant_id) WHERE archived_at IS NULL;
+DROP TRIGGER IF EXISTS trg_physical_updated ON physical_restaurant;
 CREATE TRIGGER trg_physical_updated BEFORE UPDATE ON physical_restaurant
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -369,6 +384,7 @@ CREATE TABLE IF NOT EXISTS employee (
 );
 CREATE INDEX IF NOT EXISTS employee_branch
     ON employee (physical_restaurant_id) WHERE is_active = TRUE;
+DROP TRIGGER IF EXISTS trg_employee_updated ON employee;
 CREATE TRIGGER trg_employee_updated BEFORE UPDATE ON employee
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -430,6 +446,7 @@ CREATE TABLE IF NOT EXISTS loyalty_wallet (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (loyalty_customer_id, restaurant_id)
 );
+DROP TRIGGER IF EXISTS trg_loyalty_wallet_updated ON loyalty_wallet;
 CREATE TRIGGER trg_loyalty_wallet_updated BEFORE UPDATE ON loyalty_wallet
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -463,6 +480,7 @@ CREATE INDEX IF NOT EXISTS order_account
     ON "order" (account_id, created_at DESC) WHERE account_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS order_customer_cpf
     ON "order" (customer_cpf, created_at DESC) WHERE customer_cpf IS NOT NULL;
+DROP TRIGGER IF EXISTS trg_order_updated ON "order";
 CREATE TRIGGER trg_order_updated BEFORE UPDATE ON "order"
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -538,6 +556,7 @@ CREATE TABLE IF NOT EXISTS restaurant_review (
 );
 CREATE INDEX IF NOT EXISTS restaurant_review_restaurant
     ON restaurant_review (restaurant_id, created_at DESC);
+DROP TRIGGER IF EXISTS trg_restaurant_review_updated ON restaurant_review;
 CREATE TRIGGER trg_restaurant_review_updated BEFORE UPDATE ON restaurant_review
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -562,6 +581,7 @@ CREATE INDEX IF NOT EXISTS transaction_order
     ON transaction (order_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS transaction_idempotency
     ON transaction (idempotency_key) WHERE idempotency_key IS NOT NULL;
+DROP TRIGGER IF EXISTS trg_transaction_updated ON transaction;
 CREATE TRIGGER trg_transaction_updated BEFORE UPDATE ON transaction
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 

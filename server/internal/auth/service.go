@@ -70,8 +70,10 @@ type authStore interface {
 // -------------------------------------------------------------
 
 type AccountClaims struct {
-	AccountID int
-	Email     string
+	AccountID    int    `json:"account_id"`
+	Email        string `json:"email,omitempty"`
+	TokenVersion int    `json:"token_version"`
+	Type         string `json:"typ"`
 	jwt.RegisteredClaims
 }
 
@@ -88,6 +90,7 @@ type RegisterInput struct {
 	Email    string
 	Password string
 	Phone    string
+	CPF      string
 }
 
 // -------------------------------------------------------------
@@ -98,7 +101,20 @@ type Service struct {
 	store     authStore
 	jwtSecret []byte
 	hashCost  int
+	notifier  Notifier
 }
+
+// Notifier delivers verification credentials to an account's contact method.
+type Notifier interface {
+	SendOTP(phone, code string) error
+	SendEmail(email, code string) error
+}
+
+// MockNotifier accepts notifications without contacting an external service.
+type MockNotifier struct{}
+
+func (MockNotifier) SendOTP(phone, code string) error   { return nil }
+func (MockNotifier) SendEmail(email, code string) error { return nil }
 
 func NewService(store authStore) *Service {
 	secret := os.Getenv("JWT_SECRET")
@@ -109,6 +125,14 @@ func NewService(store authStore) *Service {
 		store:     store,
 		jwtSecret: []byte(secret),
 		hashCost:  bcrypt.DefaultCost,
+		notifier:  MockNotifier{},
+	}
+}
+
+// SetNotifier supplies a notification provider for verification flows.
+func (s *Service) SetNotifier(notifier Notifier) {
+	if notifier != nil {
+		s.notifier = notifier
 	}
 }
 
@@ -118,6 +142,9 @@ func (s *Service) SetHashCost(cost int) {
 }
 
 func (s *Service) ValidateRegisterInput(input RegisterInput) error {
+	if input.CPF != "" && !validCPF(input.CPF) {
+		return errors.Join(ErrValidation, errors.New("CPF inválido"))
+	}
 	email := strings.TrimSpace(input.Email)
 	if email == "" {
 		return errors.Join(ErrValidation, errors.New("e-mail é obrigatório"))
@@ -125,8 +152,11 @@ func (s *Service) ValidateRegisterInput(input RegisterInput) error {
 	if _, err := mail.ParseAddress(email); err != nil {
 		return errors.Join(ErrValidation, errors.New("formato de e-mail inválido"))
 	}
-	if len(input.Password) < 6 {
-		return errors.Join(ErrValidation, errors.New("a senha deve ter no mínimo 6 caracteres"))
+	if len(input.Password) < 8 {
+		return errors.Join(ErrValidation, errors.New("a senha deve ter no mínimo 8 caracteres"))
+	}
+	if input.Phone != "" && !validPhone(strings.TrimSpace(input.Phone)) {
+		return errors.Join(ErrValidation, errors.New("telefone inválido"))
 	}
 	return nil
 }
@@ -140,8 +170,21 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*User, err
 	if err != nil {
 		return nil, fmt.Errorf("falha ao criptografar senha: %w", err)
 	}
+	// The mock notifier treats confirmation as immediate in the local flow.
+	if err := s.notifier.SendEmail(strings.TrimSpace(input.Email), ""); err != nil {
+		return nil, fmt.Errorf("falha ao enviar confirmação: %w", err)
+	}
 
-	acct, err := s.store.CreateAccount(ctx, strings.TrimSpace(input.Name), input.Email, string(hash), input.Phone)
+	var acct *Account
+	if input.CPF != "" {
+		store, ok := s.store.(cpfStore)
+		if !ok {
+			return nil, ErrUnauthorized
+		}
+		acct, err = store.RegisterWithCPF(ctx, strings.TrimSpace(input.Name), strings.ToLower(strings.TrimSpace(input.Email)), string(hash), strings.TrimSpace(input.Phone), input.CPF, false)
+	} else {
+		acct, err = s.store.CreateAccount(ctx, strings.TrimSpace(input.Name), input.Email, string(hash), strings.TrimSpace(input.Phone))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +212,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, *U
 		return "", nil, fmt.Errorf("erro no banco ao buscar conta: %w", err)
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(acct.Password), []byte(password)); err != nil {
+	if !acct.EmailVerified || bcrypt.CompareHashAndPassword([]byte(acct.Password), []byte(password)) != nil {
 		return "", nil, ErrInvalidCredentials
 	}
 
@@ -190,11 +233,21 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, *U
 }
 
 func (s *Service) GenerateToken(accountID int, email string) (string, error) {
+	a, err := s.store.GetAccountByID(context.Background(), accountID)
+	if err != nil {
+		return "", err
+	}
+	return s.signAccess(a)
+}
+
+func (s *Service) signAccess(a *Account) (string, error) {
 	claims := AccountClaims{
-		AccountID: accountID,
-		Email:     email,
+		AccountID:    a.ID,
+		Email:        a.Email,
+		TokenVersion: a.TokenVersion,
+		Type:         "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
@@ -204,16 +257,16 @@ func (s *Service) GenerateToken(accountID int, email string) (string, error) {
 
 func (s *Service) ParseToken(tokenStr string) (*AccountClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &AccountClaims{}, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("método de assinatura inesperado: %v", token.Header["alg"])
 		}
 		return s.jwtSecret, nil
-	})
+	}, jwt.WithExpirationRequired())
 	if err != nil {
 		return nil, err
 	}
 
-	if claims, ok := token.Claims.(*AccountClaims); ok && token.Valid {
+	if claims, ok := token.Claims.(*AccountClaims); ok && token.Valid && claims.Type == "access" && claims.AccountID > 0 {
 		return claims, nil
 	}
 	return nil, ErrUnauthorized
@@ -231,6 +284,10 @@ func (s *Service) GetAccountByID(ctx context.Context, id int) (*User, error) {
 		Phone:     acct.Phone,
 		CreatedAt: acct.CreatedAt,
 	}, nil
+}
+
+func (s *Service) Account(ctx context.Context, id int) (*Account, error) {
+	return s.store.GetAccountByID(ctx, id)
 }
 
 func (s *Service) ListSysadmins(ctx context.Context) ([]Sysadmin, error) {

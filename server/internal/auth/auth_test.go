@@ -38,12 +38,13 @@ func (m *mockStore) CreateAccount(ctx context.Context, name, email, passwordHash
 		return nil, ErrConflict
 	}
 	a := &Account{
-		ID:        len(m.accounts) + 1,
-		Name:      name,
-		Email:     email,
-		Password:  passwordHash,
-		Phone:     phone,
-		CreatedAt: time.Now(),
+		ID:            len(m.accounts) + 1,
+		Name:          name,
+		Email:         email,
+		EmailVerified: true,
+		Password:      passwordHash,
+		Phone:         phone,
+		CreatedAt:     time.Now(),
 	}
 	m.accounts[email] = a
 	m.byID[a.ID] = a
@@ -208,6 +209,26 @@ func TestService_Register_ValidationErrors(t *testing.T) {
 	}
 }
 
+type failingNotifier struct{}
+
+func (failingNotifier) SendOTP(string, string) error   { return errors.New("unavailable") }
+func (failingNotifier) SendEmail(string, string) error { return errors.New("unavailable") }
+
+func TestService_Register_NotificationFailureDoesNotCreateAccount(t *testing.T) {
+	store := newMockStore()
+	svc := NewService(store)
+	svc.SetHashCost(bcrypt.MinCost)
+	svc.SetNotifier(failingNotifier{})
+
+	_, err := svc.Register(context.Background(), RegisterInput{Email: "alice@example.com", Password: "password123"})
+	if err == nil {
+		t.Fatal("expected notification failure")
+	}
+	if len(store.accounts) != 0 {
+		t.Fatal("account created after notification failure")
+	}
+}
+
 func TestService_Register_And_Login_Success(t *testing.T) {
 	mock := newMockStore()
 	svc := NewService(mock)
@@ -239,6 +260,20 @@ func TestService_Register_And_Login_Success(t *testing.T) {
 	}
 	if token == "" || loginUser.ID != user.ID {
 		t.Fatalf("invalid login response: token=%s, id=%d", token, loginUser.ID)
+	}
+}
+
+func TestService_LoginRejectsUnverifiedEmail(t *testing.T) {
+	store := newMockStore()
+	svc := NewService(store)
+	svc.SetHashCost(bcrypt.MinCost)
+	_, err := svc.Register(context.Background(), RegisterInput{Email: "unverified@example.com", Password: "password123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.accounts["unverified@example.com"].EmailVerified = false
+	if _, _, err := svc.Login(context.Background(), "unverified@example.com", "password123"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("unverified login: %v", err)
 	}
 }
 
@@ -296,7 +331,7 @@ func TestStore_GetAccountByEmail_NotFound(t *testing.T) {
 // -------------------------------------------------------------
 
 func TestHandler_Register_Success(t *testing.T) {
-	mock := newMockStore()
+	mock := NewMemoryStore()
 	svc := NewService(mock)
 	svc.SetHashCost(bcrypt.MinCost)
 	h := NewHandler(svc)
@@ -321,7 +356,7 @@ func TestHandler_Register_Success(t *testing.T) {
 }
 
 func TestHandler_Register_DuplicateConflict(t *testing.T) {
-	mock := newMockStore()
+	mock := NewMemoryStore()
 	svc := NewService(mock)
 	svc.SetHashCost(bcrypt.MinCost)
 	h := NewHandler(svc)

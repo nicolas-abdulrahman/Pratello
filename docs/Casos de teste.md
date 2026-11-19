@@ -1,14 +1,14 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.3  
+> **Versão:** 0.1.4  
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de Casos de Teste:** 250 Casos 
+> **Total de Casos de Teste:** 241 Casos
 
 ## Resumo Executivo e Metodologia de Teste
 
 A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Modules)** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência, Concorrência e Usabilidade Frontend:
 
-1. **Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP)** — Casos `IDP-001` a `IDP-035` (35 testes): Dois tipos globais de conta (`users` e `sysadmins`), cadastro (`account`), autenticação JWT Bearer, perfil (`/auth/me`), autoridade de entidade (`OWNER`) vs operacional (`MANAGER`), promoção e gestão de proprietários, prevenção estrita de orfandade de entidade e segurança.
+1. **Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP)** — Casos `IDP-001` a `IDP-026` (26 casos): cadastro, contas sombra, CPF, métodos de acesso, sessões e autorização.
 2. **Módulo 2: Estabelecimentos, Filiais, RH e Operação de Terminal (TEN)** — Casos `TEN-001` a `TEN-030` (30 testes): Restaurante lógico (`restaurant` com slugs únicos), filiais físicas (`physical_restaurant`) com verificação cruzada obrigatória de CNPJ (filial + matriz), quadro de colaboradores de RH (`employee` sem contas auto-geradas e fluxo de convite) e sessões de terminal operacional de chão via PIN compartilhado de 6 dígitos (8h de turno, rate-limiting/lockout de 5 tentativas, baixo privilégio e isolamento de blast radius).
 3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-045` (45 testes): Layout visual (`menu` com `CLASSICO` / `EXPERIENCIA`), categorias, itens (`menu_item`), ingredientes (`ingredient`), ficha técnica com medidas (`item_ingredient`), adicionais diretos (`item_side`), combos vinculados (`combo_item`) e promoções (`item_sale`).
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 testes): Pedidos desacoplados de CPF com `customer_name` opcional, avaliações (`order.review` e `order_item.review`), observações/ingredientes removidos (`order_item.notes`), especialização estrita (`local_order` com `"table"` vs `remote_order` com `"delivery_fee"`), congelamento de valor (`unit_price`), combos com `parent_order_id` e máquina de estados (`PENDING` -> `COMPLETED`).
@@ -18,186 +18,191 @@ A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Mod
 
 ---
 
-## Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP-001 a IDP-035)
+## Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP-001 a IDP-026)
 
-### IDP-001: Cadastro de Conta Global com E-mail e Senha Válidos
-- **Pré-condição:** E-mail `admin@pratello.com` não cadastrado na tabela `account`.
-- **Passos:** POST `/api/auth/register`. Inspecionar retorno e tabela `account`.
-- **Entradas:** `{"email": "admin@pratello.com", "password": "Password123!", "phone": "11987654321"}`.
-- **Esperado:** HTTP 201 Created. Registro persistido com senha hash (bcrypt), `id` autoincremental e `created_at` preenchido.
+Os testes ficam em `server/internal/auth/*_test.go`. Execute `go test -race ./server/internal/auth/...`; os testes PostgreSQL usam `AUTH_TEST_DATABASE_URL` e um esquema temporário. A notificação e a verificação de e-mail/WhatsApp são **simuladas**, conforme solicitado: não há prova real de posse. `XFAIL` executa o cenário e registra `SKIP: XFAIL` somente quando a falha conhecida se manifesta; outros resultados inesperados falham normalmente.
 
-### IDP-002: Rejeição de E-mail Duplicado (Unique Constraint em `account`)
-- **Pré-condição:** Conta com e-mail `owner@bela.com` já gravada.
-- **Passos:** POST `/api/auth/register` com variações de caixa alta/baixa do mesmo e-mail.
-- **Entradas:** `{"email": "OWNER@BELA.COM", "password": "OtherPassword99#"}`.
-- **Esperado:** HTTP 409 Conflict. Erro `email already registered`.
+### IDP-001: Cadastro, tokens e hash de senha
+- **Pré-condição:** E-mail livre, notificador simulado.
+- **Passos:** Registrar e examinar a resposta e a conta no armazenamento.
+- **Entradas:** `user@example.com`, senha `password123`.
+- **Esperado:** HTTP 201, par de tokens Bearer e senha bcrypt verificável, sem senha na resposta.
+- **Teste:** `TestIDP001RegistrationHashAndTokens`.
 
-### IDP-003: Validação de Formato de E-mail Inválido
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter POST `/api/auth/register` com e-mails malformados.
-- **Entradas:** `"email": "usuario-sem-arroba.com"`, `"email": "usuario@"`, `"email": ""`.
-- **Esperado:** HTTP 400 Bad Request detalhando erro no campo `email`.
+### IDP-002: E-mail duplicado sem distinção de caixa
+- **Pré-condição:** Conta `dup@pratello.com` existente.
+- **Passos:** Registrar o mesmo e-mail com letras maiúsculas.
+- **Entradas:** `DUP@PRATELLO.COM`, `validPassword123`.
+- **Esperado:** HTTP 409 e nenhuma segunda conta.
+- **Teste:** `TestIDP002DuplicateEmailCaseInsensitive`.
 
-### IDP-004: Políticas de Segurança e Comprimento de Senha
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter senhas com menos de 6 caracteres.
-- **Entradas:** `"password": "12345"`, `"password": ""`.
-- **Esperado:** HTTP 400 Bad Request detalhando `password must be at least 6 characters long`.
+### IDP-003: JSON e credenciais de cadastro inválidos
+- **Pré-condição:** Nenhuma conta criada.
+- **Passos:** Enviar JSON truncado, e-mail inválido e senha de sete caracteres.
+- **Entradas:** `{"email":`, `invalid-email`, `1234567`.
+- **Esperado:** Cada requisição retorna HTTP 400 e não cria conta.
+- **Teste:** `TestIDP003InvalidRegistration`.
 
-### IDP-005: Autenticação de Conta (`/auth/login`) com Emissão de JWT Bearer
-- **Pré-condição:** Conta `user@pratello.com` existente.
-- **Passos:** POST `/api/auth/login` com credenciais corretas.
-- **Esperado:** HTTP 200 OK retornando `token` JWT assinado (HS256) e objeto `account` (sem campo de senha em texto plano).
+### IDP-004: Login com senha e exclusão de e-mail não verificado
+- **Pré-condição:** Conta com senha bcrypt existente.
+- **Passos:** Autenticar com senha correta; marcar e-mail não verificado e repetir.
+- **Entradas:** `a@example.com`, `password123`.
+- **Esperado:** Login correto funciona; e-mail não verificado é rejeitado.
+- **Testes:** `TestService_Register_And_Login_Success`, `TestService_LoginRejectsUnverifiedEmail`.
 
-### IDP-006: Rejeição de Credenciais Inválidas com Mensagem Anti-Enumeração
-- **Pré-condição:** Conta existente.
-- **Passos:** POST `/api/auth/login` com senha incorreta ou e-mail inexistente.
-- **Esperado:** HTTP 401 Unauthorized com mensagem neutra: `invalid email or password`.
+### IDP-005: Login sem enumeração de conta
+- **Pré-condição:** Uma conta conhecida.
+- **Passos:** Comparar login de conta existente com senha errada e conta inexistente.
+- **Entradas:** Senha `wrong`, e-mail `missing@example.com`.
+- **Esperado:** Ambos retornam HTTP 401 com a mesma mensagem.
+- **Teste:** `TestIDP005InvalidLoginDoesNotEnumerate`.
 
-### IDP-007: Associação de Papel Operacional `MANAGER` ao Restaurante
-- **Pré-condição:** `account_id = 1` existente e restaurante `slug = 'pizzaria-mario'`.
-- **Passos:** POST `/api/restaurants/pizzaria-mario/managers` com `{"account_id": 1}`.
-- **Esperado:** HTTP 201 Created. Registro gravado na tabela `account_restaurant` com `account_type = 'manager'`.
+### IDP-006: Graduação de conta sombra
+- **Pré-condição:** Conta sombra com CPF e sem métodos de acesso.
+- **Passos:** Registrar e-mail com o CPF da sombra; tentar novo cadastro com o mesmo CPF.
+- **Entradas:** `12345678901`, `a@example.com`, `password123`.
+- **Esperado:** Mesmo ID da sombra é preservado, CPF é marcado como reivindicado e o segundo cadastro conflita.
+- **Teste:** `TestShadowGraduationAndClaim`.
 
-### IDP-008: Listagem de Gerentes do Restaurante
-- **Pré-condição:** Gerente vinculado ao restaurante `pizzaria-mario`.
-- **Passos:** GET `/api/restaurants/pizzaria-mario/managers`.
-- **Esperado:** HTTP 200 OK com array contendo `id`, `restaurant_slug` e `account_id` dos gerentes.
+### IDP-007: Reivindicação e desvinculação preservam carteira
+- **Pré-condição:** PostgreSQL com conta real e sombra com carteira de 50 pontos.
+- **Passos:** Reivindicar o CPF da sombra e depois removê-lo.
+- **Entradas:** CPF `12345678901`.
+- **Esperado:** Carteira passa à conta real sem perda de pontos e continua vinculada após remover CPF.
+- **Teste:** `TestPostgresCPFClaimPreservesWallet` (requer `AUTH_TEST_DATABASE_URL`).
 
-### IDP-009: Desvinculação de Gerente do Restaurante
-- **Pré-condição:** Gerente `account_id = 1` vinculado ao restaurante `pizzaria-mario`.
-- **Passos:** DELETE `/api/restaurants/pizzaria-mario/managers/1`.
-- **Esperado:** HTTP 204 No Content. Registro de gerência removido de `account_restaurant`.
+### IDP-008: Corrida por CPF único
+- **Pré-condição:** CPF livre em armazenamento de memória.
+- **Passos:** Executar cinco cadastros concorrentes para o mesmo CPF.
+- **Entradas:** CPF `12345678901` e cinco telefones distintos.
+- **Esperado:** Exatamente um cadastro vence; os demais retornam conflito.
+- **Teste:** `TestConcurrentCPFRegistration`.
 
-### IDP-010: Promoção de Conta a `OWNER` por Outro Proprietário
-- **Pré-condição:** Usuário requisitante é `OWNER` de `pizzaria-mario`; conta alvo `account_id = 2` existente.
-- **Passos:** POST `/api/restaurants/pizzaria-mario/owners` com `{"account_id": 2}` e header `Authorization: Bearer <token_owner>`.
-- **Esperado:** HTTP 201 Created. Conta alvo recebe papel de `OWNER` com autoridade de entidade.
+### IDP-009: CPF malformado
+- **Pré-condição:** Conta autenticada.
+- **Passos:** Tentar reivindicar CPF de tamanho ou caracteres inválidos.
+- **Entradas:** `123`, `1234567890x`.
+- **Esperado:** HTTP 400 e CPF da conta permanece ausente.
+- **Teste:** `TestIDP009InvalidCPF`.
 
-### IDP-011: Listagem de Proprietários da Marca
-- **Pré-condição:** Restaurante com proprietários cadastrados.
-- **Passos:** GET `/api/restaurants/pizzaria-mario/owners`.
-- **Esperado:** HTTP 200 OK com lista de todos os proprietários (`id`, `restaurant_slug`, `account_id`).
+### IDP-010: Telefone não verificado não autentica
+- **Pré-condição:** Conta cadastrada com telefone de contato não verificado.
+- **Passos:** Tentar login, adicionar o telefone via confirmação simulada e tentar novamente.
+- **Entradas:** `+5511999999999`.
+- **Esperado:** Primeiro login rejeitado; após confirmação simulada, login gera tokens; após remoção, é rejeitado.
+- **Teste:** `TestPhoneLoginRequiresVerifiedPhone`.
 
-### IDP-012: Prevenção Estrita de Orfandade de Entidade (Último Proprietário)
-- **Pré-condição:** Restaurante possui apenas 1 proprietário cadastrado.
-- **Passos:** DELETE `/api/restaurants/pizzaria-mario/owners/{account_id}` tentando remover o único proprietário.
-- **Esperado:** HTTP 409 Conflict. Rejeição com erro `cannot remove the last owner: entity cannot be orphaned`.
+### IDP-011: Cadastro por telefone simulado
+- **Pré-condição:** Telefone livre; verificação simulada.
+- **Passos:** Concluir cadastro e autenticar pelo telefone sem inserir PIN.
+- **Entradas:** `+5511888888888`.
+- **Esperado:** HTTP 201 e par de tokens; login posterior retorna HTTP 200.
+- **Teste:** `TestPhoneRegistrationHTTPWithoutPIN`.
 
-### IDP-013: Remoção de Proprietário quando Múltiplos Proprietários Existem
-- **Pré-condição:** Restaurante possui 2 ou mais proprietários associados.
-- **Passos:** DELETE `/api/restaurants/pizzaria-mario/owners/{account_id}` por um proprietário ativo.
-- **Esperado:** HTTP 204 No Content. Associação removida com sucesso mantendo a entidade com proprietário remanescente.
+### IDP-012: Telefone duplicado e último método
+- **Pré-condição:** Duas contas; uma possui telefone verificado.
+- **Passos:** Outra conta reivindica o telefone; em seguida, tentar removê-lo quando for o único método verificado.
+- **Entradas:** `+5511999999999`.
+- **Esperado:** Ambas operações retornam conflito e os métodos permanecem intactos.
+- **Teste:** `TestPhoneConflictsAndLastMethod`.
 
-### IDP-014: Promoção de Conta a Superadministrador Global (`sysadmin`)
-- **Pré-condição:** Conta `account_id = 5` existente.
-- **Passos:** POST `/api/sysadmins` com `{"account_id": 5}`.
-- **Esperado:** HTTP 201 Created. Registro inserido na tabela `sysadmin`.
+### IDP-013: E-mail como último método
+- **Pré-condição:** Conta com e-mail verificado e sem telefone verificado.
+- **Passos:** Remover o e-mail; adicionar telefone e remover e-mail; tentar remover telefone.
+- **Entradas:** `a@example.com`, `+5511999999999`.
+- **Esperado:** Primeira e última remoções conflitam; remoção intermediária funciona.
+- **Teste:** `TestEmailChangeAndLastMethod`.
 
-### IDP-015: Listagem de Superadministradores Globais (`sysadmin`)
-- **Pré-condição:** Superadministradores cadastrados.
-- **Passos:** GET `/api/sysadmins`.
-- **Esperado:** HTTP 200 OK com array contendo `id`, `account_id` e `created_at`.
+### IDP-014: Alteração de e-mail exige senha atual
+- **Pré-condição:** Conta com e-mail e senha.
+- **Passos:** Alterar e-mail com senha atual incorreta e depois correta; autenticar com novo par.
+- **Entradas:** `b@example.com`, `newpassword`, `wrong` e `password123`.
+- **Esperado:** Tentativa incorreta rejeitada; alteração correta permite login com nova senha.
+- **Teste:** `TestEmailChangeAndLastMethod`.
 
-### IDP-016: Consulta de Perfil Autenticado (`/auth/me`)
-- **Pré-condição:** Token JWT de autenticação válido.
-- **Passos:** GET `/api/auth/me` com header `Authorization: Bearer <token>`.
-- **Esperado:** HTTP 200 OK com dados da conta (`id`, `email`, `phone`, `created_at`).
+### IDP-015: Rotação de refresh e rejeição de replay
+- **Pré-condição:** Conta real com par de tokens.
+- **Passos:** Trocar refresh; reutilizar o antigo e usar o novo como bearer.
+- **Entradas:** Refresh original e refresh rotacionado.
+- **Esperado:** Troca funciona; replay e uso de refresh como access são rejeitados.
+- **Teste:** `TestSessionRotationAndRevocation`.
 
-### IDP-017: Rejeição de `/auth/me` sem Token ou com Formato Inválido
-- **Pré-condição:** Nenhuma.
-- **Passos:** GET `/api/auth/me` sem header `Authorization` ou com `Bearer` vazio.
-- **Esperado:** HTTP 401 Unauthorized com `error: missing or invalid authorization token`.
+### IDP-016: Logout global invalida sessões
+- **Pré-condição:** Conta com par de tokens válido.
+- **Passos:** Chamar `POST /auth/logout-all` e tentar usar tokens antigos.
+- **Entradas:** Access e refresh emitidos antes do logout.
+- **Esperado:** HTTP 204; access e refresh anteriores são rejeitados.
+- **Testes:** `TestHTTPRegistrationAndLogoutAll`, `TestSessionRotationAndRevocation`.
 
-### IDP-018: Rejeição de Token JWT Expirado
-- **Pré-condição:** Token assinado com timestamp de expiração no passado (> 24h).
-- **Passos:** GET `/api/auth/me` com token expirado.
-- **Esperado:** HTTP 401 Unauthorized `invalid or expired token`.
+### IDP-017: Bearer ausente, expirado ou forjado
+- **Pré-condição:** Conta real e segredo de teste.
+- **Passos:** Consultar `/auth/me` com cada token inválido.
+- **Entradas:** Sem bearer, JWT expirado e JWT assinado com outro segredo.
+- **Esperado:** HTTP 401 em todos os casos.
+- **Teste:** `TestIDP017InvalidBearer`.
 
-### IDP-019: Rejeição de Token com Assinatura Forjada
-- **Pré-condição:** Token adulterado ou assinado com segredo HMAC incorreto.
-- **Passos:** Submeter requisição com o token adulterado.
-- **Esperado:** HTTP 401 Unauthorized `invalid or expired token`.
+### IDP-018: Logout não revoga sessão alheia
+- **Pré-condição:** Duas contas com IDs distintos e refresh da primeira.
+- **Passos:** Segunda conta tenta revogar o refresh da primeira; primeira tenta renová-lo.
+- **Entradas:** ID da segunda conta e refresh da primeira.
+- **Esperado:** Revogação não autorizada; refresh original ainda funciona.
+- **Teste:** `TestLogoutCannotRevokeAnotherAccount`.
 
-### IDP-020: Verificação de Duplo Papel (`OWNER` e `MANAGER` Simultâneos)
-- **Pré-condição:** Conta vinculada simultaneamente como `owner` e `manager` no mesmo restaurante.
-- **Passos:** Consultar papéis da conta no restaurante.
-- **Esperado:** Ambos os papéis constam em `account_restaurant`, habilitando autoridade de entidade e operacional.
+### IDP-019: Proteção do último proprietário
+- **Pré-condição:** Restaurante com apenas um proprietário.
+- **Passos:** Solicitar remoção na camada de serviço; depois adicionar outro proprietário e repetir.
+- **Entradas:** IDs de duas contas existentes.
+- **Esperado:** Primeira remoção rejeitada; segunda permitida sem deixar restaurante órfão.
+- **Teste:** `TestIDP019LastOwner`.
 
-### IDP-021: Barramento de Gerente tentando Promover Proprietário
-- **Pré-condição:** Usuário autenticado possui apenas papel `MANAGER`.
-- **Passos:** POST `/api/restaurants/pizzaria-mario/owners` com token de gerente.
-- **Esperado:** HTTP 403 Forbidden `forbidden: only an owner can promote another owner`.
+### IDP-020: Promoção de sysadmin sem autenticação (XFAIL)
+- **Pré-condição:** Conta alvo existente; requisição anônima.
+- **Passos:** Chamar `POST /sysadmins` sem bearer.
+- **Entradas:** `{"account_id":1}`.
+- **Esperado:** HTTP 401 ou 403 e nenhuma promoção. **Falha conhecida:** atualmente retorna 201 e promove a conta.
+- **Teste:** `TestIDP020AnonymousSysadminPromotion`.
 
-### IDP-022: Barramento de Gerente tentando Excluir Restaurante Lógico
-- **Pré-condição:** Usuário autenticado possui apenas papel `MANAGER`.
-- **Passos:** DELETE `/api/restaurants/pizzaria-mario` com token de gerente.
-- **Esperado:** HTTP 403 Forbidden (autoridade de destruição reservada exclusivamente ao `OWNER`).
+### IDP-021: Limite de tamanho de cadastro (XFAIL)
+- **Pré-condição:** Limite de corpo esperado de 1 MiB.
+- **Passos:** Enviar nome maior que 1 MiB ao registrar.
+- **Entradas:** JSON com `name` de 1 MiB, e-mail e senha válidos.
+- **Esperado:** HTTP 413 e nenhuma conta criada. **Falha conhecida:** o endpoint aceita o corpo.
+- **Teste:** `TestIDP021OversizedRegistration`.
 
-### IDP-023: Vínculo da Mesma Conta em Diferentes Estabelecimentos
-- **Pré-condição:** `account_id = 3` vinculada a `restaurante-a`.
-- **Passos:** Vincular `account_id = 3` como gerente em `restaurante-b`.
-- **Esperado:** HTTP 201 Created. A mesma conta transita entre estabelecimentos com papéis isolados.
+### IDP-022: Falha do notificador não cria conta
+- **Pré-condição:** Notificador simulado que retorna erro.
+- **Passos:** Solicitar cadastro por e-mail.
+- **Entradas:** `alice@example.com`, `password123`.
+- **Esperado:** Serviço retorna erro e não grava conta.
+- **Teste:** `TestService_Register_NotificationFailureDoesNotCreateAccount`.
 
-### IDP-024: Tentativa de Vincular `account_id` Inexistente
-- **Pré-condição:** `account_id = 99999` inexistente.
-- **Passos:** POST `/api/restaurants/pizzaria-mario/managers` com ID inexistente.
-- **Esperado:** HTTP 404 Not Found `restaurant or account not found`.
+### IDP-023: Gerente não promove proprietário (XFAIL)
+- **Pré-condição:** `trattoria` tem um proprietário; outra conta é gerente sem ser proprietária, e há uma conta alvo.
+- **Passos:** Enviar `POST /restaurants/trattoria/owners` com o bearer do gerente.
+- **Entradas:** `account_id` da segunda conta.
+- **Esperado:** HTTP 403 e somente o proprietário original permanece. **Falha conhecida:** o endpoint retorna 201 e adiciona o alvo.
+- **Teste:** `TestIDP023ManagerCannotPromoteOwner`.
 
-### IDP-025: Tentativa de Gerenciar Papéis em Restaurante Inexistente
-- **Pré-condição:** Slug `restaurante-fantasma` inexistente.
-- **Passos:** GET `/api/restaurants/restaurante-fantasma/managers`.
-- **Esperado:** HTTP 404 Not Found `restaurant not found`.
+### IDP-024: CPF de outra conta real não pode ser reivindicado
+- **Pré-condição:** Conta A possui CPF; conta B não possui CPF.
+- **Passos:** Conta B tenta reivindicar o CPF de A.
+- **Entradas:** CPF `12345678901`.
+- **Esperado:** Conflito, CPF permanece em A e B continua sem CPF.
+- **Teste:** `TestIDP024ClaimAnotherAccountsCPF`.
 
-### IDP-026: Prevenção de SQL Injection no Login e Rotas de Autenticação
-- **Pré-condição:** Tabela `account` com registros ativos.
-- **Passos:** Submeter POST `/api/auth/login` com strings `' OR '1'='1`.
-- **Esperado:** HTTP 401 Unauthorized. Prepared Statements garantem execução parametrizada segura.
+### IDP-025: Conta sombra não autentica com JWT
+- **Pré-condição:** Conta com apenas CPF e um JWT de acesso corretamente assinado para seu ID.
+- **Passos:** Enviar esse bearer em `GET /auth/me`.
+- **Entradas:** CPF `12345678901`; JWT assinado pelo servidor.
+- **Esperado:** HTTP 401; uma assinatura válida não transforma uma sombra em conta real.
+- **Teste:** `TestIDP025ShadowCannotAuthenticate`.
 
-### IDP-027: Sanitização de Dados de Entrada da Conta contra Injeção
-- **Pré-condição:** Nenhuma.
-- **Passos:** Cadastrar conta com payload contendo caracteres de controle ou tags maliciosas.
-- **Esperado:** Dados sanitizados e validados com precisão sem corromper o banco.
-
-### IDP-028: Preservação de Caracteres UTF-8 em Campos Textuais
-- **Pré-condição:** Nenhuma.
-- **Passos:** Cadastrar conta e telefone com caracteres internacionais.
-- **Esperado:** HTTP 201 Created com codificação UTF-8 preservada.
-
-### IDP-029: Validação de Payload JSON Vazio ou Truncado
-- **Pré-condição:** Nenhuma.
-- **Passos:** Enviar body `{"email":` sem fechar as chaves.
-- **Esperado:** HTTP 400 Bad Request `invalid request body`.
-
-### IDP-030: Rejeição de E-mail com Mais de 255 Caracteres
-- **Pré-condição:** Nenhuma.
-- **Passos:** POST `/api/auth/register` com e-mail excedendo 255 caracteres.
-- **Esperado:** HTTP 400 Bad Request violando o limite da coluna `varchar(255)`.
-
-### IDP-031: Consulta de Papéis Consolidados de um Usuário (`GetAccountRoles`)
-- **Pré-condição:** Conta com papéis configurados.
-- **Passos:** Inspecionar retorno de autoridade via camada de serviço.
-- **Esperado:** Retorno correto de `[]string{"owner", "manager"}` ou `[]string{"sysadmin"}`.
-
-### IDP-032: Exclusão de Conta sem Dependências Proprietárias Ativas
-- **Pré-condição:** Conta recém-criada sem restaurante vinculado.
-- **Passos:** DELETE `/api/auth/me`.
-- **Esperado:** HTTP 204 No Content. Registro excluído com sucesso.
-
-### IDP-033: Bloqueio de Exclusão de Conta se for Única Proprietária
-- **Pré-condição:** Conta é a única proprietária de restaurante ativo.
-- **Passos:** Tentar excluir conta.
-- **Esperado:** HTTP 409 Conflict exigindo transferência prévia de propriedade (prevenção de orfandade).
-
-### IDP-034: Validação de Formato do Campo `phone` na Conta
-- **Pré-condição:** Nenhuma.
-- **Passos:** Cadastrar conta informando telefone no padrão internacional ou nacional.
-- **Esperado:** HTTP 201 Created persistindo o telefone formatado.
-
-### IDP-035: Armazenamento e Verificação Segura de Senha via Bcrypt
-- **Pré-condição:** Nenhuma.
-- **Passos:** Registrar conta e inspecionar a coluna `password` na tabela `account`.
-- **Esperado:** Hash bcrypt com salt aleatório (`$2a$...`), garantindo que senhas nunca sejam armazenadas em texto plano.
+### IDP-026: Remoção concorrente dos métodos de acesso
+- **Pré-condição:** Conta com e-mail e telefone verificados em armazenamento de memória.
+- **Passos:** Remover e-mail e telefone simultaneamente.
+- **Entradas:** `race@example.com`, `+5511999999999`.
+- **Esperado:** Exatamente uma remoção funciona; a outra conflita e um método verificado permanece.
+- **Teste:** `TestIDP026ConcurrentLastMethodRemoval`.
 
 ---
 

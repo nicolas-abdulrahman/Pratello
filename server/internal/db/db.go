@@ -12,6 +12,9 @@ import (
 //go:embed schema.sql
 var SchemaSQL string
 
+//go:embed legacy.sql
+var legacySQL string
+
 // Open opens a database connection with standard connection pooling settings.
 func Open(connStr string) (*sql.DB, error) {
 	database, err := sql.Open("postgres", connStr)
@@ -37,7 +40,15 @@ func Migrate(database *sql.DB) error {
 		return fmt.Errorf("cannot migrate nil database")
 	}
 
-	if _, err := database.Exec(SchemaSQL); err != nil {
+	tx, err := database.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(legacySQL); err != nil {
+		return fmt.Errorf("failed to migrate legacy schema: %w", err)
+	}
+	if _, err := tx.Exec(SchemaSQL); err != nil {
 		return fmt.Errorf("failed to execute schema.sql: %w", err)
 	}
 
@@ -54,11 +65,10 @@ func Migrate(database *sql.DB) error {
 	}
 
 	for _, patch := range columnPatches {
-		if _, err := database.Exec(patch); err != nil {
-			// Non-fatal if schema already contains the patch
-			continue
+		if _, err := tx.Exec(patch); err != nil {
+			return fmt.Errorf("failed to apply compatibility migration: %w", err)
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }
