@@ -206,169 +206,100 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 
 ---
 
-## Módulo 2: Estabelecimentos, Filiais, RH e Operação de Terminal (TEN-001 a TEN-030)
+## Módulo 2: Estabelecimentos e Filiais (TEN-001 a TEN-013)
 
-### TEN-001: Criação de Restaurante Lógico (`restaurant`) com `name` e `slug`
-- **Pré-condição:** Slug `pizzaria-bela` disponível.
-- **Passos:** POST `/api/restaurants`.
-- **Entradas:** `{"name": "Pizzaria Bela", "slug": "pizzaria-bela", "description": "Pizzas artesanais napolitanas"}`.
-- **Esperado:** HTTP 201 Created. Registro inserido na tabela `restaurant` com `slug` único e data de criação preenchida.
+Os testes estão em `server/internal/restaurants/restaurants_casos_de_testes_test.go`. Com `AUTH_TEST_DATABASE_URL` apontando para um PostgreSQL que permita criar esquemas, execute `go test -count=1 -race ./server/internal/restaurants -run '^TestTEN'`. Cada caso cria e remove seu próprio esquema. Esta revisão substitui os casos do antigo terminal por operações da API atual.
 
-### TEN-002: Validação e Normalização de Formato de `slug`
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter POST `/api/restaurants` com nomes que exigem normalização para slug kebab-case.
-- **Entradas:** `"name": "Trattoria & Cia São Paulo"`.
-- **Esperado:** HTTP 201 Created com slug normalizado para `trattoria-cia-sao-paulo`.
+### TEN-001: Criação autenticada e vínculo inicial de proprietário
+- **Pré-condição:** Duas contas válidas, sem organizações.
+- **Passos:** Criar a organização sem autenticação e depois com o token do criador. Consultar `/me/restaurants` com ambas as contas e conferir o vínculo no banco.
+- **Entradas:** `{"name":"Café","slug":"cafe"}`.
+- **Esperado:** HTTP 401 e 201, respectivamente; somente a conta criadora recebe o papel `OWNER` e vê `cafe` em seus vínculos.
+- **Teste:** `TestTEN001OrganizationCreation`.
 
-### TEN-003: Unicidade de `slug` entre Restaurantes Lógicos
-- **Pré-condição:** Restaurante com `slug = 'bela-pizza'` já cadastrado.
-- **Passos:** Submeter outro restaurante com o mesmo `slug`.
-- **Esperado:** HTTP 409 Conflict com mensagem `restaurant with this slug already exists`.
+### TEN-002: Formato, unicidade e imutabilidade do slug
+- **Pré-condição:** Duas contas autenticadas e slug disponível.
+- **Passos:** Enviar slug inválido; cadastrar sem slug; tentar duplicá-lo com outra conta e alterá-lo com `PUT`.
+- **Entradas:** `Invalid slug`, nome `Trattoria & Cia`, slug duplicado `trattoria-cia` e novo slug `new-slug`.
+- **Esperado:** HTTP 400, 201, 409 e 400, respectivamente. Apenas `trattoria-cia` é consultável.
+- **Teste:** `TestTEN002SlugValidationAndUniqueness`.
 
-### TEN-004: Criação de Filial Física (`physical_restaurant`) com Verificação de CNPJ da Matriz
-- **Pré-condição:** Restaurante lógico com CNPJ cadastrado; usuário com papel de `MANAGER` ou `OWNER`.
-- **Passos:** POST `/api/restaurants/{slug}/branches`.
-- **Entradas:**
-  ```json
-  {
-    "name": "Filial Jardins",
-    "cnpj": "99.888.777/0001-11",
-    "owner_cnpj": "12.345.678/0001-99"
-  }
-  ```
-- **Esperado:** HTTP 201 Created. Sistema valida que `owner_cnpj` corresponde ao CNPJ da matriz e cadastra a filial com PIN inicial `123456`.
+### TEN-003: Paginação pública exclui organizações arquivadas
+- **Pré-condição:** O proprietário cadastrou `gamma`, `alpha` e `beta` nessa ordem.
+- **Passos:** Arquivar `alpha`; consultar três páginas de um item e solicitar uma página acima do limite de tamanho.
+- **Entradas:** `page_size=1`, páginas 1 a 3; `page_size=101`.
+- **Esperado:** `beta`, `gamma` e `[]`, com total 2 em todas as páginas válidas; HTTP 400 para tamanho 101.
+- **Teste:** `TestTEN003DiscoveryPagination`.
 
-### TEN-005: Rejeição de Filial Física com CNPJ da Matriz Incorreto
-- **Pré-condição:** Restaurante matriz registrado com CNPJ `12.345.678/0001-99`.
-- **Passos:** POST `/api/restaurants/{slug}/branches` enviando `owner_cnpj` divergente (`00.000.000/0000-00`).
-- **Esperado:** HTTP 400 Bad Request `owner CNPJ verification failed: does not match restaurant registration`.
+### TEN-004: Validação de filial e rollback de endereço órfão
+- **Pré-condição:** Organização `cafe`, proprietário e conta sem vínculo.
+- **Passos:** Tentar criar filial sem autorização e com dados inválidos; cadastrar os dados válidos e repetir o cadastro; contar filiais e endereços.
+- **Entradas:** CNPJ `12345678000100`, CNPJ do proprietário `12345678000199` e CEP `12345678`. Variações inválidas: CNPJ com pontuação, CNPJ do proprietário vazio e CEP `123`.
+- **Esperado:** HTTP 403 sem vínculo, 400 para dados inválidos, 201 com verificação pendente e 409 para duplicata. O banco mantém somente uma filial e um endereço.
+- **Teste:** `TestTEN004BranchCreationValidationAndRollback`.
 
-### TEN-006: Rejeição de Criação de Filial por Usuário sem Papel de `MANAGER` ou `OWNER`
-- **Pré-condição:** Usuário autenticado sem vínculos no restaurante.
-- **Passos:** Tentar POST `/api/restaurants/{slug}/branches`.
-- **Esperado:** HTTP 403 Forbidden `forbidden: requires manager or owner role`.
+### TEN-005: Aprovação legal, visibilidade pública e auditoria
+- **Pré-condição:** Organização com uma filial não verificada, proprietário e sysadmin.
+- **Passos:** Consultar filial, horários, listagem e cardápio sem token; consultar a filial como proprietário. Tentar aprovar como proprietário e depois como sysadmin; repetir as consultas públicas da filial, da listagem e do cardápio.
+- **Entradas:** ID da filial, CNPJ do proprietário `12345678000199` e tokens de proprietário e sysadmin.
+- **Esperado:** Antes da aprovação, filial, horários e cardápio públicos retornam 404 e a listagem é vazia. O proprietário vê os dados administrativos, mas recebe 403 ao aprovar. A aprovação pelo sysadmin retorna 200, registra a ação com ator e filial e permite a publicação sem expor `owner_cnpj`.
+- **Teste:** `TestTEN005ApprovalAndPublicVisibility`.
 
-### TEN-007: Listagem de Filiais Físicas por Restaurante Lógico
-- **Pré-condição:** Restaurante possui 2 filiais físicas cadastradas.
-- **Passos:** GET `/api/restaurants/{slug}/branches`.
-- **Esperado:** HTTP 200 OK com array contendo as unidades físicas e seus respectivos CNPJs.
+### TEN-006: Autoridade e revogação do gerente da organização
+- **Pré-condição:** Organização com proprietário e uma conta elegível para gerência.
+- **Passos:** Vincular o gerente, atualizar a organização com o token dele, tentar arquivá-la, revogar o vínculo e repetir a atualização com o mesmo token.
+- **Entradas:** `account_id` do gerente; os nomes `Atualizado` e `Negado`.
+- **Esperado:** Atualização autorizada retorna 200, arquivamento retorna 403 e revogação retorna 204. A nova tentativa com o token ainda válido recebe 403 e o nome permanece `Atualizado`.
+- **Teste:** `TestTEN006OrganizationManagerRevocation`.
 
-### TEN-008: Consulta de Dados de Filial Física por ID
-- **Pré-condição:** Filial ID 1 cadastrada.
-- **Passos:** GET `/api/restaurants/{slug}/branches/1`.
-- **Esperado:** HTTP 200 OK com `id`, `restaurant_slug`, `name`, `cnpj`, `owner_cnpj`.
+### TEN-007: Escopo de gerência restrito à filial
+- **Pré-condição:** Duas filiais e uma conta sem papel na organização.
+- **Passos:** Vincular a conta à primeira filial. Tentar atualizar ambas e arquivar a primeira. Revogar o vínculo e tentar atualizá-la novamente.
+- **Entradas:** IDs das duas filiais, ID do gerente e alteração de nome.
+- **Esperado:** Atualização somente na filial atribuída; a outra filial e o arquivamento retornam 403. Após revogação, o mesmo token deixa de autorizar a alteração na primeira filial.
+- **Teste:** `TestTEN007BranchManagerIsolation`.
 
-### TEN-009: Autoridade Operacional do `MANAGER`: Gestão de Filiais Físicas
-- **Pré-condição:** Usuário com papel `MANAGER` no restaurante.
-- **Passos:** Criar e atualizar dados operacionais da filial física.
-- **Esperado:** Operações permitidas em conformidade com o escopo operacional do gerente.
+### TEN-008: Isolamento entre organizações e recursos filhos
+- **Pré-condição:** Duas organizações de proprietários distintos, cada uma com uma filial; há uma mesa na filial alheia.
+- **Passos:** Tentar alterar a filial alheia com o slug próprio e depois com o slug correto usando o token do outro proprietário. Tentar excluir a mesa alheia pela rota da filial própria e conferi-la na filial original.
+- **Entradas:** ID da filial alheia e ID de sua mesa número 7.
+- **Esperado:** Associação incorreta de slug e filial retorna 404; falta de autoridade sobre o slug correto retorna 403. Exclusão cruzada da mesa retorna 404 e a mesa permanece na listagem correta.
+- **Teste:** `TestTEN008CrossTenantAndChildIDs`.
 
-### TEN-010: Cadastro de Colaborador no Quadro de RH da Filial (`employee`)
-- **Pré-condição:** Filial física ID 1 existente; requisitante é `MANAGER` ou `OWNER`.
-- **Passos:** POST `/api/restaurants/{slug}/branches/1/employees`.
-- **Entradas:** `{"name": "Carlos Silva", "cpf": "123.456.789-00", "position": "Garçom"}`.
-- **Esperado:** HTTP 201 Created. Registro inserido na tabela `employee`.
+### TEN-009: Substituição de endereço preserva dados após rejeição
+- **Pré-condição:** Filial com CEP `12345678` e número `12A`.
+- **Passos:** Atualizar o endereço, enviar outra alteração com CEP inválido e consultar a filial.
+- **Entradas:** CEP `87654321`, rua `Nova Rua`, número `42B`, complemento `Fundos`; depois CEP `999`.
+- **Esperado:** HTTP 200 e 400, respectivamente. A consulta retorna todos os campos do endereço válido, inclusive o número alfanumérico.
+- **Teste:** `TestTEN009BranchAddressReplacement`.
 
-### TEN-011: Registro de Colaborador Estritamente como RH (Sem Conta Auto-Gerada)
-- **Pré-condição:** Colaborador recém-cadastrado via rota de RH.
-- **Passos:** Verificar o campo `account_id` do registro criado.
-- **Esperado:** `account_id` é `NULL`. O sistema não gera credenciais ou login de usuário automaticamente para funcionários.
+### TEN-010: Validação, visibilidade e remoção de telefones
+- **Pré-condição:** Filial sem contatos.
+- **Passos:** Cadastrar contatos inválidos e um contato válido sem tipo explícito. Listar com e sem token, remover o contato e listar novamente.
+- **Entradas:** `+5511999999999`, tipo inválido `fax` e número inválido `abc`.
+- **Esperado:** HTTP 400 para entradas inválidas; cadastro válido retorna 201 com tipo `mobile`. Listagem anônima retorna 401. Após HTTP 204 na remoção, a listagem autenticada está vazia.
+- **Teste:** `TestTEN010BranchContactLifecycle`.
 
-### TEN-012: Listagem do Quadro de Colaboradores de RH por Filial
-- **Pré-condição:** Filial possui 3 colaboradores de RH cadastrados.
-- **Passos:** GET `/api/restaurants/{slug}/branches/1/employees` por um gerente ou proprietário.
-- **Esperado:** HTTP 200 OK com a lista completa de colaboradores (`id`, `name`, `cpf`, `position`, `account_id`).
+### TEN-011: Horário semanal íntegro, incluindo funcionamento noturno
+- **Pré-condição:** Filial existente e token de proprietário.
+- **Passos:** Publicar a semana completa, enviar quatro substituições inválidas e consultar o horário salvo.
+- **Entradas:** Dia 0 aberto das `18:00` às `02:00`, demais dias fechados. Variações: lista vazia, dia repetido, hora `25:00` e dia fechado com horários preenchidos.
+- **Esperado:** A semana válida recebe 200; as quatro variações recebem 400. A consulta mantém os sete dias, o intervalo noturno e o último dia fechado.
+- **Teste:** `TestTEN011HoursReplacement`.
 
-### TEN-013: Fluxo de Convite: Vinculação de Conta de Usuário ao Colaborador de RH
-- **Pré-condição:** Colaborador de RH ID 1 cadastrado; usuário `account_id = 10` existente que necessita de acesso.
-- **Passos:** POST `/api/restaurants/{slug}/branches/1/employees/1/invite` com `{"account_id": 10}`.
-- **Esperado:** HTTP 200 OK. Campo `account_id` atualizado para `10`. Acesso concedido mediante convite explícito.
+### TEN-012: Unicidade de mesa por filial e preservação do histórico
+- **Pré-condição:** Duas filiais da mesma organização, sem mesas.
+- **Passos:** Criar mesa, repetir o número na mesma filial e na outra, alterar capacidade, registrar pedido associado e arquivar a mesa.
+- **Entradas:** Mesa número 2 com 4 lugares; atualização para 6 lugares e pedido local que guarda o número 2.
+- **Esperado:** Duplicata na mesma filial retorna 409; na outra filial retorna 201. A atualização mantém o ID da mesa. Após arquivamento, a mesa some da listagem ativa e o pedido ainda referencia a mesa e seu número histórico.
+- **Teste:** `TestTEN012TableUniquenessAndHistory`.
 
-### TEN-014: Rejeição de Convite para Colaborador com `account_id` Inexistente
-- **Pré-condição:** Colaborador de RH ID 1 existente; `account_id = 99999` inexistente.
-- **Passos:** POST `/api/restaurants/{slug}/branches/1/employees/1/invite` com ID inexistente.
-- **Esperado:** HTTP 404 Not Found `employee or account not found`.
-
-### TEN-015: Rejeição de Gestão de RH sem Permissão de `MANAGER` ou `OWNER`
-- **Pré-condição:** Usuário comum sem papel operacional ou de proprietário no restaurante.
-- **Passos:** Tentar cadastrar colaborador ou enviar convite na filial.
-- **Esperado:** HTTP 403 Forbidden `forbidden: requires manager or owner role`.
-
-### TEN-016: Abertura de Sessão de Terminal de Salão via PIN Compartilhado de 6 Dígitos
-- **Pré-condição:** Filial física ID 1 configurada com PIN de terminal `123456`.
-- **Passos:** POST `/api/restaurants/{slug}/branches/1/terminal/session`.
-- **Entradas:** `{"pin": "123456", "device_id": "pos-tablet-balcao"}`.
-- **Esperado:** HTTP 200 OK retornando token de sessão de 64 caracteres hexadecimais, `expires_at` e `device_id`.
-
-### TEN-017: Validação de Formato Estrito do PIN do Terminal (6 Dígitos Numéricos)
-- **Pré-condição:** Nenhuma.
-- **Passos:** Enviar PIN com tamanho incorreto (`"12345"` ou `"1234567"`).
-- **Esperado:** HTTP 400 Bad Request `pin must be exactly 6 digits`.
-
-### TEN-018: Rejeição de PIN de Terminal Incorreto
-- **Pré-condição:** PIN correto é `123456`.
-- **Passos:** Enviar PIN `"999999"`.
-- **Esperado:** HTTP 401 Unauthorized `invalid terminal PIN`. Contador de falhas incrementado.
-
-### TEN-019: Proteção contra Força Bruta: Lockout do Terminal após 5 Falhas Consecutivas
-- **Pré-condição:** Terminal ativo.
-- **Passos:** Submeter 5 tentativas consecutivas com PIN incorreto.
-- **Esperado:** Na 5ª falha e em tentativas subsequentes, retorno HTTP 429 Too Many Requests `terminal is locked due to too many failed attempts (try again in 15 minutes)`.
-
-### TEN-020: Vínculo Estrito de Dispositivo no Terminal de Salão (`device_id`)
-- **Pré-condição:** Sessão aberta para `device_id = 'pos-tablet-01'`.
-- **Passos:** Inspecionar token de sessão gerado.
-- **Esperado:** Token associado permanentemente ao identificador físico do terminal na tabela `terminal_session`.
-
-### TEN-021: Expiração da Sessão de Terminal Alinhada ao Turno de Trabalho (8 Horas)
-- **Pré-condição:** Sessão de terminal aberta.
-- **Passos:** Verificar o campo `expires_at` da sessão retornada.
-- **Esperado:** Timestamp calculado exatamente como `now() + 8 hours`. Após 8 horas, o token é invalidado automaticamente.
-
-### TEN-022: Rotação/Redefinição do PIN Compartilhado a Cada 8 Horas
-- **Pré-condição:** Filial física ativa.
-- **Passos:** Gerente ou proprietário atualiza o PIN de 6 dígitos da filial ou executa rotação periódica.
-- **Esperado:** PIN atualizado, tentativas com o PIN antigo passam a ser rejeitadas com HTTP 401.
-
-### TEN-023: Visualizador Operacional de Pedidos da Filial no Terminal
-- **Pré-condição:** Token de sessão de terminal ativo para a filial ID 1.
-- **Passos:** GET `/api/restaurants/{slug}/branches/1/terminal/orders` com header `X-Terminal-Session: <token>`.
-- **Esperado:** HTTP 200 OK retornando comandas/pedidos operacionais daquela unidade física.
-
-### TEN-024: Princípio do Menor Privilégio na Sessão de Terminal
-- **Pré-condição:** Token de sessão de terminal ativo.
-- **Passos:** Tentar utilizar o token de terminal para acessar endpoints administrativos, relatórios de faturamento ou dados cadastrais (PII) de clientes.
-- **Esperado:** HTTP 401/403 Forbidden. A sessão de terminal é restrita estritamente à visualização de pedidos de chão.
-
-### TEN-025: Isolamento de Blast Radius da Sessão de Terminal
-- **Pré-condição:** Sessão de terminal emitida exclusivamente para a filial ID 1.
-- **Passos:** Tentar consultar pedidos da filial ID 2 utilizando o mesmo token de terminal.
-- **Esperado:** HTTP 403 Forbidden `terminal session is not scoped to this branch`. O blast radius de vazamento de PIN fica confinado àquela filial.
-
-### TEN-026: Não-Atribuibilidade Individual das Ações na Sessão de Terminal
-- **Pré-condição:** Ações de leitura realizadas no terminal do salão.
-- **Passos:** Analisar log da requisição de terminal.
-- **Esperado:** Ação atribuída ao `device_id` e ao terminal compartilhado, sem identificador de conta pessoal (`account_id`), operando como conveniência de piso.
-
-### TEN-027: Autoridade Operacional do `MANAGER`: Adição e Gestão de Cardápio e Pratos
-- **Pré-condição:** Usuário com papel de `MANAGER`.
-- **Passos:** Criar novos pratos e categorias no restaurante lógico via POST `/api/restaurants/{slug}/dishes`.
-- **Esperado:** HTTP 201 Created. Gerentes possuem autoridade operacional plena para atualizar ofertas e cardápio.
-
-### TEN-028: Barramento de `MANAGER` na Exclusão do Restaurante Lógico
-- **Pré-condição:** Usuário possui apenas papel de `MANAGER`.
-- **Passos:** DELETE `/api/restaurants/{slug}`.
-- **Esperado:** HTTP 403 Forbidden. Destruição do restaurante e alteração cadastral/fiscal estrutural é autoridade exclusiva de `OWNER`.
-
-### TEN-029: Isolamento Multi-Tenant em Unidades Físicas e RH
-- **Pré-condição:** Restaurante A e Restaurante B possuem filiais distintas.
-- **Passos:** Gerente do Restaurante A tenta cadastrar colaboradores ou consultar terminais na filial do Restaurante B.
-- **Esperado:** HTTP 403 Forbidden ou HTTP 404 Not Found garantindo isolamento entre tenants.
-
-### TEN-030: Sanitização e Validação de Documentos Fiscais (CNPJ de Filial e Matriz)
-- **Pré-condição:** Nenhuma.
-- **Passos:** Submeter requisições com CNPJs formatados com pontuação ou dígitos alfanuméricos.
-- **Esperado:** Pontuação normalizada (`.`, `-`, `/`), rejeição estrita de strings com menos de 14 dígitos válidos.
+### TEN-013: Arquivamento atômico com auditoria e histórico
+- **Pré-condição:** Organização com filial e pedido existente.
+- **Passos:** Forçar falha na gravação da auditoria de arquivamento da organização. Tentar arquivar, verificar visibilidade, restabelecer a auditoria e arquivar a filial e a organização.
+- **Entradas:** IDs da filial e do pedido; ação de auditoria `restaurant.archive`.
+- **Esperado:** A falha retorna 500 e a organização permanece consultável. Com a auditoria disponível, ambos os arquivamentos retornam 204, os recursos deixam de ser consultáveis e o pedido mantém sua referência à filial.
+- **Teste:** `TestTEN013ArchiveRollbackAndHistory`.
 
 ---
 
