@@ -116,7 +116,7 @@ func TestFullOrderLifecycleIntegration(t *testing.T) {
 	exec(`INSERT INTO receipt(order_id,receipt_code,receipt) VALUES($1,'receipt-1','{"total_cents":7300}')`, order)
 	exec(`INSERT INTO refund(transaction_id,amount_cents,reason,created_by_account_id) VALUES($1,800,'adicional indisponível',$2)`, payment, owner)
 	exec(`UPDATE transaction SET refunded_cents=800,status='partially_refunded' WHERE id=$1`, payment)
-	exec(`INSERT INTO item_review(item_id,order_item_id,account_id,rating) VALUES($1,$2,$3,5)`, item, line, customer)
+	exec(`INSERT INTO item_review(item_id,order_item_id,account_id,rating) VALUES($1,$2,$3,3)`, item, line, customer)
 	exec(`INSERT INTO restaurant_review(restaurant_id,account_id,rating) VALUES($1,$2,5)`, org, customer)
 	exec(`UPDATE menu_item SET base_price_cents=7000,base_cost_cents=3000 WHERE id=$1`, item)
 	exec(`INSERT INTO menu_item_price_history(restaurant_id,item_id,changed_by_account_id,old_price_cents,new_price_cents,reason) VALUES($1,$2,$3,6500,7000,'base_price_update')`, org, item, owner)
@@ -125,7 +125,7 @@ func TestFullOrderLifecycleIntegration(t *testing.T) {
 	err := db.QueryRow(`SELECT oi.unit_price_cents,oi.unit_cost_cents,p.amount_cents-p.refunded_cents,ir.rating,o.status,oi.selected_options->0->>'name'
 		FROM order_item oi JOIN "order" o ON o.id=oi.order_id JOIN transaction p ON p.order_id=o.id JOIN item_review ir ON ir.order_item_id=oi.id
 		JOIN menu_session ms ON ms.converted_order_id=o.id WHERE oi.id=$1 AND ms.id=$2`, line, session).Scan(&price, &cost, &net, &rating, &status, &option)
-	if err != nil || price != 7300 || cost != 2500 || net != 6500 || rating != 5 || status != "delivered" || option != "Parmesão" {
+	if err != nil || price != 7300 || cost != 2500 || net != 6500 || rating != 3 || status != "delivered" || option != "Parmesão" {
 		t.Fatalf("unexpected completed order: price=%d cost=%d net=%d rating=%d status=%s option=%s err=%v", price, cost, net, rating, status, option, err)
 	}
 	if _, err := db.Exec(`UPDATE transaction SET refunded_cents=7301 WHERE id=$1`, payment); err == nil {

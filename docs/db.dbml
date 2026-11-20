@@ -619,7 +619,7 @@ Table "public"."item_review" {
   "item_id" int [not null, ref: > "public"."menu_item"."id"]
   "order_item_id" int [unique, not null, ref: > "public"."order_item"."id"]
   "account_id" int [ref: > "public"."account"."id"]
-  "rating" smallint [not null, note: '1-5']
+  "rating" smallint [not null, note: '1-3']
   "comment" text
   "created_at" timestamptz [not null, default: `now()`]
 
@@ -627,13 +627,14 @@ Table "public"."item_review" {
     (item_id, created_at) [name: "idx_item_review_item_id_created_at"]
   }
 
-  Note: 'Only insertable if menu_item.allows_review = true (app-enforced).'
+  Note: 'One per delivered, independently purchased line with reviews enabled. Comments require an account.'
 }
 
 Table "public"."restaurant_review" {
   "id" bigserial [pk, not null, increment]
   "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
-  "account_id" int [not null, ref: > "public"."account"."id"]
+  "account_id" int [ref: > "public"."account"."id"]
+  "order_id" int [ref: > "public"."order"."id"]
   "rating" smallint [not null, note: '1-5']
   "comment" text
   "created_at" timestamptz [not null, default: `now()`]
@@ -644,7 +645,19 @@ Table "public"."restaurant_review" {
     (restaurant_id, account_id) [unique, name: "idx_restaurant_review_restaurant_id_account_id"]
   }
 
-  Note: 'One per account per restaurant (UNIQUE). Purchase-gated (app-enforced).'
+  Note: 'One per account per organization or one per guest order. Non-null order_id is unique. Comments require an account.'
+}
+
+Table "public"."item_review_totals" {
+  "target_id" int [pk, not null, ref: > "public"."menu_item"."id"]
+  "review_count" bigint [not null]
+  "rating_sum" bigint [not null]
+}
+
+Table "public"."restaurant_review_totals" {
+  "target_id" int [pk, not null, ref: > "public"."restaurant"."id"]
+  "review_count" bigint [not null]
+  "rating_sum" bigint [not null]
 }
 
 Table "public"."restaurant_phone" {

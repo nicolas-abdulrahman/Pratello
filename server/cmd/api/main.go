@@ -14,6 +14,7 @@ import (
 	"pratello/server/internal/menu"
 	"pratello/server/internal/order"
 	"pratello/server/internal/restaurants"
+	"pratello/server/internal/review"
 	"pratello/server/internal/sales"
 	"pratello/server/internal/transaction"
 	"pratello/server/internal/user"
@@ -58,6 +59,7 @@ func main() {
 	user.NewHandler(database, authSvc.Identify).Routes(mux)
 	menu.NewHandler(menu.NewService(database), authSvc.Identify).Routes(mux)
 	order.NewHandler(order.NewService(database), authSvc.Identify, os.Getenv("ORDER_PUBLIC_BASE_URL")).Routes(mux)
+	review.NewHandler(review.NewService(database), authSvc.Identify).Routes(mux)
 	sales.NewHandler(sales.NewService(database), authSvc.Identify).Routes(mux)
 	transaction.NewHandler(transaction.NewService(database, transaction.MockProvider{}), authSvc.Identify).Routes(mux)
 	handler := registerRoutes(mux, authHandler, restHandler)

@@ -1,6 +1,6 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.13
+> **Versão:** 0.1.14
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
 > **Total de casos documentados:** 231
 
@@ -670,8 +670,8 @@ As regressões do domínio `order` exercitam o HTTP e o PostgreSQL. `POST /resta
 | ORD-008 | Enviar quantidade zero, negativa ou preço definido pelo cliente. | `400`, sem alterar linhas ou total. |
 | ORD-009 | Comprar várias linhas com opcionais, observações e remoções válidas. | Valores e instruções são preservados nas linhas submetidas. |
 | ORD-010 | Item fica indisponível na filial depois de entrar no rascunho. | `409`; sem consumo de cupom, snapshot definitivo ou conversão. O rascunho continua editável. |
-| ORD-011 | Avaliar pedido e item entregues. **Planejado.** | Uma avaliação elegível por compra. |
-| ORD-012 | Enviar notas fora da escala de 1 a 5. **Planejado.** | Rejeição sem alterar a avaliação anterior. |
+| ORD-011 | Avaliar itens de compras entregues e o restaurante, incluindo visitante com token do pedido. | Uma avaliação por linha comprada; para restaurante, uma por conta e organização ou uma por pedido de visitante. Comentário exige conta. |
+| ORD-012 | Enviar nota fora de 1 a 3 para item ou de 1 a 5 para restaurante. | `400` sem alterar avaliações ou totais. |
 | ORD-013 | Gerar linhas filhas de combo para produção. **Planejado.** | Produção consegue identificar componentes sem duplicar o valor do combo. |
 | ORD-014 | Submeter com cupom elegível. | Desconto entra no total e em `order_coupon` uma única vez. |
 | ORD-015 | Submeter cupom exclusivo de outro restaurante. | `404`, sem conversão, consumo ou perda do rascunho. |

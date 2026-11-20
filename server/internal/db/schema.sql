@@ -267,7 +267,7 @@ CREATE TABLE IF NOT EXISTS receipt (
 );
 CREATE TABLE IF NOT EXISTS item_review (
     id BIGSERIAL PRIMARY KEY, item_id INT NOT NULL REFERENCES menu_item(id), order_item_id INT UNIQUE NOT NULL REFERENCES order_item(id),
-    account_id INT REFERENCES account(id), rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5), comment TEXT,
+    account_id INT REFERENCES account(id), rating SMALLINT NOT NULL CONSTRAINT item_review_face_rating CHECK (rating BETWEEN 1 AND 3), comment TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_item_review_item_id_created_at ON item_review(item_id,created_at);
@@ -278,6 +278,47 @@ CREATE TABLE IF NOT EXISTS restaurant_review (
 );
 CREATE INDEX IF NOT EXISTS idx_restaurant_review_restaurant_id_created_at ON restaurant_review(restaurant_id,created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_restaurant_review_restaurant_id_account_id ON restaurant_review(restaurant_id,account_id);
+DO $$ BEGIN
+    ALTER TABLE item_review DROP CONSTRAINT IF EXISTS item_review_rating_check;
+    DELETE FROM item_review WHERE rating NOT BETWEEN 1 AND 3;
+    ALTER TABLE item_review ADD CONSTRAINT item_review_face_rating CHECK (rating BETWEEN 1 AND 3);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE restaurant_review ALTER COLUMN account_id DROP NOT NULL;
+ALTER TABLE restaurant_review ADD COLUMN IF NOT EXISTS order_id INT REFERENCES "order"(id);
+CREATE UNIQUE INDEX IF NOT EXISTS restaurant_review_purchase_unique ON restaurant_review(order_id) WHERE order_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS order_item_sales_by_item ON order_item(item_id,order_id) INCLUDE (quantity) WHERE voided_at IS NULL;
+CREATE TABLE IF NOT EXISTS item_review_totals (
+    target_id INT PRIMARY KEY REFERENCES menu_item(id), review_count BIGINT NOT NULL, rating_sum BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS restaurant_review_totals (
+    target_id INT PRIMARY KEY REFERENCES restaurant(id), review_count BIGINT NOT NULL, rating_sum BIGINT NOT NULL
+);
+INSERT INTO item_review_totals SELECT item_id,count(*),sum(rating) FROM item_review GROUP BY item_id ON CONFLICT DO NOTHING;
+INSERT INTO restaurant_review_totals SELECT restaurant_id,count(*),sum(rating) FROM restaurant_review GROUP BY restaurant_id ON CONFLICT DO NOTHING;
+CREATE OR REPLACE FUNCTION update_review_totals() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE target INT; count_delta BIGINT; rating_delta BIGINT;
+BEGIN
+    IF TG_OP = 'UPDATE' AND (to_jsonb(OLD)->>TG_ARGV[0]) IS DISTINCT FROM (to_jsonb(NEW)->>TG_ARGV[0]) THEN
+        RAISE EXCEPTION 'review target cannot change' USING ERRCODE='23514';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        target := (to_jsonb(NEW)->>TG_ARGV[0])::int; count_delta := 1; rating_delta := NEW.rating;
+    ELSIF TG_OP = 'DELETE' THEN
+        target := (to_jsonb(OLD)->>TG_ARGV[0])::int; count_delta := -1; rating_delta := -OLD.rating;
+    ELSE
+        target := (to_jsonb(NEW)->>TG_ARGV[0])::int; count_delta := 0; rating_delta := NEW.rating - OLD.rating;
+    END IF;
+    EXECUTE format('INSERT INTO %I(target_id,review_count,rating_sum) VALUES($1,$2,$3)
+        ON CONFLICT(target_id) DO UPDATE SET review_count=%I.review_count+EXCLUDED.review_count,
+        rating_sum=%I.rating_sum+EXCLUDED.rating_sum', TG_ARGV[1],TG_ARGV[1],TG_ARGV[1]) USING target,count_delta,rating_delta;
+    RETURN NULL;
+END $$;
+DROP TRIGGER IF EXISTS item_review_rollup ON item_review;
+CREATE TRIGGER item_review_rollup AFTER INSERT OR UPDATE OR DELETE ON item_review
+    FOR EACH ROW EXECUTE FUNCTION update_review_totals('item_id','item_review_totals');
+DROP TRIGGER IF EXISTS restaurant_review_rollup ON restaurant_review;
+CREATE TRIGGER restaurant_review_rollup AFTER INSERT OR UPDATE OR DELETE ON restaurant_review
+    FOR EACH ROW EXECUTE FUNCTION update_review_totals('restaurant_id','restaurant_review_totals');
 CREATE TABLE IF NOT EXISTS loyalty_wallet (
     id SERIAL PRIMARY KEY, account_id INT NOT NULL REFERENCES account(id), restaurant_id INT NOT NULL REFERENCES restaurant(id),
     coins_amount BIGINT NOT NULL DEFAULT 0 CHECK (coins_amount >= 0),
