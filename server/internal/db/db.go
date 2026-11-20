@@ -1,12 +1,14 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 //go:embed schema.sql
@@ -29,6 +31,39 @@ func Open(connStr string) (*sql.DB, error) {
 	}
 
 	return database, nil
+}
+
+// ResetDevelopmentData empties every application table in the active schema.
+// Truncating together handles foreign keys without cascading to other schemas.
+func ResetDevelopmentData(ctx context.Context, database *sql.DB) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT schemaname, tablename FROM pg_tables WHERE schemaname=current_schema() ORDER BY tablename`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var schema, table string
+		if err := rows.Scan(&schema, &table); err != nil {
+			return err
+		}
+		tables = append(tables, "ONLY "+pq.QuoteIdentifier(schema)+"."+pq.QuoteIdentifier(table))
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(tables) == 0 {
+		return fmt.Errorf("no application tables found in active schema")
+	}
+	if _, err := tx.ExecContext(ctx, `TRUNCATE `+strings.Join(tables, ", ")+` RESTART IDENTITY`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Migrate executes the embedded schema.sql against the database in an idempotent manner.

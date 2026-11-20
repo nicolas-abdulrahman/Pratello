@@ -14,6 +14,12 @@ import (
 
 type postgres struct{ db *sql.DB }
 
+func (u session) loyaltyBalance(ctx context.Context, actor int, cpf string) (balance, error) {
+	var b balance
+	err := u.tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT w.coins_amount FROM loyalty_wallet w JOIN account a ON a.id=w.account_id WHERE w.restaurant_id=$1 AND (($2<>0 AND a.id=$2) OR ($2=0 AND a.cpf=$3))),0)`, u.org, actor, cpf).Scan(&b.Coins)
+	return b, err
+}
+
 // FinalizeCheckout uses the order workflow's transaction. The caller has
 // already authorized and locked the draft and its restaurant.
 func FinalizeCheckout(ctx context.Context, tx *sql.Tx, org int, slug string, branch, order, actor int, cart Cart, at time.Time, freight int64) (Price, error) {
@@ -222,8 +228,14 @@ func (u session) settle(ctx context.Context, order, wallet int, p Price, freight
 				notes += v
 			}
 		}
-		if _, err = u.tx.ExecContext(ctx, `INSERT INTO order_item(order_id,item_id,item_name,unit_price_cents,line_total_cents,quantity,notes,selected_options) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,''),$8)`, order, l.Item.ItemID, l.Item.ItemName, l.Subtotal/int64(l.Item.Quantity), l.Subtotal-l.Discount, l.Item.Quantity, notes, string(opts)); err != nil {
+		var parent int
+		if err = u.tx.QueryRowContext(ctx, `INSERT INTO order_item(order_id,item_id,item_name,unit_price_cents,line_total_cents,quantity,notes,selected_options) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,''),$8) RETURNING id`, order, l.Item.ItemID, l.Item.ItemName, l.Subtotal/int64(l.Item.Quantity), l.Subtotal-l.Discount, l.Item.Quantity, notes, string(opts)).Scan(&parent); err != nil {
 			return dbError(err)
+		}
+		for _, part := range l.Item.Components {
+			if _, err := u.tx.ExecContext(ctx, `INSERT INTO order_item(order_id,item_id,item_name,unit_price_cents,line_total_cents,quantity,notes,parent_order_item_id) VALUES($1,$2,$3,0,0,$4,NULLIF($5,''),$6)`, order, part.ItemID, part.ItemName, part.Quantity, part.Notes, parent); err != nil {
+				return dbError(err)
+			}
 		}
 	}
 	_, err = u.tx.ExecContext(ctx, `UPDATE "order" SET subtotal_cents=$2,discount_cents=$3,total_cents=$4 WHERE id=$1`, order, p.Subtotal, p.Discount+p.Coins, p.Payable+freight)

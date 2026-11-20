@@ -33,6 +33,10 @@ type route struct {
 }
 
 func (h *Handler) Routes(mux *http.ServeMux) {
+	for _, prefix := range []string{"", "/api"} {
+		mux.HandleFunc("POST "+prefix+"/restaurants/{slug}/loyalty/balance", func(w http.ResponseWriter, r *http.Request) { h.balance(w, r, false) })
+		mux.HandleFunc("GET "+prefix+"/me/restaurants/{slug}/loyalty/balance", func(w http.ResponseWriter, r *http.Request) { h.balance(w, r, true) })
+	}
 	const org = "/restaurants/{slug}"
 	for _, prefix := range []string{"", "/api"} {
 		for _, r := range []route{
@@ -44,6 +48,56 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 			mux.HandleFunc(r.method+" "+prefix+r.path, func(w http.ResponseWriter, req *http.Request) { h.handle(w, req, r) })
 		}
 	}
+}
+
+func (h *Handler) balance(w http.ResponseWriter, r *http.Request, authenticated bool) {
+	w.Header().Set("Cache-Control", "no-store")
+	var p struct {
+		CPF string `json:"cpf"`
+	}
+	actor := 0
+	if authenticated {
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && h.identify != nil {
+			if id, err := h.identify(r.Context(), parts[1]); err == nil {
+				actor = id
+			}
+		}
+		if actor <= 0 {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			write(w, 401, map[string]string{"error": "authentication required"})
+			return
+		}
+	} else {
+		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+		d.DisallowUnknownFields()
+		err := d.Decode(&p)
+		if err == nil && d.Decode(new(any)) != io.EOF {
+			err = errInvalid
+		}
+		if err != nil {
+			write(w, 400, map[string]string{"error": "invalid CPF lookup"})
+			return
+		}
+	}
+	v, err := h.service.loyaltyBalance(r.Context(), r.PathValue("slug"), actor, p.CPF)
+	if err == nil {
+		write(w, 200, v)
+		return
+	}
+	status := 500
+	msg := "internal server error"
+	switch {
+	case errors.Is(err, errInvalid):
+		status, msg = 400, err.Error()
+	case errors.Is(err, errMissing):
+		status, msg = 404, err.Error()
+	case errors.Is(err, errUnavailable):
+		status, msg = 503, err.Error()
+	default:
+		slog.ErrorContext(r.Context(), "loyalty balance lookup failed", "error", err)
+	}
+	write(w, status, map[string]string{"error": msg})
 }
 func (h *Handler) handle(w http.ResponseWriter, r *http.Request, rt route) {
 	w.Header().Set("Cache-Control", "no-store")

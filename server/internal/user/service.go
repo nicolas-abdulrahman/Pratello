@@ -30,6 +30,7 @@ var (
 type Account struct {
 	ID            int        `json:"id"`
 	Name          string     `json:"name,omitempty"`
+	AvatarURL     string     `json:"avatar_url,omitempty"`
 	Email         string     `json:"email,omitempty"`
 	EmailVerified bool       `json:"email_verified"`
 	Password      string     `json:"-"`

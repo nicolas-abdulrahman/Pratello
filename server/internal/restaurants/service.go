@@ -3,6 +3,7 @@ package restaurants
 import (
 	"context"
 	"errors"
+	"pratello/server/internal/media"
 	"regexp"
 	"strings"
 	"time"
@@ -56,8 +57,10 @@ type address struct {
 }
 
 type details struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name        string  `json:"name"`
+	Description string  `json:"description,omitempty"`
+	Icon        *string `json:"icon_url"`
+	Cover       *string `json:"cover_url"`
 }
 
 type newOrg struct {
@@ -206,9 +209,15 @@ func validate(r *request) error {
 			b.Slug = strings.Trim(slugSeparator.ReplaceAllString(strings.ToLower(b.Name), "-"), "-")
 		}
 		valid = slugPattern.MatchString(b.Slug) && len(b.Slug) <= 255 && text(b.Name, 255, true) && text(b.Description, 10000, false)
+		valid = valid && validBrand(b.details)
 	case *details:
 		b.Name = strings.TrimSpace(b.Name)
 		valid = text(b.Name, 255, true) && text(b.Description, 10000, false)
+		if r.op == updateBranch {
+			valid = valid && b.Icon == nil && b.Cover == nil
+		} else {
+			valid = valid && validBrand(*b)
+		}
 	case *branchInput:
 		b.Name = strings.TrimSpace(b.Name)
 		valid = text(b.Name, 255, true) && cnpjPattern.MatchString(b.CNPJ) && cnpjPattern.MatchString(b.OwnerCNPJ) && validAddress(b.Address)
@@ -249,4 +258,13 @@ func validate(r *request) error {
 		return errInvalid
 	}
 	return nil
+}
+
+func validBrand(v details) bool {
+	for _, u := range []*string{v.Icon, v.Cover} {
+		if u != nil && *u != "" && !media.ValidURL(*u) {
+			return false
+		}
+	}
+	return true
 }

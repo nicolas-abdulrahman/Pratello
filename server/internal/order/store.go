@@ -98,13 +98,22 @@ func (u session) table(ctx context.Context, id, number int) (int, int, error) {
 	err := u.tx.QueryRowContext(ctx, `SELECT id,number FROM dining_table WHERE physical_restaurant_id=$1 AND is_active AND (($2>0 AND id=$2) OR ($3>0 AND number=$3))`, u.branch, id, number).Scan(&id, &number)
 	return id, number, dbErr(err)
 }
+func (u session) attachCPF(ctx context.Context, id int, cpf string) error {
+	var updated int
+	err := u.tx.QueryRowContext(ctx, `UPDATE "order" SET customer_cpf=$2 WHERE id=$1 AND account_id IS NULL AND (customer_cpf IS NULL OR customer_cpf=$2) RETURNING id`, id, cpf).Scan(&updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errConflict
+	}
+	return dbErr(err)
+}
+
 func (u session) open(ctx context.Context, x command, kind string, table, number int, hash []byte, qr int64) (int, error) {
 	fee := int64(0)
 	if kind == "remote" {
 		fee = u.fee
 	}
 	var id int
-	err := u.tx.QueryRowContext(ctx, `INSERT INTO "order"(physical_restaurant_id,account_id,order_type,freight_cents,total_cents,submitted_at,guest_token_hash,qr_id) VALUES($1,NULLIF($2,0),$3,$4,$4,NULL,$5,NULLIF($6,0)) RETURNING id`, u.branch, x.actor, kind, fee, hash, qr).Scan(&id)
+	err := u.tx.QueryRowContext(ctx, `INSERT INTO "order"(physical_restaurant_id,account_id,order_type,freight_cents,total_cents,submitted_at,guest_token_hash,qr_id,customer_cpf) VALUES($1,NULLIF($2,0),$3,$4,$4,NULL,$5,NULLIF($6,0),NULLIF($7,'')) RETURNING id`, u.branch, x.actor, kind, fee, hash, qr, x.create.CPF).Scan(&id)
 	if err != nil {
 		return 0, dbErr(err)
 	}
@@ -118,7 +127,7 @@ func (u session) open(ctx context.Context, x command, kind string, table, number
 }
 
 const summary = `o.id,o.physical_restaurant_id AS branch_id,o.account_id AS user_id,o.order_type,o.status,o.subtotal_cents,o.discount_cents,o.freight_cents,o.total_cents,o.created_at,o.updated_at,o.submitted_at,o.qr_id`
-const itemFields = `i.id,i.order_id,i.item_id,i.item_name,i.unit_price_cents,i.line_total_cents,i.quantity,i.notes,i.selected_options,i.voided_at,i.voided_reason`
+const itemFields = `i.id,i.order_id,i.item_id,i.item_name,i.unit_price_cents,i.line_total_cents,i.quantity,i.notes,i.selected_options,i.parent_order_item_id,i.voided_at,i.voided_reason`
 const draftFields = `d.snapshot - 'options' || jsonb_build_object('id',d.id,'order_id',d.order_id,'selected_options',d.snapshot->'options','voided_at',d.voided_at,'voided_reason',d.voided_reason)`
 
 func (u session) raw(ctx context.Context, q string, args ...any) (json.RawMessage, error) {

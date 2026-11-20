@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/mail"
 	"os"
+	"pratello/server/internal/media"
 	"strings"
 	"time"
 )
@@ -259,6 +260,22 @@ func (s *Service) GetAccountByID(ctx context.Context, id int) (*User, error) {
 
 func (s *Service) Account(ctx context.Context, id int) (*Account, error) {
 	return s.store.GetAccountByID(ctx, id)
+}
+
+func (s *Service) SetAvatar(ctx context.Context, id int, avatar string) (*Account, error) {
+	if avatar != "" && !media.ValidURL(avatar) {
+		return nil, ErrValidation
+	}
+	store, ok := s.store.(interface {
+		SetAvatar(context.Context, int, string) error
+	})
+	if !ok {
+		return nil, errors.New("profile store unavailable")
+	}
+	if err := store.SetAvatar(ctx, id, avatar); err != nil {
+		return nil, err
+	}
+	return s.Account(ctx, id)
 }
 
 func validCPF(cpf string) bool {

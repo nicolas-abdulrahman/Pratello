@@ -71,11 +71,11 @@ func (s *sqlStore) GetAccountByEmail(ctx context.Context, email string) (*Accoun
 func (s *sqlStore) GetAccountByID(ctx context.Context, id int) (*Account, error) {
 	var a Account
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at
+		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at, COALESCE(avatar_url,'')
 		 FROM "account"
 		 WHERE id = $1`,
 		id,
-	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt, &a.TokenVersion, &a.EmailVerified, &a.PhoneVerified, &a.CPF, &a.CPFClaimedAt)
+	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt, &a.TokenVersion, &a.EmailVerified, &a.PhoneVerified, &a.CPF, &a.CPFClaimedAt, &a.AvatarURL)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -83,6 +83,26 @@ func (s *sqlStore) GetAccountByID(ctx context.Context, id int) (*Account, error)
 		return nil, err
 	}
 	return &a, nil
+}
+
+func (s *sqlStore) SetAvatar(ctx context.Context, id int, avatar string) error {
+	var updated int
+	err := s.db.QueryRowContext(ctx, `UPDATE account SET avatar_url=NULLIF($2,'') WHERE id=$1 RETURNING id`, id, avatar).Scan(&updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (m *memoryStore) SetAvatar(_ context.Context, id int, avatar string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrNotFound
+	}
+	a.AvatarURL = avatar
+	return nil
 }
 
 type memoryStore struct {

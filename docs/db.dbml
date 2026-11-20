@@ -184,6 +184,8 @@ Table "public"."restaurant" {
   "name_slug" varchar(255) [unique, not null]
   "name" varchar(255) [not null]
   "description" text
+  "icon_url" text
+  "cover_url" text
   "loyalty_earn_rate" numeric(5,2) [not null, default: 1, note: 'coins per R$ 1 spent']
   "archived_at" timestamptz
   "created_at" timestamptz [not null, default: `now()`]
@@ -510,6 +512,7 @@ Table "public"."account" {
   "phone" varchar(20) [unique]
   "phone_verified" boolean [not null, default: false]
   "name" varchar(500)
+  "avatar_url" text
   "address_id" int [ref: > "public"."Address"."id"]
   "cpf" varchar(11) [unique, note: 'set when CPF is entered at register OR claimed; UNIQUE prevents double-claim']
   "cpf_claimed_at" timestamptz

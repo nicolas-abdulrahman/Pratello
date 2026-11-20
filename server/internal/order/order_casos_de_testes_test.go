@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"pratello/server/internal/auth"
 	"pratello/server/internal/db"
 	"pratello/server/internal/menu"
 	"pratello/server/internal/restaurants"
@@ -127,6 +129,76 @@ func decodeOrderResponse(t *testing.T, w *httptest.ResponseRecorder, dest any) {
 	if err := json.Unmarshal(w.Body.Bytes(), dest); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestFIN013014016GuestCPFLoyaltyAndSignup(t *testing.T) {
+	c, _, mux := orderFixture(t)
+	call := orderCall(t, mux)
+	const root = "/api/restaurants/cafe"
+	const cpf = "52998224725"
+	const draft = `{"customer_cpf":"52998224725","items":[{"item_id":1,"quantity":1}]}`
+	coins := func(w *httptest.ResponseRecorder, want int) {
+		t.Helper()
+		var b struct {
+			Coins int `json:"coins_amount"`
+		}
+		decodeOrderResponse(t, w, &b)
+		if b.Coins != want {
+			t.Fatalf("balance %d, want %d", b.Coins, want)
+		}
+	}
+	lookup := func(want int) {
+		t.Helper()
+		coins(call("POST", root+"/loyalty/balance", "", `{"cpf":"52998224725"}`, 200), want)
+	}
+	open := func() (string, string) {
+		t.Helper()
+		w := call("POST", root+"/branches/1/orders/local", "", draft, 201)
+		var v struct{ ID int }
+		decodeOrderResponse(t, w, &v)
+		return fmt.Sprintf("/api/orders/%d", v.ID), w.Header().Get("X-Order-Token")
+	}
+	lookup(0)
+	path, key := open()
+	// A reserved PIX amount is not money received and must not earn coins.
+	p := call("POST", path+"/transactions", key, `{"payment_method":"pix","amount_cents":1500}`, 201)
+	var tx struct{ ID int }
+	decodeOrderResponse(t, p, &tx)
+	lookup(0)
+	confirm := fmt.Sprintf("/api/transactions/%d/pix/confirm", tx.ID)
+	call("POST", confirm, key, "", 200)
+	call("POST", confirm, key, "", 200)
+	lookup(15)
+	path, key = open()
+	call("POST", path+"/transactions", key, `{"payment_method":"credit_card","amount_cents":1500}`, 201)
+	call("POST", path+"/transactions", key, `{"payment_method":"credit_card","amount_cents":1500}`, 201)
+	lookup(30)
+	var shadow, entries int
+	err := c.QueryRow(`SELECT a.id,(SELECT count(*) FROM wallet_transaction WHERE reason='paid_order_earn') FROM account a WHERE a.cpf=$1 AND a.email IS NULL`, cpf).Scan(&shadow, &entries)
+	if err != nil || entries != 2 {
+		t.Fatalf("loyalty identity and ledger: %d %v", entries, err)
+	}
+	identity := auth.NewService(auth.NewStore(c))
+	user, err := identity.Register(context.Background(), auth.RegisterInput{Name: "Loyal buyer", Email: "cpf-buyer@test.local", Password: "strong-password-123", CPF: cpf})
+	if err != nil || user.ID != shadow {
+		t.Fatalf("signup did not preserve the shadow account: %+v %v", user, err)
+	}
+	lookup(30)
+	signed := http.NewServeMux()
+	sales.NewHandler(sales.NewService(c), func(context.Context, string) (int, error) { return user.ID, nil }).Routes(signed)
+	coins(orderCall(t, signed)("GET", "/api/me/restaurants/cafe/loyalty/balance", "customer", "", 200), 30)
+	const quote = root + "/branches/1/checkout/quote"
+	const redemption = `{"items":[{"item_id":1,"quantity":1}],"coins":30}`
+	call("POST", quote, "", redemption, 403)
+	var preview struct {
+		Payable int `json:"payable_cents"`
+	}
+	decodeOrderResponse(t, orderCall(t, signed)("POST", quote, "customer", redemption, 200), &preview)
+	if preview.Payable != 1470 {
+		t.Fatalf("sign-up balance not available for redemption: %+v", preview)
+	}
+	call("GET", "/api/me/restaurants/cafe/loyalty/balance", "", "", 401)
+	call("POST", root+"/loyalty/balance", "", `{"cpf":"invalid"}`, 400)
 }
 
 func TestOrderQRCodeCheckoutAndAnalyticsPostgres(t *testing.T) {
@@ -365,6 +437,82 @@ func TestOrderCheckoutRevalidatesAndFreezesSnapshot(t *testing.T) {
 	after := read(call("GET", path, "customer", "", 200))
 	if after.Items[0].Name != "Burger" || after.Items[0].Unit != 1600 || after.Items[0].Options[0].Name != "Cheese" || after.Total != 4600 {
 		t.Fatalf("catalog edit rewrote order: %+v", after)
+	}
+}
+
+func TestORD013ComboPreparationLines(t *testing.T) {
+	c, _, mux := orderFixture(t)
+	call := orderCall(t, mux)
+	_, err := c.Exec(`INSERT INTO menu_item(restaurant_id,category_id,name,base_price_cents,is_combo) VALUES
+	(1,1,'Fries',700,false),(1,1,'Lunch combo',2000,true);
+	INSERT INTO combo_item(combo_id,included_item_id,quantity) VALUES(3,1,2),(3,2,1);
+	INSERT INTO ingredient(restaurant_id,name) VALUES(1,'Onions');
+	INSERT INTO item_ingredient(item_id,ingredient_id,is_removable) VALUES(1,1,true)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var componentID int
+	if err := c.QueryRow(`SELECT id FROM combo_item WHERE combo_id=3 AND included_item_id=1`).Scan(&componentID); err != nil {
+		t.Fatal(err)
+	}
+	type detail struct {
+		ID       int
+		Subtotal int `json:"subtotal_cents"`
+		Discount int `json:"discount_cents"`
+		Total    int `json:"total_cents"`
+		Items    []struct {
+			ID, Quantity int
+			Item         int    `json:"item_id"`
+			Name         string `json:"item_name"`
+			Parent       *int   `json:"parent_order_item_id"`
+			Unit         int    `json:"unit_price_cents"`
+			Total        int    `json:"line_total_cents"`
+			Notes        string
+		}
+	}
+	body := fmt.Sprintf(`{"coupon_codes":["SAVE"],"items":[{"item_id":3,"quantity":2,"component_removals":[{"combo_item_id":%d,"unit":1,"remove_ingredient_ids":[1]}]},{"item_id":1,"quantity":1}]}`, componentID)
+	var v detail
+	decodeOrderResponse(t, call("POST", "/api/restaurants/cafe/branches/1/orders/local", "customer", body, 201), &v)
+	if v.Subtotal != 5500 || v.Discount != 300 || v.Total != 5200 || len(v.Items) != 5 {
+		t.Fatalf("wrong combo charge or line count: %+v", v)
+	}
+	parent := v.Items[0]
+	if parent.Parent != nil || parent.Item != 3 || parent.Quantity != 2 || parent.Unit != 2000 {
+		t.Fatalf("invalid combo parent: %+v", parent)
+	}
+	var plain, customized, fries, billable, standalone int
+	for _, line := range v.Items {
+		billable += line.Total
+		if line.Parent == nil {
+			if line.Item == 1 && line.Quantity == 1 && line.Unit == 1500 {
+				standalone++
+			}
+			continue
+		}
+		if *line.Parent != parent.ID || line.Unit != 0 || line.Total != 0 {
+			t.Fatalf("component was charged or attached to the wrong parent: %+v", line)
+		}
+		switch {
+		case line.Item == 1 && line.Name == "Burger" && line.Notes == "Without: Onions":
+			customized += line.Quantity
+		case line.Item == 1 && line.Name == "Burger" && line.Notes == "":
+			plain += line.Quantity
+		case line.Item == 2 && line.Name == "Fries" && line.Notes == "":
+			fries += line.Quantity
+		default:
+			t.Fatalf("unexpected component: %+v", line)
+		}
+	}
+	if plain != 2 || customized != 2 || fries != 2 || standalone != 1 || billable != 5200 {
+		t.Fatalf("bad line breakdown: %+v", v.Items)
+	}
+	if _, err = c.Exec(`UPDATE menu_item SET name='Renamed' WHERE id=1; DELETE FROM combo_item WHERE combo_id=3`); err != nil {
+		t.Fatal(err)
+	}
+	var persisted detail
+	decodeOrderResponse(t, call("GET", fmt.Sprintf("/api/orders/%d", v.ID), "staff", "", 200), &persisted)
+	if !reflect.DeepEqual(v, persisted) {
+		t.Fatalf("catalog edit changed the submitted kitchen ticket: %+v", persisted)
 	}
 }
 

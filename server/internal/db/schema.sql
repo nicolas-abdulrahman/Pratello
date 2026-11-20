@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS account (
 );
 COMMENT ON COLUMN account.password IS 'Password hash only.';
 ALTER TABLE account ADD COLUMN IF NOT EXISTS is_administrator BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE account ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_cpf ON account(cpf);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_email ON account(email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_phone ON account(phone);
@@ -62,6 +63,8 @@ CREATE TABLE IF NOT EXISTS restaurant (
     description TEXT, loyalty_earn_rate NUMERIC(5,2) NOT NULL DEFAULT 1 CHECK (loyalty_earn_rate >= 0),
     archived_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE restaurant ADD COLUMN IF NOT EXISTS icon_url TEXT;
+ALTER TABLE restaurant ADD COLUMN IF NOT EXISTS cover_url TEXT;
 CREATE TABLE IF NOT EXISTS account_restaurant (
     id BIGSERIAL PRIMARY KEY, account_id INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
     restaurant_id INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,

@@ -1,6 +1,6 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.15
+> **Versão:** 0.1.18
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
 > **Total de casos documentados:** 245
 
@@ -22,14 +22,20 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 |---|---:|---:|---:|---:|---:|---:|
 | IDP | 27 | 26 | 1 | 0 | 0 | 0 |
 | TEN | 19 | 19 | 0 | 0 | 0 | 0 |
-| CAT | 55 | 0 | 0 | 0 | 0 | 55 |
-| ORD | 40 | 0 | 0 | 5 | 0 | 35 |
-| FIN | 40 | 0 | 0 | 7 | 0 | 33 |
+| CAT | 55 | 33 | 0 | 0 | 0 | 22 |
+| ORD | 40 | 35 | 0 | 2 | 0 | 3 |
+| FIN | 40 | 32 | 0 | 4 | 0 | 4 |
 | REV | 14 | 14 | 0 | 0 | 0 | 0 |
 | WEB | 50 | 0 | 0 | 0 | 50 | 0 |
-| **Total** | **245** | **59** | **1** | **12** | **50** | **123** |
+| **Total** | **245** | **159** | **1** | **6** | **50** | **29** |
 
-Os números da tabela contam IDs distintos. CAT, ORD e FIN já possuem testes Go agrupados; seus resultados não foram atribuídos a cada ID individualmente nesta revisão. Os roteiros WEB não foram executados.
+Os números da tabela contam IDs distintos. Os testes Go agrupados de CAT, ORD e FIN passaram com PostgreSQL e o detector de corridas (`go test -race -count=1 -v ./server/internal/menu ./server/internal/order ./server/internal/sales ./server/internal/transaction`). Um grupo aprovado só conta para os IDs com asserções correspondentes. Os roteiros WEB não foram executados.
+
+| Módulo | IDs verificados como PASS | Evidência automatizada |
+|---|---|---|
+| CAT | `CAT-002`, `CAT-004–005`, `CAT-007–008`, `CAT-011–012`, `CAT-014–019`, `CAT-021–022`, `CAT-025`, `CAT-031–033`, `CAT-035`, `CAT-043–055` | `TestMenuPostgresLifecycle`, `TestSelectionPricingAndSnapshot`, `TestCAT050And051GroupCountsAndBranchStock`, `TestCAT053FutureSaleDoesNotOverrideEarly` e o snapshot persistido em `TestOrderCheckoutRevalidatesAndFreezesSnapshot`. |
+| ORD | `ORD-001–002`, `ORD-004–023`, `ORD-027–035`, `ORD-037–040` | Testes HTTP, checkout e concorrência em `server/internal/order`, incluindo `TestORD013ComboPreparationLines`; auditoria de cupom em `TestPostgresCouponRedemption`; avaliações em `TestReviewCasesPostgres` (`REV-001`, `REV-004–005`, `REV-008–009`), também reexecutado com PostgreSQL. |
+| FIN | `FIN-003–004`, `FIN-006`, `FIN-009–011`, `FIN-013–020`, `FIN-022–027`, `FIN-029–040` | `TestPostgresPaymentLifecycle`, `TestPostgresCouponRedemption`, `TestFIN024And030ConcurrentRedemptions`, `TestBestDiscountPerLine`, `TestFIN034ComboCouponsAndExtras`, `TestFIN025Through027CouponEligibility`, PIX em `TestOrderQRCodeCheckoutAndAnalyticsPostgres` e fidelidade por CPF em `TestFIN013014016GuestCPFLoyaltyAndSignup`. |
 
 Para executar a suíte com PostgreSQL, configure `AUTH_TEST_DATABASE_URL` e rode `go test -count=1 -race ./...`. A contagem por ID não equivale ao número de funções Go. O XFAIL `IDP-021` é reportado como `SKIP` pelo Go após reproduzir a falha conhecida.
 
@@ -674,7 +680,7 @@ As regressões do domínio `order` exercitam o HTTP e o PostgreSQL. `POST /resta
 | ORD-010 | Item fica indisponível na filial depois de entrar no rascunho. | `409`; sem consumo de cupom, snapshot definitivo ou conversão. O rascunho continua editável. |
 | ORD-011 | Avaliar itens de compras entregues e o restaurante, incluindo visitante com token do pedido. | Uma avaliação por linha comprada; para restaurante, uma por conta e organização ou uma por pedido de visitante. Comentário exige conta. |
 | ORD-012 | Enviar nota fora de 1 a 3 para item ou de 1 a 5 para restaurante. | `400` sem alterar avaliações ou totais. |
-| ORD-013 | Gerar linhas filhas de combo para produção. **Planejado.** | Produção consegue identificar componentes sem duplicar o valor do combo. |
+| ORD-013 | Submeter múltiplas unidades de um combo com uma remoção de ingrediente e um item avulso; depois editar o catálogo. | A API retorna linhas filhas com quantidade, instruções e `parent_order_item_id`. O preço e o total das linhas filhas são zero; o item avulso mantém seu preço e o pedido não muda após editar o catálogo. |
 | ORD-014 | Submeter com cupom elegível. | Desconto entra no total e em `order_coupon` uma única vez. |
 | ORD-015 | Submeter cupom exclusivo de outro restaurante. | `404`, sem conversão, consumo ou perda do rascunho. |
 | ORD-016 | Subtotal abaixo de `min_order_cents`. | Submissão mantém preço integral e não consome o cupom. |
@@ -761,18 +767,18 @@ As regressões executáveis usam os contratos de `sales` e `transaction`, valore
 ### FIN-012: Limites de descontos (`percent` e `fixed_cents`)
 - **Esperado:** Percentual acima de 100 e valores não positivos são inválidos. Desconto fixo nunca reduz o total abaixo de zero.
 
-### FIN-013: Acúmulo na primeira compra por CPF — planejado
-- **Esperado:** Um pagamento elegível cria ou resolve a carteira do cliente no restaurante e credita o valor devido uma vez.
+### FIN-013: Acúmulo na primeira compra por CPF
+- **Esperado:** O PIX pendente não credita moedas. A confirmação do pagamento integral credita uma vez a carteira do CPF no restaurante. O visitante consulta o saldo sem login.
 
-### FIN-014: Acúmulo em carteira existente — planejado
-- **Esperado:** Uma nova compra elegível credita a carteira existente, sem duplicá-la ou repetir crédito em reenvio.
+### FIN-014: Acúmulo em carteira existente
+- **Esperado:** Uma nova compra paga credita a carteira existente. Reenviar o mesmo pagamento não duplica o crédito.
 
 ### FIN-015: Fidelidade: Bloqueio de Resgate de Moedas para Usuário sem Conta (`account_id IS NULL`)
 - **Passos:** Enviar `coins > 0` na cotação de um carrinho sem autenticação.
 - **Esperado:** `403`; não há resgate anônimo.
 
-### FIN-016: Carteira acumulada por CPF após registro — planejado
-- **Esperado:** O cliente autenticado pode usar os créditos acumulados no restaurante após o vínculo com sua conta.
+### FIN-016: Carteira acumulada por CPF após registro
+- **Esperado:** O cadastro conserva a mesma conta e carteira do CPF. A consulta autenticada retorna o saldo acumulado antes do cadastro.
 
 ### FIN-017: Fidelidade: Resgate de Moedas com Sucesso para Usuário com Conta (`account_id IS NOT NULL`)
 - **Passos:** Cliente com 50 moedas resgata 20 após os descontos de cupom.

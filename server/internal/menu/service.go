@@ -898,17 +898,27 @@ type OptionSnapshot struct {
 	AdditionalPriceCents int64  `json:"additional_price_cents"`
 }
 
+// ComponentSnapshot is a non-billable preparation line. Servings with distinct
+// removal instructions are kept separate from the unmodified servings.
+type ComponentSnapshot struct {
+	ItemID   int
+	ItemName string
+	Quantity int
+	Notes    string
+}
+
 // LineSnapshot contains values captured at checkout, independent of subsequent
 // catalog edits. Component exclusions are rendered as preparation notes.
 type LineSnapshot struct {
-	ItemID              int              `json:"item_id"`
-	Quantity            int              `json:"quantity"`
-	ItemName            string           `json:"item_name"`
-	UnitPriceCents      int64            `json:"unit_price_cents"`
-	LineTotalCents      int64            `json:"line_total_cents"`
-	Options             []OptionSnapshot `json:"options"`
-	ExcludedIngredients []string         `json:"excluded_ingredients"`
-	Notes               string           `json:"notes"`
+	ItemID              int                 `json:"item_id"`
+	Quantity            int                 `json:"quantity"`
+	ItemName            string              `json:"item_name"`
+	UnitPriceCents      int64               `json:"unit_price_cents"`
+	LineTotalCents      int64               `json:"line_total_cents"`
+	Options             []OptionSnapshot    `json:"options"`
+	ExcludedIngredients []string            `json:"excluded_ingredients"`
+	Notes               string              `json:"notes"`
+	Components          []ComponentSnapshot `json:"-"`
 }
 
 func (c catalog) checkoutLines(branch int, selections []Selection, at time.Time) ([]CheckoutLine, error) {
@@ -995,6 +1005,7 @@ func (c catalog) snapshot(branch int, sel Selection, at time.Time) (LineSnapshot
 		return LineSnapshot{}, err
 	}
 	seen := map[[2]int]bool{}
+	customized := map[int][]ComponentSnapshot{}
 	for _, choice := range sel.ComponentRemovals {
 		part := find(c.Components[v.ID], func(p component) bool { return p.ID == choice.ComboItemID })
 		key := [2]int{part.ID, choice.Unit}
@@ -1007,10 +1018,28 @@ func (c catalog) snapshot(branch int, sel Selection, at time.Time) (LineSnapshot
 			return LineSnapshot{}, err
 		}
 		if len(names) > 0 {
+			customized[part.ID] = append(customized[part.ID], ComponentSnapshot{
+				ItemID: part.Item, ItemName: part.Name, Quantity: sel.Quantity,
+				Notes: "Without: " + strings.Join(names, ", "),
+			})
 			if line.Notes != "" {
 				line.Notes += "\n"
 			}
 			line.Notes += fmt.Sprintf("%s #%d: without %s", part.Name, choice.Unit, strings.Join(names, ", "))
+		}
+	}
+	if v.Combo {
+		for _, part := range c.Components[v.ID] {
+			if part.Quantity < 1 || sel.Quantity > math.MaxInt32/part.Quantity {
+				return LineSnapshot{}, ErrInvalid
+			}
+			custom := customized[part.ID]
+			line.Components = append(line.Components, custom...)
+			if plain := part.Quantity - len(custom); plain > 0 {
+				line.Components = append(line.Components, ComponentSnapshot{
+					ItemID: part.Item, ItemName: part.Name, Quantity: plain * sel.Quantity,
+				})
+			}
 		}
 	}
 	return line, nil

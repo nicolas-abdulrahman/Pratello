@@ -66,19 +66,15 @@ npm run dev
 
 ---
 
-### 3. Production Build
+### 3. Run the João Burger development demo
 
-To build the static Svelte assets and serve them directly from the Go server:
+Point `DATABASE_URL` at a dedicated development PostgreSQL database. Every `npm run server` boot wipes all tables in the active schema, resets the served `media/` directory, and loads the João Burger fixture. Startup prints the demo login and its generated password.
 
 ```bash
-# 1. Build frontend
-npm install
-npm run dev 
-cd ..
-
-# 2. Start Go server
-npm run server
+DATABASE_URL='postgres://localhost/pratello_dev?sslmode=disable' npm run server
 ```
+
+The API serves media from `./media` by default. Set `MEDIA_DIR` to a different directory named `media` to use that location for the demo. For a regular startup, run `go run ./server/cmd/api`.
 
 ---
 

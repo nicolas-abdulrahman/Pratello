@@ -44,6 +44,7 @@ type createInput struct {
 	Items []menu.Selection `json:"items"`
 }
 type submitInput struct {
+	CPF   string   `json:"customer_cpf"`
 	Codes []string `json:"coupon_codes"`
 	Saved []int    `json:"saved_coupon_ids"`
 	Coins int64    `json:"coins"`
@@ -100,6 +101,7 @@ type opened struct {
 }
 
 type unit interface {
+	attachCPF(context.Context, int, string) error
 	lookupQR(context.Context, []byte) (qrRecord, error)
 	table(context.Context, int, int) (int, int, error)
 	open(context.Context, command, string, int, int, []byte, int64) (int, error)
@@ -238,6 +240,14 @@ func (s *Service) execute(ctx context.Context, x command) (any, error) {
 			}
 			return nil, u.track(ctx, x.id, "cart_item_remove", x.item, 0)
 		case "submit":
+			if x.submit.CPF != "" {
+				if a.owner != 0 || !sales.ValidLoyaltyCPF(x.submit.CPF) {
+					return nil, errInvalid
+				}
+				if err := u.attachCPF(ctx, x.id, x.submit.CPF); err != nil {
+					return nil, err
+				}
+			}
 			if err := submit(ctx, u, x.id, a.owner, x.submit, at, a.freight); err != nil {
 				return nil, err
 			}
@@ -248,6 +258,9 @@ func (s *Service) execute(ctx context.Context, x command) (any, error) {
 }
 
 func (s *Service) open(ctx context.Context, u unit, a scope, x command, at time.Time) (opened, error) {
+	if x.create.CPF != "" && (x.actor > 0 || !sales.ValidLoyaltyCPF(x.create.CPF)) {
+		return opened{}, errInvalid
+	}
 	kind, channel := x.op, "counter"
 	tableID, number := 0, 0
 	var qr int64

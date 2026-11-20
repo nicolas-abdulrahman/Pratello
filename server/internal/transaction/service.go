@@ -90,6 +90,7 @@ type unit interface {
 	confirm(context.Context, int, time.Time) (Transaction, error)
 	refundByKey(context.Context, int, string) (refund, error)
 	addRefund(context.Context, Transaction, request, int64) (Transaction, error)
+	award(context.Context) error
 }
 type repository interface {
 	transact(context.Context, request, bool, func(unit, orderScope) (any, error)) (any, error)
@@ -163,6 +164,9 @@ func (s *Service) execute(ctx context.Context, r request) (any, error) {
 				_, err = issuePIX(ctx, u, t, at)
 			} else {
 				err = s.provider.MakePayment(ctx, Payment{fmt.Sprintf("charge:%d:%s", o.id, r.key), t.Method, t.Amount, false})
+				if err == nil {
+					err = u.award(ctx)
+				}
 			}
 			return t, err
 		}
@@ -212,7 +216,11 @@ func (s *Service) execute(ctx context.Context, r request) (any, error) {
 			if err := s.provider.MakePayment(ctx, Payment{fmt.Sprintf("pix:%d", t.ID), t.Method, t.Amount, false}); err != nil {
 				return nil, err
 			}
-			return u.confirm(ctx, t.ID, at)
+			t, err = u.confirm(ctx, t.ID, at)
+			if err == nil {
+				err = u.award(ctx)
+			}
+			return t, err
 		case "refund":
 			old, err := u.refundByKey(ctx, t.ID, r.key)
 			if err == nil {

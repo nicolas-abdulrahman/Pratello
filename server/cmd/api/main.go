@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -21,6 +22,8 @@ import (
 )
 
 func main() {
+	reset := flag.Bool("reset-demo", false, "wipe the development database and media, then seed João Burger")
+	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -31,11 +34,17 @@ func main() {
 	addr := ":" + port
 
 	dbURL := os.Getenv("DATABASE_URL")
+	if *reset && dbURL == "" {
+		log.Fatal("DATABASE_URL is required for npm run server")
+	}
 	var database *sql.DB
 	if dbURL != "" {
 		var err error
 		database, err = db.Open(dbURL)
 		if err != nil {
+			if *reset {
+				log.Fatalf("Cannot connect to development database: %v", err)
+			}
 			log.Printf("Warning: failed to connect to database (%v); only in-memory authentication is available", err)
 			database = nil
 		} else {
@@ -49,6 +58,12 @@ func main() {
 	} else {
 		log.Println("DATABASE_URL not set; only in-memory authentication is available")
 	}
+	if *reset {
+		log.Println("Resetting the active PostgreSQL schema and /media for the João Burger demo")
+		if err := resetDemo(ctx, database, mediaDirectory()); err != nil {
+			log.Fatalf("Development reset failed: %v", err)
+		}
+	}
 
 	authSvc := auth.NewService(auth.NewStore(database))
 	authHandler := auth.NewHandler(authSvc)
@@ -61,8 +76,25 @@ func main() {
 	order.NewHandler(order.NewService(database), authSvc.Identify, os.Getenv("ORDER_PUBLIC_BASE_URL")).Routes(mux)
 	review.NewHandler(review.NewService(database), authSvc.Identify).Routes(mux)
 	sales.NewHandler(sales.NewService(database), authSvc.Identify).Routes(mux)
-	transaction.NewHandler(transaction.NewService(database, transaction.MockProvider{}), authSvc.Identify).Routes(mux)
+	var loyaltyCache sales.CompletionCache
+	if rawURL := os.Getenv("REDIS_URL"); rawURL != "" {
+		cache, err := db.OpenRedis(rawURL)
+		if err != nil {
+			log.Print("Invalid REDIS_URL; using PostgreSQL loyalty idempotency")
+		} else {
+			defer cache.Close()
+			loyaltyCache = cache
+		}
+	}
+	transaction.NewHandler(transaction.NewServiceWithLoyaltyCache(database, transaction.MockProvider{}, loyaltyCache), authSvc.Identify).Routes(mux)
 	handler := registerRoutes(mux, authHandler, restHandler)
+	if *reset {
+		fixture, err := seedDemo(ctx, database, handler)
+		if err != nil {
+			log.Fatalf("João Burger seed failed: %v", err)
+		}
+		log.Printf("João Burger demo ready. Owner: %s; Administrator: %s; shared demo password: %s", fixture.Owner.Email, fixture.Administrator.Email, fixture.Password)
+	}
 
 	// Create and launch server
 	srv := NewServer(addr, handler)

@@ -138,5 +138,9 @@ func WriteAccount(w http.ResponseWriter, a *Account) {
 		cpf = a.CPF
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"id": a.ID, "email": email, "phone": phone, "name": name, "cpf": cpf, "email_verified": a.EmailVerified, "phone_verified": a.PhoneVerified, "cpf_claimed_at": a.CPFClaimedAt, "is_shadow": a.Email == "" && a.Phone == "" && a.Password == "", "created_at": a.CreatedAt})
+	profile := map[string]any{"id": a.ID, "email": email, "phone": phone, "name": name, "cpf": cpf, "email_verified": a.EmailVerified, "phone_verified": a.PhoneVerified, "cpf_claimed_at": a.CPFClaimedAt, "is_shadow": a.Email == "" && a.Phone == "" && a.Password == "", "created_at": a.CreatedAt}
+	if a.AvatarURL != "" {
+		profile["avatar_url"] = a.AvatarURL
+	}
+	_ = json.NewEncoder(w).Encode(profile)
 }

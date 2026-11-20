@@ -7,17 +7,27 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"pratello/server/internal/sales"
 	"pratello/server/internal/user"
 )
 
-type postgres struct{ db *sql.DB }
+type postgres struct {
+	db    *sql.DB
+	cache sales.CompletionCache
+}
 type session struct {
-	tx    *sql.Tx
-	order int
+	tx         *sql.Tx
+	order      int
+	cache      sales.CompletionCache
+	completion *string
 }
 
 func NewService(db *sql.DB, provider Provider) *Service {
-	return &Service{postgres{db}, provider, time.Now}
+	return NewServiceWithLoyaltyCache(db, provider, nil)
+}
+
+func NewServiceWithLoyaltyCache(db *sql.DB, provider Provider, cache sales.CompletionCache) *Service {
+	return &Service{postgres{db, cache}, provider, time.Now}
 }
 
 func dbError(err error) error {
@@ -70,11 +80,26 @@ func (p postgres) transact(ctx context.Context, r request, write bool, fn func(u
 	}
 	o.manager = scope.Administrator || scope.Organization == "OWNER" || scope.Manager
 	o.staff = o.manager || scope.Employee
-	v, err := fn(session{tx, o.id}, o)
+	var completion string
+	v, err := fn(session{tx, o.id, p.cache, &completion}, o)
 	if err != nil {
 		return nil, err
 	}
-	return v, dbError(tx.Commit())
+	if err := tx.Commit(); err != nil {
+		return nil, dbError(err)
+	}
+	if completion != "" && p.cache != nil {
+		p.cache.MarkCompleted(ctx, completion)
+	}
+	return v, nil
+}
+
+func (u session) award(ctx context.Context) error {
+	key, err := sales.AwardPaidOrder(ctx, u.tx, u.order, u.cache)
+	if err == nil {
+		*u.completion = key
+	}
+	return dbError(err)
 }
 
 const fields = `id,order_id,amount_cents,transaction_type,status,refunded_cents,created_at,updated_at,COALESCE(idempotency_key,''),COALESCE(request_fingerprint,'')`

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"pratello/server/internal/user"
 	"strings"
@@ -37,6 +38,7 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/register", p), h.register)
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/login", p), h.login)
 		mux.HandleFunc(fmt.Sprintf("GET %s/auth/me", p), h.me)
+		mux.HandleFunc(fmt.Sprintf("PUT %s/me/avatar", p), h.setAvatar)
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/refresh", p), h.refresh)
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/logout", p), h.logout)
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/logout-all", p), h.logoutAll)
@@ -176,6 +178,29 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.WriteAccount(w, account)
+}
+
+func (h *Handler) setAvatar(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	var body struct {
+		URL *string `json:"avatar_url"`
+	}
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	d.DisallowUnknownFields()
+	if d.Decode(&body) != nil || body.URL == nil || d.Decode(new(any)) != io.EOF {
+		h.writeError(w, 400, "invalid avatar request")
+		return
+	}
+	a, err := h.svc.SetAvatar(r.Context(), claims.AccountID, *body.URL)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	user.WriteAccount(w, a)
 }
 
 func (h *Handler) authenticate(r *http.Request) (*AccountClaims, error) {

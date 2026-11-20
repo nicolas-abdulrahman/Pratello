@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.5
+  version: 2.2.8
   description: |
     SaaS for restaurants — complete API.
 
@@ -317,6 +317,27 @@ paths:
   # ----------------------------------------------------------
   # CPF management (NEW — replaces "claim_loyalty" flow)
   # ----------------------------------------------------------
+  /me/avatar:
+    put:
+      tags: [Auth]
+      summary: Set the authenticated account's profile image URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [avatar_url]
+              properties:
+                avatar_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. Use an empty string to remove the avatar. }
+      responses:
+        '200':
+          description: Updated account profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
   /me/cpf:
     put:
       tags: [Auth]
@@ -2131,6 +2152,45 @@ paths:
   # ============================================================
   # LOYALTY
   # ============================================================
+  /restaurants/{slug}/loyalty/balance:
+    post:
+      tags: [Loyalty]
+      summary: Look up an organization's coin balance by CPF without login
+      description: Returns only the coin balance. A valid CPF without a wallet returns zero. Requires a published storefront.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cpf]
+              properties:
+                cpf: { type: string, pattern: '^[0-9]{11}$' }
+      responses:
+        '200':
+          description: Coin balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoyaltyBalance' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/restaurants/{slug}/loyalty/balance:
+    get:
+      tags: [Loyalty]
+      summary: Read the signed-in customer's balance
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+      responses:
+        '200':
+          description: Account balance, including coins earned by CPF before sign-up
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoyaltyBalance' }
+
   /loyalty/customers:
     post:
       tags: [Loyalty]
@@ -3170,6 +3230,7 @@ components:
           type: boolean
           description: Only verified phones can be used for OTP login
         name: { type: string, nullable: true }
+        avatar_url: { type: string }
         cpf: { type: string, nullable: true, pattern: '^[0-9]{11}$' }
         cpf_claimed_at: { type: string, format: date-time, nullable: true }
         is_shadow: { type: boolean, description: CPF-only accounts cannot authenticate until graduated. }
@@ -3228,6 +3289,8 @@ components:
         slug: { type: string }
         name: { type: string }
         description: { type: string }
+        icon_url: { type: string, nullable: true }
+        cover_url: { type: string, nullable: true }
         archived_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -3240,12 +3303,16 @@ components:
           type: string
           description: Immutable after creation. Auto-generated if omitted.
         description: { type: string }
+        icon_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. }
+        cover_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. }
     UpdateRestaurantRequest:
       type: object
       required: [name]
       properties:
         name: { type: string }
         description: { type: string }
+        icon_url: { type: string, maxLength: 2048, description: Omit to keep the current URL; send an empty string to clear it. }
+        cover_url: { type: string, maxLength: 2048, description: Omit to keep the current URL; send an empty string to clear it. }
     MyRestaurant:
       type: object
       required: [restaurant, role]
@@ -3867,6 +3934,7 @@ components:
                 $ref: '#/components/schemas/Transaction'
     OrderItem:
       type: object
+      description: On submitted orders, the items array contains both billable lines and combo preparation lines. Preparation lines reference their combo parent and carry no separate charge.
       required: [id, order_id, item_id, item_name, unit_price_cents, quantity, line_total_cents]
       properties:
         id: { type: integer }
@@ -3876,7 +3944,10 @@ components:
         unit_price_cents: { type: integer }
         quantity: { type: integer }
         notes: { type: string }
-        parent_order_item_id: { type: integer, nullable: true }
+        parent_order_item_id:
+          type: integer
+          nullable: true
+          description: ID of the billable combo line for this preparation line. Null on submitted billable items; omitted on drafts.
         selected_options:
           type: array
           items:
@@ -3893,12 +3964,21 @@ components:
         additional_price_cents: { type: integer }
     AddOrderItemRequest:
       $ref: '#/components/schemas/CheckoutSelection'
+    LoyaltyBalance:
+      type: object
+      required: [coins_amount]
+      properties:
+        coins_amount: { type: integer, minimum: 0 }
     OrderPromotions:
       type: object
       properties:
         coupon_codes: { type: array, items: { type: string } }
         saved_coupon_ids: { type: array, items: { type: integer } }
         coins: { type: integer, minimum: 0 }
+        customer_cpf:
+          type: string
+          pattern: '^[0-9]{11}$'
+          description: Optional on guest orders. After full payment, earn the restaurant's configured coins per real of discounted merchandise, excluding delivery; rounded down.
     CreateLocalOrderRequest:
       allOf:
         - $ref: '#/components/schemas/OrderPromotions'

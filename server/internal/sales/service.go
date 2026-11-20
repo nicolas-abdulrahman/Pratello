@@ -131,6 +131,7 @@ type request struct {
 }
 
 type unit interface {
+	loyaltyBalance(context.Context, int, string) (balance, error)
 	owner(context.Context, int) (bool, error)
 	published(context.Context, int) (bool, error)
 	coupons(context.Context) ([]Coupon, error)
