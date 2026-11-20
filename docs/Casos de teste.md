@@ -1,19 +1,20 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.14
+> **Versão:** 0.1.15
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de casos documentados:** 231
+> **Total de casos documentados:** 245
 
 ## Resumo Executivo e Metodologia de Teste
 
-A suíte está estruturada em **6 módulos** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência, Concorrência e Usabilidade Frontend:
+A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência, Concorrência e Usabilidade Frontend:
 
 1. **Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP)** — Casos `IDP-001` a `IDP-027`: cadastro, contas sombra, CPF, métodos de acesso, sessões e autorização.
 2. **Módulo 2: Estabelecimentos e Filiais (TEN)** — Casos `TEN-001` a `TEN-019`: organizações, aprovação de filiais, isolamento, vínculos por filial, arquivamento e resiliência operacional.
 3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-055` (55 testes): layout visual, categorias, itens, ingredientes, grupos de opções, combos e promoções. Inclui regressões de isolamento entre restaurantes e filiais, privacidade de custos, validação de personalizações, preços, snapshots e concorrência.
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 casos): rascunhos, autorização por pedido, salão com mesa opcional, entrega, checkout atômico, QR reutilizável, atribuição de conversão e transições operacionais. Integrações futuras estão marcadas no módulo.
 5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-040` (40 casos): pagamento simulado, PIX pendente e confirmação, idempotência, devoluções, cupons e banners, descontos sem acúmulo e resgate concorrente de moedas. Cenários de integração futura estão identificados no módulo.
-6. **Módulo 6: Interface do Usuário, Navegação e Interações do Website (WEB)** — Casos `WEB-001` a `WEB-050` (50 roteiros manuais): Carrinho, navegação, endereços, autenticação, cardápio e checkout.
+6. **Módulo 6: Avaliações de Itens, Combos e Restaurantes (REV)** — Casos `REV-001` a `REV-014` (14 casos automatizados): escalas, autorização por compra, comentários, concorrência, avaliações da organização e integridade dos totais.
+7. **Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB)** — Casos `WEB-001` a `WEB-050` (50 roteiros manuais): carrinho, navegação, endereços, autenticação, cardápio e checkout.
 
 ### Contagem e execução verificadas nesta revisão
 
@@ -24,12 +25,13 @@ A suíte está estruturada em **6 módulos** cobrindo Caminho Feliz (*Happy Path
 | CAT | 55 | 0 | 0 | 0 | 0 | 55 |
 | ORD | 40 | 0 | 0 | 5 | 0 | 35 |
 | FIN | 40 | 0 | 0 | 7 | 0 | 33 |
+| REV | 14 | 14 | 0 | 0 | 0 | 0 |
 | WEB | 50 | 0 | 0 | 0 | 50 | 0 |
-| **Total** | **231** | **45** | **1** | **12** | **50** | **123** |
+| **Total** | **245** | **59** | **1** | **12** | **50** | **123** |
 
 Os números da tabela contam IDs distintos. CAT, ORD e FIN já possuem testes Go agrupados; seus resultados não foram atribuídos a cada ID individualmente nesta revisão. Os roteiros WEB não foram executados.
 
-Execução com `AUTH_TEST_DATABASE_URL` configurada: `go test -count=1 -race ./...` executou **75 testes Go de nível superior** (74 aprovados, 1 XFAIL e 0 falhas) e reportou **38 subtestes aprovados**. A suíte também inclui testes unitários sem ID, e uma função Go pode verificar mais de um caso documentado. O único XFAIL foi `IDP-021`, reportado como `SKIP` pelo Go após reproduzir a falha conhecida.
+Para executar a suíte com PostgreSQL, configure `AUTH_TEST_DATABASE_URL` e rode `go test -count=1 -race ./...`. A contagem por ID não equivale ao número de funções Go. O XFAIL `IDP-021` é reportado como `SKIP` pelo Go após reproduzir a falha conhecida.
 
 ---
 
@@ -853,7 +855,30 @@ As regressões executáveis usam os contratos de `sales` e `transaction`, valore
 
 ---
 
-## Módulo 6: Interface do Usuário, Navegação e Interações do Website (WEB-001 a WEB-050)
+## Módulo 6: Avaliações de Itens, Combos e Restaurantes (REV-001 a REV-014)
+
+Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o HTTP real com PostgreSQL. As rejeições esperadas são testes normais: verificam o status e, quando há tentativa de escrita, que o estado não foi alterado.
+
+| ID | Cenário | Resultado esperado |
+| --- | --- | --- |
+| REV-001 | Enviar nota ausente, zero, acima de 3 para item ou acima de 5 para restaurante. | `400`, sem inserir avaliações; os extremos válidos das duas escalas são aceitos. |
+| REV-002 | Escrever sem credencial, com conta de outro cliente, com token de outro pedido ou com linha de um pedido diferente. | Sem credencial: `401`; conta ou token alheio: `403`; linha fora do pedido: `404`. |
+| REV-003 | Avaliar pedido pendente, cancelado ou não submetido, linha anulada, item com avaliações desabilitadas ou componente sem compra independente. | `409`, sem registrar avaliação. |
+| REV-004 | Visitante com token válido tenta enviar comentário, depois envia somente a nota. | Comentário recebe `403`; nota é aceita e publicada sem comentário. |
+| REV-005 | Cliente avalia duas compras do mesmo item e repete a avaliação da primeira compra. | Uma avaliação por linha comprada; nova compra aceita, repetição recebe `409`. |
+| REV-006 | Duas requisições concorrentes avaliam a mesma linha de visitante. | Uma aceita, uma recebe `409`; o total aumenta somente uma vez. |
+| REV-007 | Cliente avalia um combo e um prato comprado separadamente. | Cada produto tem contagem, soma e média próprias; a nota do combo não se propaga ao prato. |
+| REV-008 | Cliente avalia a organização após compras em duas filiais. | A segunda avaliação atualiza a mesma nota e o mesmo comentário; o total da organização não cresce. |
+| REV-009 | Visitante avalia a organização após a entrega e repete a tentativa no mesmo pedido. | Só a primeira nota é aceita; comentário exige conta e repetição não muda os totais. |
+| REV-010 | Consultar avaliações públicas sem login, com paginação. | A página contém só as avaliações solicitadas, com o resumo completo e sem IDs privados ou credenciais. |
+| REV-011 | Consultar item sob o slug errado, arquivado ou de restaurante sem filial publicada. | `404`, sem expor avaliações nem volume de vendas. |
+| REV-012 | Consultar unidades vendidas com compras submetidas, canceladas, rascunhos, linhas anuladas e componentes de combo. | Soma somente quantidades submetidas, não canceladas, não anuladas e de linhas compradas independentemente. |
+| REV-013 | Atualizar e remover uma avaliação na persistência, inclusive a última. | Contagem e soma continuam exatas; sem avaliações, a média é nula. |
+| REV-014 | Enviar comentário com caracteres multibyte no limite e acima de 2000 caracteres. | Limite aceito; excesso recebe `400` sem alterar a avaliação existente. |
+
+---
+
+## Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB-001 a WEB-050)
 
 ### WEB-001: Clique no Botão Flutuante do Carrinho para Abertura da Gaveta Lateral
 - **Pré-condição:** Usuário na página inicial ou na página do restaurante com o botão de carrinho flutuante visível.
