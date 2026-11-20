@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"pratello/server/internal/auth"
+	"pratello/server/internal/common"
 	"pratello/server/internal/db"
 	"pratello/server/internal/menu"
 	"pratello/server/internal/restaurants"
@@ -71,8 +72,7 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	restaurants.NewHandler(c, identity).Routes(mux)
 	menu.NewHandler(menu.NewService(c), identity.Identify).Routes(mux)
 	sales.NewHandler(sales.NewService(c), identity.Identify).Routes(mux)
-	mux.Handle("GET /media/", http.StripPrefix("/media/", http.FileServerFS(Media())))
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(common.ImageFS(Media()).Wrap(mux))
 	defer srv.Close()
 	api := fixtureAPI{srv.Client(), srv.URL}
 	var tokens struct {
@@ -97,6 +97,14 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		}
 	}
 	const base = "/api/restaurants/" + JoaoBurgerSlug
+	if err := api.request(ctx, "PUT", "/api/me/avatar", f.Employee.AccessToken,
+		map[string]string{"avatar_url": "/account/bob.png"}, nil, 200); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.request(ctx, "PUT", "/api/me/avatar", f.Employee.AccessToken,
+		map[string]string{"avatar_url": "/media/../secret.png"}, nil, 400); err != nil {
+		t.Fatal(err)
+	}
 	var org struct {
 		Name  string
 		Icon  string `json:"icon_url"`

@@ -12,7 +12,7 @@ import (
 	"math/big"
 	"net/mail"
 	"os"
-	"pratello/server/internal/media"
+	"pratello/server/internal/common"
 	"strings"
 	"time"
 )
@@ -263,8 +263,12 @@ func (s *Service) Account(ctx context.Context, id int) (*Account, error) {
 }
 
 func (s *Service) SetAvatar(ctx context.Context, id int, avatar string) (*Account, error) {
-	if avatar != "" && !media.ValidURL(avatar) {
-		return nil, ErrValidation
+	if avatar != "" {
+		var err error
+		avatar, err = common.ImageURL(avatar)
+		if err != nil {
+			return nil, ErrValidation
+		}
 	}
 	store, ok := s.store.(interface {
 		SetAvatar(context.Context, int, string) error

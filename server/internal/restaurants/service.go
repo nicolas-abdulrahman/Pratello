@@ -3,7 +3,7 @@ package restaurants
 import (
 	"context"
 	"errors"
-	"pratello/server/internal/media"
+	"pratello/server/internal/common"
 	"regexp"
 	"strings"
 	"time"
@@ -262,8 +262,12 @@ func validate(r *request) error {
 
 func validBrand(v details) bool {
 	for _, u := range []*string{v.Icon, v.Cover} {
-		if u != nil && *u != "" && !media.ValidURL(*u) {
-			return false
+		if u != nil && *u != "" {
+			value, err := common.ImageURL(*u)
+			if err != nil {
+				return false
+			}
+			*u = value
 		}
 	}
 	return true

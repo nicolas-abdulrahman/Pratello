@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.8
+  version: 2.2.9
   description: |
     SaaS for restaurants — complete API.
 
@@ -317,6 +317,26 @@ paths:
   # ----------------------------------------------------------
   # CPF management (NEW — replaces "claim_loyalty" flow)
   # ----------------------------------------------------------
+  /media/{path}:
+    get:
+      tags: [Media]
+      summary: Read a local image
+      description: Root-relative image references are resolved under the public media directory. For example, `/menu/burger.png` is stored and served as `/media/menu/burger.png`. HTTP(S) image URLs are returned unchanged for the client to load directly.
+      security: []
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Image path relative to the media directory; nested paths are supported.
+          schema: { type: string, example: joao_burger/menu/burger.png }
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        '404': { description: Image not found or path not permitted }
+
   /me/avatar:
     put:
       tags: [Auth]
@@ -329,7 +349,7 @@ paths:
               type: object
               required: [avatar_url]
               properties:
-                avatar_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. Use an empty string to remove the avatar. }
+                avatar_url: { type: string, maxLength: 2048, description: HTTP(S) or a root-relative local image path. Use an empty string to remove the avatar. }
       responses:
         '200':
           description: Updated account profile

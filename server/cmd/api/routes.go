@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"pratello/server/internal/auth"
+	"pratello/server/internal/common"
 	"pratello/server/internal/restaurants"
 )
 
@@ -19,9 +20,6 @@ func registerRoutes(mux *http.ServeMux, authHandler *auth.Handler, restHandler *
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /api/health", handleHealth)
 
-	// Serve local assets referenced by catalog photo URLs.
-	mux.Handle("GET /media/", http.StripPrefix("/media/", http.FileServer(http.Dir(mediaDirectory()))))
-
 	// Mount domain routes
 	if authHandler != nil {
 		authHandler.Routes(mux)
@@ -31,7 +29,7 @@ func registerRoutes(mux *http.ServeMux, authHandler *auth.Handler, restHandler *
 	}
 
 	// Wrap in CORS middleware
-	return corsMiddleware(mux)
+	return corsMiddleware(common.ImageFiles(mediaDirectory()).Wrap(mux))
 }
 
 func mediaDirectory() string {

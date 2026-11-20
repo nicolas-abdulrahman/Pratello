@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/url"
+	"pratello/server/internal/common"
 	"regexp"
 	"strings"
 	"time"
@@ -654,10 +654,14 @@ func prepareItem(c catalog, r request, p *itemInput) (item, error) {
 		v.Description = p.Description.Value
 	}
 	if p.Photo.Set || r.op == putItem {
-		if p.Photo.Value != nil && !validPhoto(*p.Photo.Value) {
-			return v, ErrInvalid
+		v.Photo = nil
+		if p.Photo.Value != nil {
+			photo, err := common.ImageURL(*p.Photo.Value)
+			if err != nil {
+				return v, ErrInvalid
+			}
+			v.Photo = &photo
 		}
-		v.Photo = p.Photo.Value
 	}
 	if p.Combo != nil && *p.Combo != v.Combo {
 		if *p.Combo {
@@ -672,17 +676,6 @@ func prepareItem(c catalog, r request, p *itemInput) (item, error) {
 		v.Combo = *p.Combo
 	}
 	return v, nil
-}
-
-func validPhoto(value string) bool {
-	u, err := url.Parse(value)
-	if err != nil || strings.ContainsAny(value, "\\\r\n\t ") || u.User != nil {
-		return false
-	}
-	if u.Scheme == "http" || u.Scheme == "https" {
-		return u.Hostname() != ""
-	}
-	return u.Scheme == "" && u.Host == "" && strings.HasPrefix(value, "/media/")
 }
 
 func array[T any](xs []T) []T {

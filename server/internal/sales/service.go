@@ -5,7 +5,7 @@ import (
 	"errors"
 	"math"
 	"math/bits"
-	"net/url"
+	"pratello/server/internal/common"
 	"regexp"
 	"strings"
 	"time"
@@ -331,10 +331,11 @@ func prepare(ctx context.Context, u unit, c Coupon, p input) (Coupon, error) {
 		return c, errInvalid
 	}
 	if c.Image != "" {
-		v, e := url.Parse(c.Image)
-		if e != nil || v.User != nil || !(v.Hostname() != "" && (v.Scheme == "https" || v.Scheme == "http") || v.Host == "" && v.Scheme == "" && strings.HasPrefix(c.Image, "/media/")) || strings.ContainsAny(c.Image, "\\\r\n\t ") {
+		image, err := common.ImageURL(c.Image)
+		if err != nil {
 			return c, errInvalid
 		}
+		c.Image = image
 	}
 	if c.Banner && (strings.TrimSpace(c.Title) == "" || c.Image == "") {
 		return c, errInvalid
