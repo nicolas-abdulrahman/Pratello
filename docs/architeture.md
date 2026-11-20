@@ -172,3 +172,12 @@ When adding a new feature:
 2.  **Business (`service.go`):** Write the logic that calls the store. Add unit tests using the mocked store (focus on limits and bad logic).
 3.  **Interface (`http.go`):** Write the HTTP handlers. Add `httptest` tests for JSON validation and status codes.
 4.  **Run Tests:** `go test ./internal/<domain>/... -race` (Always use `-race` to catch concurrency bugs).
+
+
+
+IMPORTANT:
+Whenever you update casos de testes or openapi.yaml add a minor version to it 0.0.1
+Every time you have a question on what should be done, dont assume the answer, ask me for the decision
+If You change something in the db schema, ask me to procedd, if i allow you to proced then change the db schema and run the tests to make sure it works before continuing
+at each domain i want you to have a http.go service.go store.go <domain>_test.go and <domain>_casos_de_testes.go no matter how long the files are, keep it on that structure
+

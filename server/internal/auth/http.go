@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"pratello/server/internal/user"
 	"strings"
-	"time"
 )
 
 type registerRequest struct {
@@ -20,16 +20,6 @@ type registerRequest struct {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-}
-
-type accountIDRequest struct {
-	AccountID int `json:"account_id"`
-}
-
-type sysadminResponse struct {
-	ID        int       `json:"id"`
-	AccountID int       `json:"account_id"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 type Handler struct {
@@ -64,8 +54,6 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 		mux.HandleFunc(fmt.Sprintf("POST %s/me/email/verify", p), h.verifyEmail)
 
 		// Superadministradores
-		mux.HandleFunc(fmt.Sprintf("GET %s/sysadmins", p), h.listSysadmins)
-		mux.HandleFunc(fmt.Sprintf("POST %s/sysadmins", p), h.promoteSysadmin)
 	}
 }
 
@@ -181,78 +169,13 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.svc.Account(r.Context(), claims.AccountID)
+	account, err := h.svc.Account(r.Context(), claims.AccountID)
 	if err != nil {
 		h.mapServiceError(w, err)
 		return
 	}
 
-	writeAccount(w, user)
-}
-
-func (h *Handler) listSysadmins(w http.ResponseWriter, r *http.Request) {
-	if !h.requireSysadmin(w, r) {
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-
-	list, err := h.svc.ListSysadmins(r.Context())
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	resp := make([]sysadminResponse, 0, len(list))
-	for _, sa := range list {
-		resp = append(resp, sysadminResponse{
-			ID:        sa.ID,
-			AccountID: sa.AccountID,
-			CreatedAt: sa.CreatedAt,
-		})
-	}
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-func (h *Handler) promoteSysadmin(w http.ResponseWriter, r *http.Request) {
-	if !h.requireSysadmin(w, r) {
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-
-	var req accountIDRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AccountID <= 0 {
-		h.writeError(w, http.StatusBadRequest, "account_id é obrigatório")
-		return
-	}
-
-	sa, err := h.svc.AddSysadmin(r.Context(), req.AccountID)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(sysadminResponse{
-		ID:        sa.ID,
-		AccountID: sa.AccountID,
-		CreatedAt: sa.CreatedAt,
-	})
-}
-
-func (h *Handler) requireSysadmin(w http.ResponseWriter, r *http.Request) bool {
-	claims, err := h.authenticate(r)
-	if err == nil {
-		var allowed bool
-		allowed, err = h.svc.IsSysadmin(r.Context(), claims.AccountID)
-		if err == nil && !allowed {
-			err = ErrForbidden
-		}
-	}
-	if err != nil {
-		h.mapServiceError(w, err)
-		return false
-	}
-	return true
+	user.WriteAccount(w, account)
 }
 
 func (h *Handler) authenticate(r *http.Request) (*AccountClaims, error) {
@@ -517,19 +440,5 @@ func (h *Handler) removePhone(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeAccount(w http.ResponseWriter, a *Account) {
-	var email, phone, name, cpf any
-	if a.Email != "" {
-		email = a.Email
-	}
-	if a.Phone != "" {
-		phone = a.Phone
-	}
-	if a.Name != "" {
-		name = a.Name
-	}
-	if a.CPF != "" {
-		cpf = a.CPF
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"id": a.ID, "email": email, "email_verified": a.EmailVerified, "phone": phone, "phone_verified": a.PhoneVerified, "name": name, "cpf": cpf, "cpf_claimed_at": a.CPFClaimedAt, "is_shadow": a.Email == "" && a.Phone == "" && a.Password == "", "created_at": a.CreatedAt})
+	user.WriteAccount(w, a)
 }

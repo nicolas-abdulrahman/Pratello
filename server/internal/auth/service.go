@@ -29,10 +29,6 @@ type authStore interface {
 	CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error)
 	GetAccountByEmail(ctx context.Context, email string) (*Account, error)
 	GetAccountByID(ctx context.Context, id int) (*Account, error)
-
-	ListSysadmins(ctx context.Context) ([]Sysadmin, error)
-	AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error)
-	IsSysadmin(context.Context, int) (bool, error)
 }
 
 type AccountClaims struct {
@@ -66,8 +62,15 @@ type Service struct {
 	notifier  Notifier
 }
 
-func (s *Service) IsSysadmin(ctx context.Context, id int) (bool, error) {
-	return s.store.IsSysadmin(ctx, id)
+func (s *Service) Identify(ctx context.Context, token string) (int, error) {
+	claims, err := s.Authenticate(ctx, token)
+	if errors.Is(err, ErrUnauthorized) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return claims.AccountID, nil
 }
 
 // Notifier delivers verification credentials to an account's contact method.
@@ -256,14 +259,6 @@ func (s *Service) GetAccountByID(ctx context.Context, id int) (*User, error) {
 
 func (s *Service) Account(ctx context.Context, id int) (*Account, error) {
 	return s.store.GetAccountByID(ctx, id)
-}
-
-func (s *Service) ListSysadmins(ctx context.Context) ([]Sysadmin, error) {
-	return s.store.ListSysadmins(ctx)
-}
-
-func (s *Service) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error) {
-	return s.store.AddSysadmin(ctx, accountID)
 }
 
 func validCPF(cpf string) bool {

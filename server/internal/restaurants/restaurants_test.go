@@ -15,8 +15,8 @@ func TestBranchAccessBoundaries(t *testing.T) {
 		want  error
 	}{
 		{"assigned manager can update hours", setHours, access{manager: true}, nil},
-		{"assigned manager cannot appoint owner", addOwner, access{manager: true}, errForbidden},
-		{"organization manager cannot archive organization", archiveOrg, access{orgRole: "MANAGER"}, errForbidden},
+		{"assigned manager cannot update organization", updateOrg, access{manager: true}, errForbidden},
+		{"branch manager cannot archive organization", archiveOrg, access{manager: true}, errForbidden},
 		{"analyst cannot update branch", updateBranch, access{orgRole: "ANALYST"}, errForbidden},
 		{"owner cannot approve branch", verifyBranch, access{orgRole: "OWNER"}, errForbidden},
 		{"pending branch hidden from public", getBranch, access{}, errMissing},

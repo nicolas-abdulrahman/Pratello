@@ -15,6 +15,8 @@ import (
 	"github.com/lib/pq"
 	"pratello/server/internal/auth"
 	"pratello/server/internal/db"
+	"pratello/server/internal/menu"
+	"pratello/server/internal/user"
 )
 
 func openTENDB(t *testing.T) *sql.DB {
@@ -23,24 +25,35 @@ func openTENDB(t *testing.T) *sql.DB {
 	if url == "" {
 		t.Skip("set AUTH_TEST_DATABASE_URL for PostgreSQL integration")
 	}
-	conn, err := sql.Open("postgres", url)
+	control, err := sql.Open("postgres", url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	schemaName := fmt.Sprintf("restaurant_test_%d", time.Now().UnixNano())
+	schema := pq.QuoteIdentifier(schemaName)
+	if _, err = control.Exec(`CREATE SCHEMA ` + schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := control.Exec(`DROP SCHEMA ` + schema + ` CASCADE`); err != nil {
+			t.Errorf("drop test schema: %v", err)
+		}
+	})
+	if strings.HasPrefix(url, "postgres://") || strings.HasPrefix(url, "postgresql://") {
+		url, err = pq.ParseURL(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Set search_path for each new connection, including a replacement connection
+	// after cancellation and the second connection in the contention test.
+	conn, err := sql.Open("postgres", url+" search_path="+schemaName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 	conn.SetMaxOpenConns(1)
-	schema := pq.QuoteIdentifier(fmt.Sprintf("restaurant_test_%d", time.Now().UnixNano()))
-	if _, err = conn.Exec(`CREATE SCHEMA ` + schema); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := conn.Exec(`DROP SCHEMA ` + schema + ` CASCADE`); err != nil {
-			t.Errorf("drop test schema: %v", err)
-		}
-	})
-	if _, err = conn.Exec(`SET search_path TO ` + schema); err != nil {
-		t.Fatal(err)
-	}
 	if err = db.Migrate(conn); err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +67,8 @@ func TestRestaurantPostgresLifecycle(t *testing.T) {
 	mux := http.NewServeMux()
 	organizationHandler := NewHandler(conn, identity)
 	organizationHandler.Routes(mux)
+	menu.NewHandler(menu.NewService(conn), identity.Identify).Routes(mux)
+	user.NewHandler(conn, identity.Identify).Routes(mux)
 
 	account := func(email string) (int, string) {
 		t.Helper()
@@ -70,7 +85,6 @@ func TestRestaurantPostgresLifecycle(t *testing.T) {
 	ownerID, owner := account("owner@restaurant.test")
 	otherID, other := account("other@restaurant.test")
 	managerID, manager := account("manager@restaurant.test")
-	delegateID, delegate := account("delegate@restaurant.test")
 	analystID, analyst := account("analyst@restaurant.test")
 	adminID, admin := account("sysadmin@restaurant.test")
 	if _, err = conn.Exec(`UPDATE account SET is_sysadmin=true WHERE id=$1`, adminID); err != nil {
@@ -107,18 +121,11 @@ func TestRestaurantPostgresLifecycle(t *testing.T) {
 		t.Fatalf("owner membership missing: %s", data)
 	}
 	call("PUT", "/restaurants/cafe", other, `{"name":"No"}`, 403)
-	managerBody := fmt.Sprintf(`{"account_id":%d}`, delegateID)
-	call("POST", "/restaurants/cafe/managers", other, managerBody, 403)
-	call("POST", "/restaurants/cafe/managers", owner, managerBody, 201)
-	call("GET", "/restaurants/cafe/managers", owner, "", 200)
 	if _, err = conn.Exec(`INSERT INTO account_restaurant(account_id,restaurant_id,account_type) SELECT $1,id,'ANALYST' FROM restaurant WHERE name_slug='cafe'`, analystID); err != nil {
 		t.Fatal(err)
 	}
 	call("PUT", "/restaurants/cafe", analyst, `{"name":"No"}`, 403)
-	call("PUT", "/restaurants/cafe", delegate, `{"name":"Café Updated"}`, 200)
-	call("DELETE", "/restaurants/cafe", delegate, "", 403)
-	call("DELETE", fmt.Sprintf("/restaurants/cafe/managers/%d", delegateID), owner, "", 204)
-	call("PUT", "/restaurants/cafe", delegate, `{"name":"Revoked"}`, 403)
+	call("PUT", "/restaurants/cafe", owner, `{"name":"Café Updated"}`, 200)
 	const addr = `{"cep":"12345678","street":"Rua Bela","number":"12A"}`
 	create := func(cnpj string) int {
 		return idFrom(call("POST", "/restaurants/cafe/branches", owner, `{"cnpj":"`+cnpj+`","owner_cnpj":"12345678000199","name":"Filial","address":`+addr+`}`, 201))
@@ -136,12 +143,16 @@ func TestRestaurantPostgresLifecycle(t *testing.T) {
 	call("GET", branch, owner, "", 200)
 	call("PUT", branch+"/verification", owner, "", 403)
 	call("PUT", branch+"/verification", admin, "", 200)
-	dish := idFrom(call("POST", "/restaurants/cafe/dishes", owner, `{"name":"Massa","price":17.25,"category":"Almoço"}`, 201))
+	category := idFrom(call("POST", "/restaurants/cafe/categories", owner, `{"name":"Almoço"}`, 201))
+	item := idFrom(call("POST", "/restaurants/cafe/items", owner, fmt.Sprintf(`{"name":"Massa","base_price_cents":1725,"category_id":%d}`, category), 201))
 	var cents int
-	if err := conn.QueryRow(`SELECT base_price_cents FROM menu_item WHERE id=$1`, dish).Scan(&cents); err != nil || cents != 1725 {
+	if err := conn.QueryRow(`SELECT base_price_cents FROM menu_item WHERE id=$1`, item).Scan(&cents); err != nil || cents != 1725 {
 		t.Fatalf("catalog price: cents=%d err=%v", cents, err)
 	}
 	call("GET", "/restaurants/cafe/menu", "", "", 200)
+	call("GET", "/restaurants/cafe/dishes/menu", "", "", 404)
+	call("POST", "/api/restaurants/cafe/dishes", owner, "{}", 404)
+	call("POST", "/api/upload/image", owner, "", 404)
 	if data := call("GET", branch, "", "", 200); strings.Contains(string(data), "owner_cnpj") {
 		t.Fatalf("owner CNPJ leaked: %s", data)
 	}
@@ -227,6 +238,8 @@ func newTEN(t *testing.T) tenAPI {
 	identity := auth.NewService(auth.NewSQLStore(conn))
 	mux := http.NewServeMux()
 	NewHandler(conn, identity).Routes(mux)
+	menu.NewHandler(menu.NewService(conn), identity.Identify).Routes(mux)
+	user.NewHandler(conn, identity.Identify).Routes(mux)
 	return tenAPI{t, conn, identity, mux}
 }
 
@@ -402,16 +415,27 @@ func TestTEN005ApprovalAndPublicVisibility(t *testing.T) {
 	}
 }
 
-func TestTEN006OrganizationManagerRevocation(t *testing.T) {
+func TestTEN006GlobalAdministratorAndRevocation(t *testing.T) {
 	a := newTEN(t)
 	_, owner := a.account("owner", false)
-	managerID, manager := a.account("manager", false)
+	_, second := a.account("second", false)
+	rootID, root := a.account("root", false)
+	adminID, admin := a.account("admin", false)
+	if _, err := a.db.Exec(`UPDATE account SET is_administrator=true WHERE id=$1`, rootID); err != nil {
+		t.Fatal(err)
+	}
 	a.createOrg(owner, "cafe")
-	a.call("POST", tenRestaurant+"/managers", owner, fmt.Sprintf(`{"account_id":%d}`, managerID), 201)
-	a.call("PUT", tenRestaurant, manager, `{"name":"Atualizado"}`, 200)
-	a.call("DELETE", tenRestaurant, manager, "", 403)
-	a.call("DELETE", fmt.Sprintf("%s/managers/%d", tenRestaurant, managerID), owner, "", 204)
-	a.call("PUT", tenRestaurant, manager, `{"name":"Negado"}`, 403)
+	a.createOrg(second, "other")
+	grant := fmt.Sprintf(`{"account_id":%d}`, adminID)
+	a.call("POST", "/administrators", owner, grant, 403)
+	a.call("DELETE", fmt.Sprintf("/administrators/%d", rootID), root, "", 409)
+	a.call("POST", "/administrators", root, grant, 201)
+	a.call("PUT", tenRestaurant, admin, `{"name":"Atualizado"}`, 200)
+	a.call("PUT", "/restaurants/other", admin, `{"name":"Também administrado"}`, 200)
+	_, branch := a.createBranch(admin, "other", "12345678000122")
+	a.call("PUT", branch+"/verification", admin, "", 200)
+	a.call("DELETE", fmt.Sprintf("/administrators/%d", adminID), root, "", 204)
+	a.call("PUT", tenRestaurant, admin, `{"name":"Negado"}`, 403)
 	got := tenDecode[struct {
 		Name string `json:"name"`
 	}](t, a.call("GET", tenRestaurant, "", "", 200))
@@ -577,5 +601,136 @@ func TestTEN013ArchiveRollbackAndHistory(t *testing.T) {
 	var historicalBranch int
 	if err := a.db.QueryRow(`SELECT physical_restaurant_id FROM "order" WHERE id=$1`, orderID).Scan(&historicalBranch); err != nil || historicalBranch != branchID {
 		t.Fatalf("order history: branch=%d err=%v", historicalBranch, err)
+	}
+}
+
+func TestTEN015PoolCancellationAndRecovery(t *testing.T) {
+	a := newTEN(t)
+	_, owner := a.account("owner", false)
+	a.createOrg(owner, "cafe")
+	reserved, err := a.db.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reserved.Close()
+	waits := a.db.Stats().WaitCount
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	w := httptest.NewRecorder()
+	a.mux.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, tenRestaurant, nil))
+	if ctx.Err() != context.DeadlineExceeded || w.Code < 400 || a.db.Stats().WaitCount <= waits {
+		t.Fatalf("request did not time out in the pool: status=%d context=%v stats=%+v", w.Code, ctx.Err(), a.db.Stats())
+	}
+	if err := reserved.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fresh, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	w = httptest.NewRecorder()
+	a.mux.ServeHTTP(w, httptest.NewRequestWithContext(fresh, http.MethodGet, tenRestaurant, nil))
+	if w.Code != http.StatusOK || a.db.Stats().InUse != 0 {
+		t.Fatalf("pool did not recover: status=%d body=%s stats=%+v", w.Code, w.Body, a.db.Stats())
+	}
+}
+
+func TestTEN016OversizedRequestDoesNotPersist(t *testing.T) {
+	a := newTEN(t)
+	_, owner := a.account("owner", false)
+	body, err := json.Marshal(map[string]string{"name": "Café", "slug": "large", "description": strings.Repeat("x", 32<<10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := a.call("POST", "/restaurants", owner, string(body), http.StatusRequestEntityTooLarge)
+	if got := tenDecode[map[string]string](t, data)["error"]; got != "request body too large" {
+		t.Fatalf("unexpected response: %s", data)
+	}
+	var count int
+	if err := a.db.QueryRow(`SELECT count(*) FROM restaurant WHERE name_slug='large'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("oversized request persisted: count=%d err=%v", count, err)
+	}
+	a.call("GET", "/restaurants/large", "", "", http.StatusNotFound)
+}
+
+func TestTEN017DatabaseErrorDoesNotLeakDetails(t *testing.T) {
+	pool, err := sql.Open("postgres", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewHandler(pool, nil).Routes(mux)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/restaurants", nil))
+	if w.Code != http.StatusInternalServerError || w.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("unexpected response: %d %s %s", w.Code, w.Header().Get("Content-Type"), w.Body)
+	}
+	if got := tenDecode[map[string]string](t, w.Body.Bytes()); len(got) != 1 || got["error"] != "internal server error" {
+		t.Fatalf("error response exposed internal details: %s", w.Body)
+	}
+}
+
+func TestTEN018SchemaReapplyPreservesOrganization(t *testing.T) {
+	a := newTEN(t)
+	ownerID, owner := a.account("owner", false)
+	a.createOrg(owner, "cafe")
+	var before int
+	if err := a.db.QueryRow(`SELECT id FROM restaurant WHERE name_slug='cafe'`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(a.db); err != nil {
+		t.Fatal(err)
+	}
+	var restaurantID, count int
+	err := a.db.QueryRow(`SELECT r.id,count(m.id) FROM restaurant r LEFT JOIN account_restaurant m ON m.restaurant_id=r.id AND m.account_id=$1 AND m.account_type='OWNER' WHERE r.name_slug='cafe' GROUP BY r.id`, ownerID).Scan(&restaurantID, &count)
+	if err != nil || restaurantID != before || count != 1 {
+		t.Fatalf("initialization changed the organization or owner: id=%d want=%d count=%d err=%v", restaurantID, before, count, err)
+	}
+	a.call("POST", "/restaurants", owner, `{"name":"Duplicado","slug":"cafe"}`, http.StatusConflict)
+}
+
+func TestTEN019ConcurrentTableCreationIsAtomic(t *testing.T) {
+	a := newTEN(t)
+	_, owner := a.account("owner", false)
+	a.createOrg(owner, "cafe")
+	branchID, path := a.createBranch(owner, "cafe", "12345678000100")
+	a.db.SetMaxOpenConns(2)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	start := make(chan struct{})
+	results := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() {
+			<-start
+			r := httptest.NewRequestWithContext(ctx, http.MethodPost, path+"/tables", strings.NewReader(`{"number":7}`))
+			r.Header.Set("Authorization", "Bearer "+owner)
+			w := httptest.NewRecorder()
+			a.mux.ServeHTTP(w, r)
+			results <- w
+		}()
+	}
+	close(start)
+	statuses := map[int]int{}
+	for range 2 {
+		select {
+		case result := <-results:
+			if result.Code != http.StatusCreated && result.Code != http.StatusConflict {
+				t.Errorf("unexpected concurrent response: %d %s", result.Code, result.Body)
+			}
+			statuses[result.Code]++
+		case <-ctx.Done():
+			t.Fatalf("concurrent table creation did not finish: %v", ctx.Err())
+		}
+	}
+	if statuses[http.StatusCreated] != 1 || statuses[http.StatusConflict] != 1 {
+		t.Fatalf("expected one creation and one conflict, got %v", statuses)
+	}
+	var tables, audits int
+	err := a.db.QueryRowContext(ctx, `SELECT
+		(SELECT count(*) FROM dining_table WHERE physical_restaurant_id=$1 AND number=7),
+		(SELECT count(*) FROM audit_entry WHERE branch_id=$1 AND action='branch.table.add')`, branchID).Scan(&tables, &audits)
+	if err != nil || tables != 1 || audits != 1 {
+		t.Fatalf("unexpected persisted effects: tables=%d audit=%d err=%v", tables, audits, err)
 	}
 }

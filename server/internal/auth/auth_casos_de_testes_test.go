@@ -152,22 +152,6 @@ func TestIDP017InvalidBearer(t *testing.T) {
 	}
 }
 
-func TestIDP020AnonymousSysadminPromotion(t *testing.T) {
-	store, _, mux := idpSetup()
-	_, err := store.CreateAccount(context.Background(), "", "target@example.com", "hash", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := idpRequest(mux, "POST", "/sysadmins", `{"account_id":1}`, "")
-	admins, err := store.ListSysadmins(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if w.Code != http.StatusUnauthorized || len(admins) != 0 {
-		t.Fatalf("anonymous promotion: %d admins=%v", w.Code, admins)
-	}
-}
-
 func TestIDP021OversizedRegistration(t *testing.T) {
 	store, _, mux := idpSetup()
 	body, err := json.Marshal(map[string]string{"email": "large@example.com", "password": "password123", "name": strings.Repeat("a", 1<<20)})

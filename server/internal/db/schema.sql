@@ -1,5 +1,5 @@
 -- PostgreSQL baseline corresponding to docs/db.dbml (installed in the current schema).
-DO $$ BEGIN CREATE TYPE account_type_enum AS ENUM ('OWNER','MANAGER','ANALYST'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE account_type_enum AS ENUM ('OWNER','ANALYST'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE card_brand_enum AS ENUM ('VISA','MASTERCARD','ELO','HIPERCARD','OTHER'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE discount_type_enum AS ENUM ('percent','fixed_cents'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE menu_style_enum AS ENUM ('CLASSICO','EXPERIENCIA'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS account (
     CHECK (email IS NULL OR password IS NOT NULL)
 );
 COMMENT ON COLUMN account.password IS 'Password hash only.';
+ALTER TABLE account ADD COLUMN IF NOT EXISTS is_administrator BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_cpf ON account(cpf);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_email ON account(email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_phone ON account(phone);
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS physical_restaurant (
     CHECK (jsonb_typeof(operating_hours)='array')
 );
 CREATE UNIQUE INDEX IF NOT EXISTS physical_restaurant_cnpj_unique ON physical_restaurant(cnpj);
+ALTER TABLE physical_restaurant ADD COLUMN IF NOT EXISTS delivery_fee_cents BIGINT NOT NULL DEFAULT 0 CHECK (delivery_fee_cents >= 0);
 CREATE TABLE IF NOT EXISTS restaurant_phone (
     id SERIAL PRIMARY KEY, physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id),
     phone VARCHAR(20) NOT NULL, phone_type restaurant_phone_type_enum NOT NULL DEFAULT 'mobile'
@@ -89,6 +91,11 @@ CREATE TABLE IF NOT EXISTS dining_table (
     display_order INT NOT NULL DEFAULT 0, is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dining_table_physical_restaurant_id_number ON dining_table(physical_restaurant_id,number);
+CREATE TABLE IF NOT EXISTS order_qr (
+    id BIGSERIAL PRIMARY KEY, branch_id INT NOT NULL REFERENCES physical_restaurant(id),
+    table_id INT REFERENCES dining_table(id), token_hash BYTEA NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS employee (
     id SERIAL PRIMARY KEY, physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id),
     account_id INT NOT NULL REFERENCES account(id), name VARCHAR(500) NOT NULL, cpf VARCHAR(11),
@@ -96,7 +103,8 @@ CREATE TABLE IF NOT EXISTS employee (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_employee_physical_restaurant_id ON employee(physical_restaurant_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_account_id ON employee(account_id);
+DROP INDEX IF EXISTS idx_employee_account_id;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_account_branch ON employee(account_id,physical_restaurant_id);
 
 CREATE TABLE IF NOT EXISTS menu (
     id SERIAL PRIMARY KEY, restaurant_id INT UNIQUE NOT NULL REFERENCES restaurant(id), name VARCHAR(255),
@@ -142,6 +150,21 @@ CREATE TABLE IF NOT EXISTS item_sale (
     is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), CHECK (ends_at > starts_at)
 );
 CREATE INDEX IF NOT EXISTS idx_item_sale_item_id_is_active ON item_sale(item_id,is_active);
+ALTER TABLE menu ADD COLUMN IF NOT EXISTS secondary_color VARCHAR(7);
+ALTER TABLE category ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE category ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS category_one_fallback ON category(restaurant_id) WHERE is_fallback;
+ALTER TABLE combo_item ADD COLUMN IF NOT EXISTS id SERIAL;
+CREATE UNIQUE INDEX IF NOT EXISTS combo_item_id_unique ON combo_item(id);
+ALTER TABLE item_sale ADD COLUMN IF NOT EXISTS branch_id INT REFERENCES physical_restaurant(id);
+CREATE TABLE IF NOT EXISTS branch_item_availability (
+    branch_id INT NOT NULL REFERENCES physical_restaurant(id), item_id INT NOT NULL REFERENCES menu_item(id),
+    is_available BOOLEAN NOT NULL, PRIMARY KEY(branch_id,item_id)
+);
+CREATE TABLE IF NOT EXISTS branch_option_availability (
+    branch_id INT NOT NULL REFERENCES physical_restaurant(id), option_id INT NOT NULL REFERENCES item_side_option(id) ON DELETE CASCADE,
+    is_available BOOLEAN NOT NULL, PRIMARY KEY(branch_id,option_id)
+);
 CREATE TABLE IF NOT EXISTS coupon (
     id SERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id), code VARCHAR(50) NOT NULL,
     discount_type discount_type_enum NOT NULL, discount_value BIGINT NOT NULL CHECK (discount_value > 0),
@@ -150,6 +173,24 @@ CREATE TABLE IF NOT EXISTS coupon (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_restaurant_id_code ON coupon(restaurant_id,code);
+CREATE UNIQUE INDEX IF NOT EXISTS coupon_code_folded_unique ON coupon(restaurant_id,upper(code));
+ALTER TABLE coupon ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+ALTER TABLE coupon ADD COLUMN IF NOT EXISTS title VARCHAR(255);
+ALTER TABLE coupon ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE coupon ADD COLUMN IF NOT EXISTS target_item_id INT REFERENCES menu_item(id);
+ALTER TABLE coupon ADD COLUMN IF NOT EXISTS target_scope VARCHAR(8) NOT NULL DEFAULT 'order';
+ALTER TABLE coupon ADD COLUMN IF NOT EXISTS is_banner BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE coupon ADD COLUMN IF NOT EXISTS background_image_url TEXT;
+DO $$ BEGIN
+    ALTER TABLE coupon ADD CONSTRAINT coupon_target_scope_check CHECK (
+        (target_scope='order' AND target_item_id IS NULL) OR
+        (target_scope IN ('item','combo') AND target_item_id IS NOT NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE TABLE IF NOT EXISTS coupon_claim (
+    account_id INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    coupon_id INT NOT NULL REFERENCES coupon(id), claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY(account_id,coupon_id)
+);
 
 CREATE TABLE IF NOT EXISTS "order" (
     id SERIAL PRIMARY KEY, physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id),
@@ -162,6 +203,23 @@ CREATE TABLE IF NOT EXISTS "order" (
     CHECK (account_id IS NULL OR customer_cpf IS NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_order_account_id_created_at ON "order"(account_id,created_at);
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS guest_token_hash BYTEA;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS qr_id BIGINT REFERENCES order_qr(id);
+CREATE TABLE IF NOT EXISTS order_draft_item (
+    id SERIAL PRIMARY KEY, order_id INT NOT NULL REFERENCES "order"(id),
+    item_id INT NOT NULL REFERENCES menu_item(id), selection JSONB NOT NULL, snapshot JSONB NOT NULL,
+    voided_at TIMESTAMPTZ, voided_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS order_draft_item_order_id ON order_draft_item(order_id,id);
+CREATE TABLE IF NOT EXISTS order_promotion (
+    order_id INT PRIMARY KEY REFERENCES "order"(id), result JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS order_coupon (
+    order_id INT NOT NULL REFERENCES "order"(id), coupon_id INT NOT NULL REFERENCES coupon(id),
+    coupon_code VARCHAR(50) NOT NULL, discount_cents BIGINT NOT NULL CHECK(discount_cents > 0),
+    PRIMARY KEY(order_id,coupon_id)
+);
 CREATE INDEX IF NOT EXISTS idx_order_customer_cpf_created_at ON "order"(customer_cpf,created_at);
 CREATE INDEX IF NOT EXISTS idx_order_physical_restaurant_id_status_created_at ON "order"(physical_restaurant_id,status,created_at);
 CREATE TABLE IF NOT EXISTS local_order (
@@ -189,6 +247,9 @@ CREATE TABLE IF NOT EXISTS transaction (
     notes VARCHAR(100), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_transaction_order_id_status ON transaction(order_id,status);
+ALTER TABLE transaction ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128);
+ALTER TABLE transaction ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS transaction_order_idempotency ON transaction(order_id,idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS pix_charge (
     id SERIAL PRIMARY KEY, transaction_id INT UNIQUE NOT NULL REFERENCES transaction(id), copy_paste_code TEXT NOT NULL,
     qr_code_base64 TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, paid_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -198,6 +259,8 @@ CREATE TABLE IF NOT EXISTS refund (
     reason TEXT, created_by_account_id INT REFERENCES account(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_refund_transaction_id ON refund(transaction_id);
+ALTER TABLE refund ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128);
+CREATE UNIQUE INDEX IF NOT EXISTS refund_idempotency ON refund(transaction_id,idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS receipt (
     id SERIAL PRIMARY KEY, order_id INT UNIQUE NOT NULL REFERENCES "order"(id), receipt_code VARCHAR(100) UNIQUE NOT NULL,
     receipt JSONB NOT NULL, issued_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -239,6 +302,7 @@ CREATE TABLE IF NOT EXISTS menu_session (
 );
 CREATE INDEX IF NOT EXISTS idx_menu_session_branch_started_at ON menu_session(physical_restaurant_id,started_at);
 CREATE INDEX IF NOT EXISTS idx_menu_session_converted_order_id ON menu_session(converted_order_id);
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS menu_session_id BIGINT REFERENCES menu_session(id);
 CREATE INDEX IF NOT EXISTS idx_menu_session_visitor_fingerprint ON menu_session(visitor_fingerprint);
 CREATE TABLE IF NOT EXISTS ux_event (
     id BIGSERIAL PRIMARY KEY, session_id BIGINT NOT NULL REFERENCES menu_session(id), restaurant_id INT NOT NULL REFERENCES restaurant(id),
@@ -274,6 +338,15 @@ CREATE TABLE IF NOT EXISTS branch_manager (
     account_id INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
     PRIMARY KEY(branch_id,account_id)
 );
+-- Existing organization managers retain operational access to their current
+-- branches, but are never promoted into a global administrator.
+INSERT INTO branch_manager(branch_id,account_id)
+SELECT b.id,m.account_id FROM account_restaurant m JOIN physical_restaurant b ON b.restaurant_id=m.restaurant_id
+WHERE m.account_type::text='MANAGER' AND b.archived_at IS NULL ON CONFLICT DO NOTHING;
+DELETE FROM account_restaurant WHERE account_type::text='MANAGER';
+DO $$ BEGIN
+    ALTER TABLE account_restaurant ADD CONSTRAINT organization_membership_role CHECK (account_type::text IN ('OWNER','ANALYST'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 ALTER TABLE dining_table ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$

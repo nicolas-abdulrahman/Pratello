@@ -5,39 +5,18 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/lib/pq"
+	"pratello/server/internal/user"
 	"strings"
 	"sync"
 	"time"
 )
 
-type Account struct {
-	ID            int
-	Name          string
-	Email         string
-	EmailVerified bool
-	Password      string
-	Phone         string
-	PhoneVerified bool
-	CPF           string
-	CPFClaimedAt  *time.Time
-	TokenVersion  int
-	CreatedAt     time.Time
-}
-
-type Sysadmin struct {
-	ID        int
-	AccountID int
-	CreatedAt time.Time
-}
+type Account = user.Account
 
 type Store interface {
 	CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error)
 	GetAccountByEmail(ctx context.Context, email string) (*Account, error)
 	GetAccountByID(ctx context.Context, id int) (*Account, error)
-
-	ListSysadmins(ctx context.Context) ([]Sysadmin, error)
-	AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error)
-	IsSysadmin(context.Context, int) (bool, error)
 }
 
 func NewStore(db *sql.DB) Store {
@@ -53,23 +32,6 @@ func NewSQLStore(db *sql.DB) *sqlStore {
 
 type sqlStore struct {
 	db *sql.DB
-}
-
-func (s *sqlStore) IsSysadmin(ctx context.Context, id int) (bool, error) {
-	var allowed bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND is_sysadmin)`, id).Scan(&allowed)
-	return allowed, err
-}
-
-func (m *memoryStore) IsSysadmin(_ context.Context, id int) (bool, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, admin := range m.sysadmins {
-		if admin.AccountID == id {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func (s *sqlStore) CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error) {
@@ -123,52 +85,11 @@ func (s *sqlStore) GetAccountByID(ctx context.Context, id int) (*Account, error)
 	return &a, nil
 }
 
-func (s *sqlStore) ListSysadmins(ctx context.Context) ([]Sysadmin, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, id, created_at FROM account WHERE is_sysadmin ORDER BY id`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []Sysadmin
-	for rows.Next() {
-		var sa Sysadmin
-		if err := rows.Scan(&sa.ID, &sa.AccountID, &sa.CreatedAt); err != nil {
-			return nil, err
-		}
-		list = append(list, sa)
-	}
-	if list == nil {
-		list = make([]Sysadmin, 0)
-	}
-	return list, rows.Err()
-}
-
-func (s *sqlStore) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error) {
-	if _, err := s.GetAccountByID(ctx, accountID); err != nil {
-		return nil, err
-	}
-
-	var sa Sysadmin
-	err := s.db.QueryRowContext(ctx,
-		`UPDATE account SET is_sysadmin=true WHERE id=$1 RETURNING id, id, created_at`,
-		accountID,
-	).Scan(&sa.ID, &sa.AccountID, &sa.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &sa, nil
-}
-
 type memoryStore struct {
 	mu            sync.RWMutex
 	accounts      map[int]*Account
 	byEmail       map[string]*Account
 	nextAcctID    int
-	sysadmins     map[int]*Sysadmin
-	nextSysID     int
 	refreshTokens map[string]refreshRecord
 }
 
@@ -177,8 +98,6 @@ func NewMemoryStore() *memoryStore {
 		accounts:      make(map[int]*Account),
 		byEmail:       make(map[string]*Account),
 		nextAcctID:    1,
-		sysadmins:     make(map[int]*Sysadmin),
-		nextSysID:     1,
 		refreshTokens: make(map[string]refreshRecord),
 	}
 }
@@ -240,41 +159,6 @@ func (m *memoryStore) GetAccountByID(ctx context.Context, id int) (*Account, err
 	return &copy, nil
 }
 
-func (m *memoryStore) ListSysadmins(ctx context.Context) ([]Sysadmin, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	list := make([]Sysadmin, 0, len(m.sysadmins))
-	for _, sa := range m.sysadmins {
-		list = append(list, *sa)
-	}
-	return list, nil
-}
-
-func (m *memoryStore) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.accounts[accountID]; !ok {
-		return nil, ErrNotFound
-	}
-
-	for _, sa := range m.sysadmins {
-		if sa.AccountID == accountID {
-			return sa, nil
-		}
-	}
-
-	sa := &Sysadmin{
-		ID:        m.nextSysID,
-		AccountID: accountID,
-		CreatedAt: time.Now(),
-	}
-	m.nextSysID++
-	m.sysadmins[sa.ID] = sa
-	return sa, nil
-}
-
 type cpfStore interface {
 	RegisterWithCPF(context.Context, string, string, string, string, string, bool) (*Account, error)
 	ClaimCPF(context.Context, int, string) error
@@ -306,7 +190,7 @@ func (s *sqlStore) RegisterWithCPF(ctx context.Context, name, email, hash, phone
 	}
 	var id int
 	var shadow bool
-	err = tx.QueryRowContext(ctx, `SELECT id, email IS NULL AND phone IS NULL AND password IS NULL AND NOT is_sysadmin FROM account WHERE cpf=$1 FOR UPDATE`, cpf).Scan(&id, &shadow)
+	err = tx.QueryRowContext(ctx, `SELECT id, email IS NULL AND phone IS NULL AND password IS NULL AND NOT is_sysadmin AND NOT is_administrator FROM account WHERE cpf=$1 FOR UPDATE`, cpf).Scan(&id, &shadow)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
@@ -349,7 +233,7 @@ func (s *sqlStore) ClaimCPF(ctx context.Context, id int, cpf string) error {
 	}
 	var shadowID int
 	var shadow bool
-	err = tx.QueryRowContext(ctx, `SELECT id, email IS NULL AND phone IS NULL AND password IS NULL AND NOT is_sysadmin FROM account WHERE cpf=$1 FOR UPDATE`, cpf).Scan(&shadowID, &shadow)
+	err = tx.QueryRowContext(ctx, `SELECT id, email IS NULL AND phone IS NULL AND password IS NULL AND NOT is_sysadmin AND NOT is_administrator FROM account WHERE cpf=$1 FOR UPDATE`, cpf).Scan(&shadowID, &shadow)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}

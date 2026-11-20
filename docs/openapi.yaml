@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.1
+  version: 2.2.4
   description: |
     SaaS for restaurants — complete API.
 
@@ -32,11 +32,11 @@ info:
     If the CPF is already on a **real** account, both paths return `409`.
 
     ## Auth levels
-    An organization `MANAGER` has organization-wide operational authority.
-    A separate branch Manager assignment grants operational access only to that branch.
+    `ADMINISTRATOR` has authority across all organizations and branches.
+    `MANAGER` and `EMPLOYEE` grants apply only to their assigned branches.
     - `public`   — no auth
     - `user`     — any authenticated account (bearer JWT)
-    - `manager`  — MANAGER or OWNER of the logical restaurant
+    - `manager`  — assigned branch Manager, organization Owner, or global Administrator
     - `owner`    — OWNER of the logical restaurant (entity-level actions)
     - `employee` — employee record at the branch (permissions by position)
     - `analyst`  — read-only across all branches of a logical restaurant
@@ -49,8 +49,9 @@ info:
     All monetary values are **integer cents** (BRL), fields suffixed `_cents`.
 
     ## Idempotency
-    Payment-mutating endpoints require an `Idempotency-Key` header. Keys are
-    stored in Redis (24h TTL), not in Postgres.
+    Payment creation and refunds require an `Idempotency-Key` header. Keys are
+    stored in PostgreSQL, scoped to the order or transaction. A PIX transaction
+    has one charge; confirming it again does not settle it twice.
 
     ## Soft deletes
     Restaurants, branches, items, employees, and coupons are soft-deleted
@@ -581,7 +582,7 @@ paths:
     put:
       tags: [Restaurants]
       summary: Update Organization details
-      description: Requires an organization Owner or Manager. Slug is immutable.
+      description: Requires an organization Owner or global Administrator. Slug is immutable.
       requestBody:
         required: true
         content:
@@ -615,7 +616,7 @@ paths:
     get:
       tags: [Branches]
       summary: List branches
-      description: Public responses include only active, verified branches. Organization Owners and Managers, assigned branch Managers, and Platform Sysadmins can also see pending branches within their scope.
+      description: Public responses include only active, verified branches. Owners, global Administrators, assigned branch Managers, and Platform Sysadmins can see pending branches within their scope.
       security: [{}, {bearerAuth: []}]
       parameters:
         - $ref: '#/components/parameters/PageParam'
@@ -629,7 +630,7 @@ paths:
                 $ref: '#/components/schemas/PaginatedBranches'
     post:
       tags: [Branches]
-      summary: Create branch (requires an organization Owner or Manager)
+      summary: Create branch (requires an organization Owner or global Administrator)
       description: |
         Creates a new physical branch.
         The branch is pending verification when `cnpj_verified` is false.
@@ -658,7 +659,7 @@ paths:
     get:
       tags: [Branches]
       summary: Get branch details
-      description: Pending branches are visible only to organization Owners and Managers, assigned branch Managers, and Platform Sysadmins. Owner CNPJ is omitted from public responses.
+      description: Pending branches are visible only to organization Owners, global Administrators, assigned branch Managers, and Platform Sysadmins. Owner CNPJ is omitted from public responses.
       security: [{}, {bearerAuth: []}]
       responses:
         '200':
@@ -671,7 +672,7 @@ paths:
     put:
       tags: [Branches]
       summary: Update branch details
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager.
       requestBody:
         required: true
         content:
@@ -690,7 +691,7 @@ paths:
     delete:
       tags: [Branches]
       summary: Deactivate branch
-      description: Requires an organization Owner or Manager.
+      description: Requires an organization Owner or global Administrator.
       responses:
         '204': { description: Deactivated }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -703,7 +704,7 @@ paths:
     put:
       tags: [Branches]
       summary: Approve the branch's legal registration
-      description: Platform Sysadmin only. Records approval after manual review of both CNPJs and makes the active branch publicly visible.
+      description: Platform Sysadmin or global Administrator. Records approval after manual review of both CNPJs and makes the active branch publicly visible.
       responses:
         '200':
           description: Verified branch
@@ -721,7 +722,7 @@ paths:
     put:
       tags: [Branches]
       summary: Update physical address
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager.
       requestBody:
         required: true
         content:
@@ -737,6 +738,28 @@ paths:
                 $ref: '#/components/schemas/Address'
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /restaurants/{slug}/branches/{branch_id}/managers:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags: [Branches]
+      summary: List Managers assigned to this branch (Owner or Administrator)
+      responses:
+        '200':
+          description: Branch Manager assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    account_id: { type: integer }
+                    branch_id: { type: integer }
+                    role: { type: string, enum: [MANAGER] }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /restaurants/{slug}/branches/{branch_id}/managers/{account_id}:
     parameters:
       - $ref: '#/components/parameters/SlugParam'
@@ -745,7 +768,7 @@ paths:
     put:
       tags: [Branches]
       summary: Assign a Manager to this branch
-      description: Requires an organization Owner or Manager. The target must be an account with a verified login method. The assignment grants no authority over other branches.
+      description: Requires an organization Owner or global Administrator. The target must have a verified login method. The assignment grants no authority over other branches.
       responses:
         '204': { description: Assigned }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -754,7 +777,7 @@ paths:
     delete:
       tags: [Branches]
       summary: Revoke a branch Manager assignment
-      description: Requires an organization Owner or Manager.
+      description: Requires an organization Owner or global Administrator.
       responses:
         '204': { description: Revoked }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -783,7 +806,7 @@ paths:
     post:
       tags: [Branches]
       summary: Add contact phone
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager.
       requestBody:
         required: true
         content:
@@ -810,7 +833,7 @@ paths:
     delete:
       tags: [Branches]
       summary: Remove contact phone
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager.
       responses:
         '204': { description: Removed }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -840,7 +863,7 @@ paths:
     put:
       tags: [OperatingHours]
       summary: Replace operating hours
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch. Supply exactly one entry per weekday. Closed days omit times or use null; open days may cross midnight.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager. Supply exactly one entry per weekday. Closed days omit times or use null; open days may cross midnight.
       requestBody:
         required: true
         content:
@@ -884,7 +907,7 @@ paths:
     post:
       tags: [Tables]
       summary: Create dining table
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager.
       requestBody:
         required: true
         content:
@@ -911,7 +934,7 @@ paths:
     put:
       tags: [Tables]
       summary: Update table (e.g., change seat capacity)
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager.
       requestBody:
         required: true
         content:
@@ -930,7 +953,7 @@ paths:
     delete:
       tags: [Tables]
       summary: Archive a dining table
-      description: Requires an organization Owner or Manager, or a Manager assigned to the branch. Preserves historical references.
+      description: Requires an organization Owner, global Administrator, or assigned branch Manager. Preserves historical references.
       responses:
         '204': { description: Deleted }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -946,7 +969,7 @@ paths:
     get:
       tags: [Owners]
       summary: List owners
-      description: Requires an organization Owner or Manager.
+      description: Requires an organization Owner or global Administrator.
       responses:
         '200':
           description: OK
@@ -994,14 +1017,14 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   # ============================================================
-  # MANAGERS
+  # ANALYSTS
   # ============================================================
-  /restaurants/{slug}/managers:
+  /restaurants/{slug}/analysts:
     parameters:
       - $ref: '#/components/parameters/SlugParam'
     get:
-      tags: [Managers]
-      summary: List managers
+      tags: [Restaurants]
+      summary: List organization Analysts (Owner or Administrator)
       responses:
         '200':
           description: OK
@@ -1013,14 +1036,14 @@ paths:
                   $ref: '#/components/schemas/Membership'
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
-      tags: [Managers]
-      summary: Add manager (OWNER)
+      tags: [Restaurants]
+      summary: Grant read-only Analyst membership (Owner or Administrator)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddManagerRequest'
+              $ref: '#/components/schemas/AppointOwnerRequest'
       responses:
         '201':
           description: Added
@@ -1031,13 +1054,13 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /restaurants/{slug}/managers/{account_id}:
+  /restaurants/{slug}/analysts/{account_id}:
     parameters:
       - $ref: '#/components/parameters/SlugParam'
       - $ref: '#/components/parameters/AccountIdParam'
     delete:
-      tags: [Managers]
-      summary: Remove manager (OWNER)
+      tags: [Restaurants]
+      summary: Revoke Analyst membership (Owner or Administrator)
       responses:
         '204': { description: Removed }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1052,24 +1075,21 @@ paths:
       - $ref: '#/components/parameters/BranchIdParam'
     get:
       tags: [Employees]
-      summary: List employees
-      parameters:
-        - $ref: '#/components/parameters/PageParam'
-        - $ref: '#/components/parameters/PageSizeParam'
+      summary: List active employees in this branch
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedEmployees'
+                type: array
+                items: { $ref: '#/components/schemas/Employee' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Employees]
-      summary: Create employee record (manager+)
+      summary: Assign a verified account as an employee of this branch
       description: |
-        Creates an HR record. Employee does NOT get a login unless an invite
-        is sent and accepted.
+        The same account may have different assignments in other branches and organizations.
       requestBody:
         required: true
         content:
@@ -1085,6 +1105,8 @@ paths:
                 $ref: '#/components/schemas/Employee'
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /restaurants/{slug}/branches/{branch_id}/employees/{employee_id}:
     parameters:
@@ -1094,57 +1116,11 @@ paths:
         in: path
         required: true
         schema: { type: integer }
-    get:
-      tags: [Employees]
-      summary: Get employee
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Employee'
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    put:
-      tags: [Employees]
-      summary: Update employee
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateEmployeeRequest'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Employee'
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Employees]
       summary: Deactivate employee (soft)
       responses:
         '204': { description: Deactivated }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /restaurants/{slug}/branches/{branch_id}/employees/{employee_id}/invite:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-      - name: employee_id
-        in: path
-        required: true
-        schema: { type: integer }
-    post:
-      tags: [Employees]
-      summary: Send login invite
-      responses:
-        '202': { description: Invite sent }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -1264,7 +1240,10 @@ paths:
     get:
       tags: [Menu]
       summary: Get menu layout
-      security: []
+      description: Public reads require an active, CNPJ-verified branch. With no branch specified, the organization must have at least one such branch. Authorized staff can preview their scope before verification. Applies to all public catalog reads.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1299,7 +1278,9 @@ paths:
     get:
       tags: [Categories]
       summary: List categories
-      security: []
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1354,7 +1335,8 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Categories]
-      summary: Delete category (409 if has items unless force=true)
+      summary: Remove category (409 if has items unless force=true)
+      description: Forced removal moves items into the organization's Uncategorized category, which cannot be removed.
       parameters:
         - name: force
           in: query
@@ -1378,15 +1360,12 @@ paths:
     get:
       tags: [Items]
       summary: List items (public; branch_id affects per-branch availability)
-      security: []
+      security: [{}, {bearerAuth: []}]
       parameters:
         - name: category_id
           in: query
           schema: { type: integer }
-        - name: branch_id
-          in: query
-          description: When provided, is_available reflects this branch
-          schema: { type: integer }
+        - $ref: '#/components/parameters/MenuBranchQuery'
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/PageSizeParam'
       responses:
@@ -1421,7 +1400,9 @@ paths:
     get:
       tags: [Items]
       summary: Get item detail
-      security: []
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1504,7 +1485,9 @@ paths:
     get:
       tags: [Ingredients]
       summary: List ingredients
-      security: []
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1586,7 +1569,9 @@ paths:
     get:
       tags: [Ingredients]
       summary: List item ingredients
-      security: []
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1668,7 +1653,9 @@ paths:
     get:
       tags: [Sides]
       summary: List side groups
-      security: []
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1691,7 +1678,7 @@ paths:
               properties:
                 title: { type: string }
                 min_options: { type: integer, minimum: 0, default: 0 }
-                max_options: { type: integer, minimum: 1 }
+                max_options: { type: integer, minimum: 1, default: 1 }
       responses:
         '201':
           description: Created
@@ -1759,6 +1746,7 @@ paths:
               properties:
                 name: { type: string }
                 additional_price_cents: { type: integer, minimum: 0 }
+                is_available: { type: boolean, default: true }
       responses:
         '201':
           description: Created
@@ -1792,7 +1780,8 @@ paths:
               required: [name, additional_price_cents]
               properties:
                 name: { type: string }
-                additional_price_cents: { type: integer }
+                additional_price_cents: { type: integer, minimum: 0 }
+                is_available: { type: boolean }
       responses:
         '200':
           description: OK
@@ -1808,6 +1797,30 @@ paths:
         '204': { description: Deleted }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /restaurants/{slug}/branches/{branch_id}/items/{item_id}/sides/{side_id}/options/{option_id}/availability:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - $ref: '#/components/parameters/ItemIdParam'
+      - { name: side_id, in: path, required: true, schema: { type: integer } }
+      - { name: option_id, in: path, required: true, schema: { type: integer } }
+    put:
+      tags: [Sides]
+      summary: Set per-branch option availability (Owner, Administrator, or Manager of this branch)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_available]
+              properties:
+                is_available: { type: boolean }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ============================================================
   # COMBOS
   # ============================================================
@@ -1818,7 +1831,9 @@ paths:
     get:
       tags: [Combos]
       summary: List combo composition
-      security: []
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1895,7 +1910,9 @@ paths:
     get:
       tags: [Sales]
       summary: List item sales
-      security: []
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '200':
           description: OK
@@ -1908,6 +1925,7 @@ paths:
     post:
       tags: [Sales]
       summary: Create item sale
+      description: Branch sales take precedence over organization sales. For overlapping active sales in the same scope, the most recently created sale takes precedence. Discounts never stack.
       requestBody:
         required: true
         content:
@@ -1934,6 +1952,8 @@ paths:
     delete:
       tags: [Sales]
       summary: Cancel sale
+      parameters:
+        - $ref: '#/components/parameters/MenuBranchQuery'
       responses:
         '204': { description: Cancelled }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -2023,6 +2043,90 @@ paths:
       responses:
         '204': { description: Deactivated }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ============================================================
+  # PROMOTIONAL BANNERS AND CHECKOUT
+  # ============================================================
+  /restaurants/{slug}/menu/banners:
+    get:
+      tags: [Coupons]
+      summary: List active storefront banner coupons
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+        - $ref: '#/components/parameters/MenuBranchQuery'
+      responses:
+        '200':
+          description: Available banners for a published storefront
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Coupon' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /restaurants/{slug}/menu/banners/{id}/claim:
+    post:
+      tags: [Coupons]
+      summary: Claim a banner and return the promotion for immediate cart application
+      description: Authenticated customers also save this coupon to My Coupons. Anonymous customers can apply the returned code to their cart.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+        - $ref: '#/components/parameters/MenuBranchQuery'
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Claimed or selected coupon
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Coupon' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/restaurants/{slug}/coupons:
+    get:
+      tags: [Coupons]
+      summary: List my available claimed coupons for this restaurant
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+      responses:
+        '200':
+          description: My Coupons
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Coupon' } }
+
+  /restaurants/{slug}/branches/{branch_id}/checkout/quote:
+    post:
+      tags: [Coupons]
+      summary: Price a cart with coupons, item sales, and loyalty coins
+      description: Does not consume coupons or coins. The strongest order coupon competes per line against item coupons and the effective branch item sale. No discounts stack on a line. One loyalty coin equals one centavo, applied after discounts. Delivery is separate.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+        - $ref: '#/components/parameters/BranchIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/CheckoutSelection' }
+                coupon_codes: { type: array, items: { type: string } }
+                saved_coupon_ids: { type: array, items: { type: integer }, description: Requires authentication. }
+                coins: { type: integer, minimum: 0, description: Requires authentication when nonzero. }
+      responses:
+        '200':
+          description: Server-priced cart and winning discounts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutPrice' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ============================================================
   # LOYALTY
@@ -2249,7 +2353,7 @@ paths:
       - $ref: '#/components/parameters/BranchIdParam'
     get:
       tags: [Orders]
-      summary: List branch orders (manager/owner/employee/terminal)
+      summary: List submitted branch orders (Owner, Administrator, Manager, or Employee)
       parameters:
         - name: status
           in: query
@@ -2272,7 +2376,9 @@ paths:
       - $ref: '#/components/parameters/BranchIdParam'
     post:
       tags: [Orders]
-      summary: Open dine-in order
+      summary: Open dine-in order with an optional table
+      description: Omit items to open a draft. A table must already belong to this branch. A guest receives an X-Order-Token response header for subsequent requests.
+      security: [{}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -2287,12 +2393,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OrderDetail'
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409':
-          description: Table already has an open order
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /restaurants/{slug}/branches/{branch_id}/orders/remote:
     parameters:
@@ -2301,6 +2402,8 @@ paths:
     post:
       tags: [Orders]
       summary: Create delivery order
+      description: Delivery uses the branch's configured fee. Omit items to open a draft. A guest receives an X-Order-Token response header.
+      security: [{}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -2322,6 +2425,7 @@ paths:
     get:
       tags: [Orders]
       summary: Get order detail
+      security: [{bearerAuth: []}, {orderGuest: []}]
       responses:
         '200':
           description: OK
@@ -2348,7 +2452,6 @@ paths:
               properties:
                 status:
                   $ref: '#/components/schemas/OrderStatus'
-                note: { type: string }
       responses:
         '200':
           description: OK
@@ -2370,6 +2473,8 @@ paths:
     post:
       tags: [Orders]
       summary: Add item (with side selections)
+      description: Adds a line to an unsubmitted draft. The server validates and prices the selection.
+      security: [{bearerAuth: []}, {orderGuest: []}]
       requestBody:
         required: true
         content:
@@ -2401,6 +2506,7 @@ paths:
     delete:
       tags: [Orders]
       summary: Void order item (audited)
+      security: [{bearerAuth: []}, {orderGuest: []}]
       parameters:
         - name: reason
           in: query
@@ -2416,6 +2522,113 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   # ============================================================
+  # ORDER SUBMISSION AND QR
+  # ============================================================
+  /orders/{order_id}/submit:
+    post:
+      tags: [Orders]
+      summary: Submit a draft and freeze its checkout snapshot
+      security: [{bearerAuth: []}, {orderGuest: []}]
+      parameters:
+        - $ref: '#/components/parameters/OrderIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderPromotions' }
+      responses:
+        '200':
+          description: Submitted order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderDetail' }
+        '409': { description: Empty, already submitted, or no longer orderable }
+
+  /restaurants/{slug}/branches/{branch_id}/delivery-fee:
+    put:
+      tags: [Orders]
+      summary: Set the branch flat delivery fee (Owner or Administrator)
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+        - $ref: '#/components/parameters/BranchIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: &deliveryFee
+              type: object
+              required: [delivery_fee_cents]
+              properties:
+                delivery_fee_cents: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Saved delivery fee
+          content:
+            application/json:
+              schema: *deliveryFee
+
+  /restaurants/{slug}/branches/{branch_id}/order-qr:
+    post:
+      tags: [Orders]
+      summary: Generate a reusable dine-in QR (Owner, Administrator, or Branch Manager)
+      parameters:
+        - $ref: '#/components/parameters/SlugParam'
+        - $ref: '#/components/parameters/BranchIdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                table_id: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: QR image and public landing URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, url, qr_code_base64]
+                properties:
+                  id: { type: integer }
+                  table_id: { type: integer }
+                  url: { type: string, format: uri }
+                  qr_code_base64: { type: string, format: byte }
+
+  /order-qr/{code}:
+    get:
+      tags: [Orders]
+      summary: Open the browser landing page for a dine-in QR
+      description: The page submits a POST to open a fresh draft. Fetching the HTML alone does not create an order.
+      security: []
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: QR landing page
+          content:
+            text/html:
+              schema: { type: string }
+
+  /order-qr/{code}/open:
+    post:
+      tags: [Orders]
+      summary: Start a new draft from a reusable QR
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '201':
+          description: New draft with its QR and optional table attribution
+          headers:
+            X-Order-Token:
+              description: Guest credential for this order. Omitted for authenticated customers.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================================================
   # PAYMENTS
   # ============================================================
   /orders/{order_id}/transactions:
@@ -2424,6 +2637,7 @@ paths:
     get:
       tags: [Payments]
       summary: List transactions
+      security: [{bearerAuth: []}, {orderGuest: []}]
       responses:
         '200':
           description: OK
@@ -2437,6 +2651,8 @@ paths:
     post:
       tags: [Payments]
       summary: Start payment (idempotent)
+      description: Only submitted orders can be paid.
+      security: [{bearerAuth: []}, {orderGuest: []}]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyParam'
       requestBody:
@@ -2469,6 +2685,7 @@ paths:
     get:
       tags: [Payments]
       summary: Get transaction
+      security: [{bearerAuth: []}, {orderGuest: []}]
       responses:
         '200':
           description: OK
@@ -2487,6 +2704,7 @@ paths:
     get:
       tags: [Payments]
       summary: Get PIX QR / status
+      security: [{bearerAuth: []}, {orderGuest: []}]
       responses:
         '200':
           description: OK
@@ -2498,6 +2716,7 @@ paths:
     post:
       tags: [Payments]
       summary: Generate PIX charge (idempotent)
+      security: [{bearerAuth: []}, {orderGuest: []}]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyParam'
       responses:
@@ -2508,6 +2727,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/PixCharge'
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /transactions/{transaction_id}/pix/confirm:
+    post:
+      tags: [Payments]
+      summary: Confirm an unexpired mock PIX payment
+      security: [{bearerAuth: []}, {orderGuest: []}]
+      description: Idempotent per transaction. The mock charge cannot be paid through a banking app.
+      parameters:
+        - { name: transaction_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Mock transaction settled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Expired charge or invalid payment state }
 
   /transactions/{transaction_id}/refund:
     parameters:
@@ -2565,10 +2801,52 @@ paths:
   # ============================================================
   # SYSADMINS
   # ============================================================
+  /administrators:
+    get:
+      tags: [Sysadmins]
+      summary: List global Administrators (Administrator only)
+      responses:
+        '200':
+          description: Global Administrators
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Sysadmin' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Sysadmins]
+      summary: Grant global Administrator (Administrator only)
+      description: Bootstrap the first Administrator through a trusted database operation on a verified account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppointOwnerRequest' }
+      responses:
+        '201':
+          description: Granted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sysadmin' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /administrators/{account_id}:
+    parameters:
+      - $ref: '#/components/parameters/AccountIdParam'
+    delete:
+      tags: [Sysadmins]
+      summary: Revoke global Administrator (Administrator only)
+      responses:
+        '204': { description: Revoked }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /sysadmins:
     get:
       tags: [Sysadmins]
-      summary: List sysadmins (sysadmin only)
+      summary: List Sysadmins (Sysadmin or global Administrator)
       responses:
         '200':
           description: OK
@@ -2581,17 +2859,16 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Sysadmins]
-      summary: Promote to sysadmin (existing sysadmin + confirmation code)
+      summary: Grant Sysadmin (existing Sysadmin or global Administrator)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [account_id, confirmation_code]
+              required: [account_id]
               properties:
                 account_id: { type: integer }
-                confirmation_code: { type: string }
       responses:
         '201':
           description: Promoted
@@ -2631,6 +2908,10 @@ paths:
 
 components:
   securitySchemes:
+    orderGuest:
+      type: apiKey
+      in: header
+      name: X-Order-Token
     bearerAuth:
       type: http
       scheme: bearer
@@ -2657,6 +2938,11 @@ components:
       in: path
       required: true
       schema: { type: integer }
+    MenuBranchQuery:
+      name: branch_id
+      in: query
+      description: Optional branch scope. Include it to read branch stock and discounts or cancel a sale belonging to that branch.
+      schema: { type: integer, minimum: 1 }
     ItemIdParam:
       name: item_id
       in: path
@@ -2879,7 +3165,11 @@ components:
           $ref: '#/components/schemas/Restaurant'
         role:
           type: string
-          enum: [OWNER, MANAGER, ANALYST]
+          enum: [OWNER, MANAGER, ANALYST, EMPLOYEE]
+        branch_ids:
+          type: array
+          items: { type: integer }
+          description: Explicit assignments for a branch-scoped role; empty for an organization role.
     Membership:
       type: object
       required: [account_id, role]
@@ -2894,7 +3184,7 @@ components:
           nullable: true
         role:
           type: string
-          enum: [OWNER, MANAGER]
+          enum: [OWNER, ANALYST]
         created_at: { type: string, format: date-time }
     AppointOwnerRequest:
       type: object
@@ -3022,21 +3312,12 @@ components:
         updated_at: { type: string, format: date-time }
     CreateEmployeeRequest:
       type: object
-      required: [name, position]
+      required: [account_id, position]
       properties:
-        name: { type: string }
-        cpf: { type: string, pattern: '^\d{11}$' }
+        account_id: { type: integer, minimum: 1 }
         position:
           type: string
           enum: [WAITER, COOK, CASHIER, BARTENDER, HOST, OTHER]
-        email:
-          type: string
-          format: email
-          description: If provided, an invite is sent immediately
-        phone:
-          type: string
-          description: If provided instead of email, invite is sent via SMS
-        hired_at: { type: string, format: date }
     UpdateEmployeeRequest:
       type: object
       properties:
@@ -3076,14 +3357,16 @@ components:
         name: { type: string }
         template_style: { type: string, example: classic }
         accent_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
         typography: { type: string }
         updated_at: { type: string, format: date-time }
     UpdateMenuLayoutRequest:
       type: object
       properties:
         name: { type: string }
-        template_style: { type: string }
+        template_style: { type: string, enum: [classic, experience] }
         accent_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
         typography: { type: string }
 
     Category:
@@ -3118,6 +3401,9 @@ components:
         name: { type: string }
         description: { type: string }
         base_price_cents: { type: integer }
+        effective_price_cents: { type: integer, description: Price after the applicable temporary sale, before options. }
+        base_cost_cents: { type: integer, description: Returned only to Owner, Administrator, or Analyst when recorded. }
+        allows_review: { type: boolean }
         photo_url: { type: string }
         is_combo: { type: boolean }
         is_available: { type: boolean }
@@ -3132,6 +3418,8 @@ components:
         name: { type: string }
         description: { type: string }
         base_price_cents: { type: integer, minimum: 0 }
+        base_cost_cents: { type: integer, minimum: 0, nullable: true }
+        allows_review: { type: boolean, default: true }
         photo_url: { type: string }
         is_combo: { type: boolean, default: false }
         is_available: { type: boolean, default: true }
@@ -3143,6 +3431,8 @@ components:
         name: { type: string }
         description: { type: string }
         base_price_cents: { type: integer, minimum: 0 }
+        base_cost_cents: { type: integer, minimum: 0, nullable: true }
+        allows_review: { type: boolean }
         photo_url: { type: string }
         is_combo: { type: boolean }
         is_available: { type: boolean }
@@ -3151,9 +3441,11 @@ components:
       properties:
         category_id: { type: integer }
         name: { type: string }
-        description: { type: string }
+        description: { type: string, nullable: true }
         base_price_cents: { type: integer, minimum: 0 }
-        photo_url: { type: string }
+        base_cost_cents: { type: integer, minimum: 0, nullable: true }
+        allows_review: { type: boolean }
+        photo_url: { type: string, nullable: true }
         is_combo: { type: boolean }
         is_available: { type: boolean }
     ItemDetail:
@@ -3169,6 +3461,10 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Side'
+            combo_items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ComboItem'
 
     # ---------- Ingredients ----------
     Ingredient:
@@ -3228,6 +3524,11 @@ components:
         sub_item_id: { type: integer }
         sub_item_name: { type: string }
         quantity: { type: integer, minimum: 1 }
+        removable_ingredients:
+          type: array
+          description: Exclusions can be requested for each serving of this component as preparation notes.
+          items:
+            $ref: '#/components/schemas/ItemIngredient'
 
     # ---------- Sales ----------
     ItemSale:
@@ -3236,6 +3537,7 @@ components:
       properties:
         id: { type: integer }
         item_id: { type: integer }
+        branch_id: { type: integer, minimum: 1 }
         discount_type:
           type: string
           enum: [percent, fixed_cents]
@@ -3246,6 +3548,7 @@ components:
       type: object
       required: [discount_type, discount_value, starts_at, ends_at]
       properties:
+        branch_id: { type: integer, minimum: 1, description: Required for Branch Managers; otherwise omission creates an organization-wide sale. }
         discount_type:
           type: string
           enum: [percent, fixed_cents]
@@ -3254,7 +3557,19 @@ components:
         ends_at: { type: string, format: date-time }
 
     # ---------- Coupons ----------
+    CouponMetadata:
+      type: object
+      properties:
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        target_scope: { type: string, enum: [order, item, combo], default: order }
+        target_item_id: { type: integer, nullable: true, description: Required for item and combo scopes. }
+        is_banner: { type: boolean, default: false }
+        background_image_url: { type: string, description: Required with a title for banner coupons. }
     Coupon:
+      allOf:
+        - $ref: '#/components/schemas/CouponMetadata'
       type: object
       required: [id, restaurant_slug, code, discount_type, discount_value, used_count, is_active]
       properties:
@@ -3272,6 +3587,8 @@ components:
         is_active: { type: boolean }
         created_at: { type: string, format: date-time }
     CreateCouponRequest:
+      allOf:
+        - $ref: '#/components/schemas/CouponMetadata'
       type: object
       required: [code, discount_type, discount_value]
       properties:
@@ -3281,15 +3598,19 @@ components:
           enum: [percent, fixed_cents]
         discount_value: { type: integer, minimum: 1 }
         min_order_cents: { type: integer, minimum: 0 }
-        expires_at: { type: string, format: date-time }
-        max_uses: { type: integer, minimum: 1 }
+        expires_at: { type: string, format: date-time, nullable: true }
+        max_uses: { type: integer, minimum: 1, nullable: true }
+        is_active: { type: boolean, default: true }
     UpdateCouponRequest:
+      allOf:
+        - $ref: '#/components/schemas/CouponMetadata'
       type: object
       properties:
         discount_value: { type: integer }
         min_order_cents: { type: integer }
-        expires_at: { type: string, format: date-time }
-        max_uses: { type: integer }
+        discount_type: { type: string, enum: [percent, fixed_cents] }
+        expires_at: { type: string, format: date-time, nullable: true }
+        max_uses: { type: integer, minimum: 1, nullable: true }
         is_active: { type: boolean }
     CouponValidation:
       type: object
@@ -3302,7 +3623,50 @@ components:
           enum: [EXPIRED, MAX_USES_REACHED, MIN_ORDER_NOT_MET, INACTIVE]
         discount_cents:
           type: integer
-          description: Present only when valid=true
+          description: Present for valid order-wide coupons. Item and combo coupons require a cart quote.
+    CheckoutSelection:
+      type: object
+      required: [item_id, quantity]
+      properties:
+        item_id: { type: integer, minimum: 1 }
+        quantity: { type: integer, minimum: 1 }
+        option_ids: { type: array, items: { type: integer } }
+        remove_ingredient_ids: { type: array, items: { type: integer } }
+        notes: { type: string }
+        component_removals:
+          type: array
+          items:
+            type: object
+            required: [combo_item_id, unit]
+            properties:
+              combo_item_id: { type: integer, minimum: 1 }
+              unit: { type: integer, minimum: 1 }
+              remove_ingredient_ids: { type: array, items: { type: integer } }
+    CheckoutPrice:
+      type: object
+      required: [lines, coupons, subtotal_cents, discount_cents, coins_redeemed, payable_cents]
+      properties:
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              item: { type: object, description: Item and customization snapshot before discounts. }
+              subtotal_cents: { type: integer }
+              discount_cents: { type: integer }
+              coupon_id: { type: integer, description: Omitted if the line received an item sale or no discount. }
+        coupons:
+          type: array
+          items:
+            type: object
+            properties:
+              coupon_id: { type: integer }
+              code: { type: string }
+              discount_cents: { type: integer }
+        subtotal_cents: { type: integer }
+        discount_cents: { type: integer }
+        coins_redeemed: { type: integer }
+        payable_cents: { type: integer }
 
     # ---------- Loyalty ----------
     LoyaltyCustomer:
@@ -3359,6 +3723,8 @@ components:
         freight_cents: { type: integer }
         total_cents: { type: integer }
         coupon_code: { type: string, nullable: true }
+        submitted_at: { type: string, format: date-time, nullable: true, description: Null for drafts. }
+        qr_id: { type: integer, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     OrderDetail:
@@ -3370,8 +3736,8 @@ components:
               type: object
               nullable: true
               properties:
-                table_id: { type: integer }
-                table_number: { type: integer }
+                table_id: { type: integer, nullable: true }
+                table_number: { type: integer, nullable: true }
             remote_info:
               type: object
               nullable: true
@@ -3408,76 +3774,48 @@ components:
         voided_reason: { type: string, nullable: true }
     SelectedOption:
       type: object
-      required: [side_id, side_title, option_id, option_name, additional_price_cents, quantity]
+      required: [group, name, additional_price_cents]
       properties:
-        side_id: { type: integer }
-        side_title: { type: string }
-        option_id: { type: integer }
-        option_name: { type: string }
+        group: { type: string }
+        name: { type: string }
         additional_price_cents: { type: integer }
-        quantity: { type: integer }
     AddOrderItemRequest:
+      $ref: '#/components/schemas/CheckoutSelection'
+    OrderPromotions:
       type: object
-      required: [item_id, quantity]
       properties:
-        item_id: { type: integer }
-        quantity: { type: integer, minimum: 1 }
-        notes: { type: string }
-        parent_order_item_id: { type: integer }
-        selected_options:
-          type: array
-          items:
-            type: object
-            required: [side_id, option_id]
-            properties:
-              side_id: { type: integer }
-              option_id: { type: integer }
-              quantity: { type: integer, minimum: 1, default: 1 }
+        coupon_codes: { type: array, items: { type: string } }
+        saved_coupon_ids: { type: array, items: { type: integer } }
+        coins: { type: integer, minimum: 0 }
     CreateLocalOrderRequest:
+      allOf:
+        - $ref: '#/components/schemas/OrderPromotions'
       type: object
-      required: [table_number, items]
       properties:
-        user_id:
-          type: integer
-          description: Attach order to a logged-in account
-        customer_cpf:
-          type: string
-          pattern: '^\d{11}$'
-          description: |
-            Attach order to a loyalty CPF with no account. Mutually exclusive
-            with user_id. If both given, 400.
+        table_id: { type: integer, minimum: 1 }
         table_number:
           type: integer
-          description: Server resolves to a Table (creates if not exists)
+          minimum: 1
+          description: Existing table number at the branch. Omit both table fields for tableless orders.
         items:
           type: array
-          minItems: 1
+          maxItems: 100
           items:
             $ref: '#/components/schemas/AddOrderItemRequest'
-        coupon_code: { type: string }
     CreateRemoteOrderRequest:
+      allOf:
+        - $ref: '#/components/schemas/OrderPromotions'
       type: object
-      required: [phone, items]
+      required: [phone, delivery_address]
       properties:
-        user_id: { type: integer }
-        customer_cpf:
-          type: string
-          pattern: '^\d{11}$'
-          description: Mutually exclusive with user_id
-        delivery_address_id:
-          type: integer
-          description: Reference a saved address from /me/addresses
         delivery_address:
           $ref: '#/components/schemas/Address'
-          description: Inline address — used if delivery_address_id is omitted
         phone: { type: string }
-        freight_cents: { type: integer, minimum: 0 }
         items:
           type: array
-          minItems: 1
+          maxItems: 100
           items:
             $ref: '#/components/schemas/AddOrderItemRequest'
-        coupon_code: { type: string }
 
     # ---------- Payments ----------
     Transaction:

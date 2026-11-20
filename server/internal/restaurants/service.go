@@ -21,37 +21,28 @@ var (
 type operation string
 
 const (
-	listOrg          operation = "restaurant.list"
-	myOrg            operation = "restaurant.mine"
-	getOrg           operation = "restaurant.get"
-	createOrg        operation = "restaurant.create"
-	updateOrg        operation = "restaurant.update"
-	archiveOrg       operation = "restaurant.archive"
-	listBranch       operation = "branch.list"
-	getBranch        operation = "branch.get"
-	createBranch     operation = "branch.create"
-	updateBranch     operation = "branch.update"
-	archiveBranch    operation = "branch.archive"
-	verifyBranch     operation = "branch.verify"
-	setAddress       operation = "branch.address.update"
-	listPhones       operation = "branch.phone.list"
-	addPhone         operation = "branch.phone.add"
-	removePhone      operation = "branch.phone.remove"
-	getHours         operation = "branch.hours.get"
-	setHours         operation = "branch.hours.update"
-	listTables       operation = "branch.table.list"
-	addTable         operation = "branch.table.add"
-	updateTable      operation = "branch.table.update"
-	removeTable      operation = "branch.table.remove"
-	listOwners       operation = "restaurant.owner.list"
-	addOwner         operation = "restaurant.owner.add"
-	removeOwner      operation = "restaurant.owner.remove"
-	publishedCatalog operation = "restaurant.catalog.published"
-	assignManager    operation = "branch.manager.assign"
-	revokeManager    operation = "branch.manager.revoke"
-	listOrgManagers  operation = "restaurant.manager.list"
-	addOrgManager    operation = "restaurant.manager.add"
-	removeOrgManager operation = "restaurant.manager.remove"
+	listOrg       operation = "restaurant.list"
+	myOrg         operation = "restaurant.mine"
+	getOrg        operation = "restaurant.get"
+	createOrg     operation = "restaurant.create"
+	updateOrg     operation = "restaurant.update"
+	archiveOrg    operation = "restaurant.archive"
+	listBranch    operation = "branch.list"
+	getBranch     operation = "branch.get"
+	createBranch  operation = "branch.create"
+	updateBranch  operation = "branch.update"
+	archiveBranch operation = "branch.archive"
+	verifyBranch  operation = "branch.verify"
+	setAddress    operation = "branch.address.update"
+	listPhones    operation = "branch.phone.list"
+	addPhone      operation = "branch.phone.add"
+	removePhone   operation = "branch.phone.remove"
+	getHours      operation = "branch.hours.get"
+	setHours      operation = "branch.hours.update"
+	listTables    operation = "branch.table.list"
+	addTable      operation = "branch.table.add"
+	updateTable   operation = "branch.table.update"
+	removeTable   operation = "branch.table.remove"
 )
 
 type address struct {
@@ -100,10 +91,6 @@ type tableInput struct {
 	Active *bool `json:"is_active"`
 }
 
-type accountInput struct {
-	ID int `json:"account_id"`
-}
-
 type request struct {
 	op                                operation
 	slug                              string
@@ -112,12 +99,12 @@ type request struct {
 }
 
 type access struct {
-	orgID                                  int
-	orgRole                                string
-	manager, employee, sysadmin, published bool
+	orgID                                                 int
+	orgRole                                               string
+	manager, employee, sysadmin, administrator, published bool
 }
 
-func (a access) managesOrg() bool { return a.orgRole == "OWNER" || a.orgRole == "MANAGER" }
+func (a access) managesOrg() bool { return a.administrator || a.orgRole == "OWNER" }
 
 func (a access) managesBranch() bool { return a.managesOrg() || a.manager }
 
@@ -158,7 +145,7 @@ func (s service) run(ctx context.Context, r request) (any, error) {
 
 func isWrite(op operation) bool {
 	switch op {
-	case listOrg, myOrg, getOrg, listBranch, getBranch, listPhones, getHours, listTables, listOwners, listOrgManagers:
+	case listOrg, myOrg, getOrg, listBranch, getBranch, listPhones, getHours, listTables:
 		return false
 	default:
 		return true
@@ -177,14 +164,10 @@ func authorize(r request, a access) error {
 			return nil
 		}
 		return errMissing
-	case updateOrg, createBranch, archiveBranch, assignManager, revokeManager:
+	case updateOrg, createBranch, archiveBranch, archiveOrg:
 		allowed = a.managesOrg()
-	case listOwners, listOrgManagers:
-		allowed = a.managesOrg()
-	case archiveOrg, addOwner, removeOwner, addOrgManager, removeOrgManager:
-		allowed = a.orgRole == "OWNER"
 	case verifyBranch:
-		allowed = a.sysadmin
+		allowed = a.sysadmin || a.administrator
 	case listPhones, listTables:
 		allowed = a.managesBranch() || a.employee
 	case updateBranch, setAddress, addPhone, removePhone, setHours, addTable, updateTable, removeTable:
@@ -261,175 +244,9 @@ func validate(r *request) error {
 		}
 	case *tableInput:
 		valid = b.Number > 0 && b.Number <= 2147483647 && (b.Seats == nil || (*b.Seats > 0 && *b.Seats <= 2147483647)) && b.Order >= 0 && b.Order <= 2147483647
-	case *accountInput:
-		valid = b.ID > 0 && b.ID <= 2147483647
 	}
 	if !valid {
 		return errInvalid
 	}
 	return nil
-}
-
-// Domain Errors: Exported as vars so http.go or callers can match with errors.Is.
-var (
-	ErrNotFound   = errors.New("not found")
-	ErrValidation = errors.New("validation failed")
-)
-
-// Restaurant represents a logical restaurant entity.
-type Restaurant struct {
-	Slug         string
-	Name         string
-	Description  string
-	Cuisine      string
-	IsOpen       bool
-	OpenTime     string
-	ClosingTime  string
-	Rating       float64
-	ReviewsCount int
-	DeliveryFee  float64
-	CEP          string
-	DeliveryTime string
-	Neighborhood string
-	Phone        string
-	BannerURL    string
-	LogoURL      string
-	MenuItems    []string
-}
-
-// Dish represents a menu item belonging to a restaurant.
-type Dish struct {
-	ID             any
-	RestaurantSlug string
-	Name           string
-	Description    string
-	Category       string
-	Tags           []string
-	Price          float64
-	ImageURL       string
-}
-
-// NewDish holds the business fields required to create a dish.
-type NewDish struct {
-	RestaurantSlug string
-	Name           string
-	Description    string
-	Category       string
-	Tags           []string
-	Price          float64
-	ImageURL       string
-}
-
-// UpdateDishInput holds modifications for an existing dish.
-type UpdateDishInput struct {
-	Name        string
-	Description string
-	Category    string
-	Tags        []string
-	Price       float64
-	ImageURL    string
-}
-
-// store defines the consumer-side interface for restaurant persistence.
-type catalogStore interface {
-	GetRestaurantBySlug(ctx context.Context, slug string) (*Restaurant, error)
-
-	ListDishes(ctx context.Context, restaurantSlug string) ([]Dish, error)
-	CreateDish(ctx context.Context, input NewDish) (*Dish, error)
-	UpdateDish(ctx context.Context, restaurantSlug string, dishID int, input UpdateDishInput) (*Dish, error)
-	DeleteDish(ctx context.Context, restaurantSlug string, dishID int) error
-	UpdateDishImage(ctx context.Context, restaurantSlug string, dishID int, imageURL string) (*Dish, error)
-}
-
-type Service struct{ store catalogStore }
-
-// ListDishes retrieves all dishes belonging to a restaurant.
-func (s *Service) ListDishes(ctx context.Context, restaurantSlug string) ([]Dish, error) {
-	restaurantSlug = strings.ToLower(strings.TrimSpace(restaurantSlug))
-	return s.store.ListDishes(ctx, restaurantSlug)
-}
-
-// AddDish validates price, name, and restaurant existence before adding.
-func (s *Service) AddDish(ctx context.Context, input NewDish) (*Dish, error) {
-	name := strings.TrimSpace(input.Name)
-	if len(name) < 2 {
-		return nil, errors.Join(ErrValidation, errors.New("dish name must have at least 2 characters"))
-	}
-	if input.Price <= 0 {
-		return nil, errors.Join(ErrValidation, errors.New("dish price must be greater than zero"))
-	}
-
-	slug := strings.ToLower(strings.TrimSpace(input.RestaurantSlug))
-	if slug == "" {
-		return nil, errors.Join(ErrValidation, errors.New("restaurant slug is required"))
-	}
-
-	// Verify restaurant exists
-	_, err := s.store.GetRestaurantBySlug(ctx, slug)
-	if err != nil {
-		return nil, ErrNotFound
-	}
-
-	return s.store.CreateDish(ctx, NewDish{
-		RestaurantSlug: slug,
-		Name:           name,
-		Description:    strings.TrimSpace(input.Description),
-		Category:       strings.TrimSpace(input.Category),
-		Tags:           input.Tags,
-		Price:          input.Price,
-		ImageURL:       strings.TrimSpace(input.ImageURL),
-	})
-}
-
-// UpdateDish updates dish information.
-func (s *Service) UpdateDish(ctx context.Context, slug string, id int, input UpdateDishInput) (*Dish, error) {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	return s.store.UpdateDish(ctx, slug, id, input)
-}
-
-// DeleteDish removes a dish from the menu.
-func (s *Service) DeleteDish(ctx context.Context, slug string, id int) error {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	return s.store.DeleteDish(ctx, slug, id)
-}
-
-// UpdateDishImage updates the image URL for a dish.
-func (s *Service) UpdateDishImage(ctx context.Context, slug string, id int, imageURL string) (*Dish, error) {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	return s.store.UpdateDishImage(ctx, slug, id, imageURL)
-}
-
-// GetRestaurantMenu returns the restaurant profile, ordered unique categories ("Mais Pedidos" first), and dishes.
-func (s *Service) GetRestaurantMenu(ctx context.Context, slug string) (*Restaurant, []string, []Dish, error) {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	res, err := s.store.GetRestaurantBySlug(ctx, slug)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	dishes, err := s.store.ListDishes(ctx, slug)
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return nil, nil, nil, err
-	}
-	if dishes == nil {
-		dishes = make([]Dish, 0)
-	}
-
-	catSet := make(map[string]bool)
-	var categories []string
-	categories = append(categories, "Mais Pedidos")
-	catSet["Mais Pedidos"] = true
-
-	for _, d := range dishes {
-		cat := d.Category
-		if cat == "" {
-			cat = "Pizzas"
-		}
-		if !catSet[cat] {
-			catSet[cat] = true
-			categories = append(categories, cat)
-		}
-	}
-
-	return res, categories, dishes, nil
 }
