@@ -32,6 +32,8 @@ info:
     If the CPF is already on a **real** account, both paths return `409`.
 
     ## Auth levels
+    An organization `MANAGER` has organization-wide operational authority.
+    A separate branch Manager assignment grants operational access only to that branch.
     - `public`   — no auth
     - `user`     — any authenticated account (bearer JWT)
     - `manager`  — MANAGER or OWNER of the logical restaurant
@@ -59,8 +61,11 @@ info:
     order. Redeeming requires a **real** account (shadows cannot log in). See
     "Shadow accounts" above for how shadows become real.
 
+security:
+  - bearerAuth: []
+
 # ============================================================
-# paths — AUTH (replace the entire /auth/* and /me/* section)
+# paths — AUTH
 # ============================================================
 paths:
   # ----------------------------------------------------------
@@ -506,76 +511,8 @@ paths:
                 $ref: '#/components/schemas/Account'
         '400': { $ref: '#/components/responses/BadRequest' }
 
-# ============================================================
-# components — schemas (only the ones that changed)
-# ============================================================
-components:
-  schemas:
-    RegisterRequest:
-      type: object
-      required: [email, password]
-      properties:
-        email: { type: string, format: email }
-        password: { type: string, format: password, minLength: 8 }
-        phone:
-          type: string
-          description: Stored as unverified contact data. Verify via /me/phone/verify.
-        cpf:
-          type: string
-          pattern: '^[0-9]{11}$'
-          description: |
-            Optional. If this CPF belongs to a shadow account, the shadow is
-            graduated in place (email + password written onto it). If it
-            belongs to a real account, returns 409.
-
-    Account:
-      type: object
-      required: [id, created_at, is_shadow]
-      properties:
-        id: { type: integer }
-        email:
-          type: string
-          format: email
-          nullable: true
-          description: Null for phone-only or shadow accounts
-        email_verified: { type: boolean }
-        phone:
-          type: string
-          nullable: true
-        phone_verified: { type: boolean }
-        name: { type: string, nullable: true }
-        cpf:
-          type: string
-          pattern: '^[0-9]{11}$'
-          nullable: true
-          description: |
-            Set at registration/claim, or (for shadows) created by the order
-            flow when a cashier entered this CPF.
-        cpf_claimed_at:
-          type: string
-          format: date-time
-          nullable: true
-          description: Set when the CPF was attached to this account
-        is_shadow:
-          type: boolean
-          description: |
-            Computed. True when `email`, `phone`, and `password` are all null.
-            Shadow accounts cannot authenticate — they exist only to hold
-            wallets created by the order flow until graduated.
-        two_factor_enabled: { type: boolean }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-      description: |
-        An account represents a person in the system.
-
-        - **Real** accounts have `email` and/or `phone` and can log in.
-        - **Shadow** accounts have only `cpf` (and possibly `name`) — they are
-          created automatically by `POST /orders/...` when a CPF is provided
-          for loyalty accrual and no account exists. Shadows cannot log in.
-          They graduate to real via `POST /auth/register*` with a matching
-          CPF, or `PUT /me/cpf` from an already-logged-in account.
   # ============================================================
-  # RESTAURANTS
+  # RESTAURANTS (Organization)
   # ============================================================
   /restaurants:
     get:
@@ -594,7 +531,7 @@ components:
                 $ref: '#/components/schemas/PaginatedRestaurants'
     post:
       tags: [Restaurants]
-      summary: Create restaurant (caller becomes first OWNER)
+      summary: Create a new Organization (caller becomes first Owner)
       requestBody:
         required: true
         content:
@@ -614,7 +551,7 @@ components:
   /me/restaurants:
     get:
       tags: [Restaurants]
-      summary: My memberships
+      summary: List my Organization memberships and roles
       responses:
         '200':
           description: OK
@@ -631,7 +568,7 @@ components:
       - $ref: '#/components/parameters/SlugParam'
     get:
       tags: [Restaurants]
-      summary: Get restaurant
+      summary: Get Organization details (public)
       security: []
       responses:
         '200':
@@ -643,8 +580,8 @@ components:
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Restaurants]
-      summary: Update restaurant (OWNER)
-      description: Slug is immutable.
+      summary: Update Organization details
+      description: Requires an organization Owner or Manager. Slug is immutable.
       requestBody:
         required: true
         content:
@@ -662,11 +599,343 @@ components:
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Restaurants]
-      summary: Soft-delete restaurant (OWNER)
+      summary: Soft-delete Organization
+      description: Requires Owner. Archives the organization without erasing historical order/financial records.
       responses:
         '204': { description: Archived }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================================================
+  # BRANCHES (Physical Establishments)
+  # ============================================================
+  /restaurants/{slug}/branches:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags: [Branches]
+      summary: List branches
+      description: Public responses include only active, verified branches. Organization Owners and Managers, assigned branch Managers, and Platform Sysadmins can also see pending branches within their scope.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBranches'
+    post:
+      tags: [Branches]
+      summary: Create branch (requires an organization Owner or Manager)
+      description: |
+        Creates a new physical branch.
+        The branch is pending verification when `cnpj_verified` is false.
+        It cannot accept orders or publish menus until a Platform Sysadmin reviews and verifies the provided CNPJ and Owner CNPJ.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBranchRequest'
+      responses:
+        '201':
+          description: Created (Pending Verification)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /restaurants/{slug}/branches/{branch_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags: [Branches]
+      summary: Get branch details
+      description: Pending branches are visible only to organization Owners and Managers, assigned branch Managers, and Platform Sysadmins. Owner CNPJ is omitted from public responses.
+      security: [{}, {bearerAuth: []}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Branches]
+      summary: Update branch details
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBranchRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Branches]
+      summary: Deactivate branch
+      description: Requires an organization Owner or Manager.
+      responses:
+        '204': { description: Deactivated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /restaurants/{slug}/branches/{branch_id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    put:
+      tags: [Branches]
+      summary: Approve the branch's legal registration
+      description: Platform Sysadmin only. Records approval after manual review of both CNPJs and makes the active branch publicly visible.
+      responses:
+        '200':
+          description: Verified branch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Branch' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /restaurants/{slug}/branches/{branch_id}/address:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    put:
+      tags: [Branches]
+      summary: Update physical address
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Address'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /restaurants/{slug}/branches/{branch_id}/managers/{account_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - $ref: '#/components/parameters/AccountIdParam'
+    put:
+      tags: [Branches]
+      summary: Assign a Manager to this branch
+      description: Requires an organization Owner or Manager. The target must be an account with a verified login method. The assignment grants no authority over other branches.
+      responses:
+        '204': { description: Assigned }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Branches]
+      summary: Revoke a branch Manager assignment
+      description: Requires an organization Owner or Manager.
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================================================
+  # BRANCH PHONES
+  # ============================================================
+  /restaurants/{slug}/branches/{branch_id}/phones:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags: [Branches]
+      summary: List contact phones
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Phone'
+    post:
+      tags: [Branches]
+      summary: Add contact phone
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePhoneRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Phone'
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /restaurants/{slug}/branches/{branch_id}/phones/{phone_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - name: phone_id
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      tags: [Branches]
+      summary: Remove contact phone
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================================================
+  # OPERATING HOURS
+  # ============================================================
+  /restaurants/{slug}/branches/{branch_id}/hours:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags: [OperatingHours]
+      summary: Get weekly operating hours
+      description: Pending branches follow the same visibility rules as branch details. Returns an empty array before a schedule is configured.
+      security: [{}, {bearerAuth: []}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperatingHour'
+    put:
+      tags: [OperatingHours]
+      summary: Replace operating hours
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch. Supply exactly one entry per weekday. Closed days omit times or use null; open days may cross midnight.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 7
+              maxItems: 7
+              items:
+                $ref: '#/components/schemas/OperatingHour'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperatingHour'
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ============================================================
+  # TABLES
+  # ============================================================
+  /restaurants/{slug}/branches/{branch_id}/tables:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+    get:
+      tags: [Tables]
+      summary: List dining tables
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Table'
+    post:
+      tags: [Tables]
+      summary: Create dining table
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTableRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Table'
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /restaurants/{slug}/branches/{branch_id}/tables/{table_id}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/BranchIdParam'
+      - name: table_id
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Tables]
+      summary: Update table (e.g., change seat capacity)
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTableRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Table'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Tables]
+      summary: Archive a dining table
+      description: Requires an organization Owner or Manager, or a Manager assigned to the branch. Preserves historical references.
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 
   # ============================================================
   # OWNERS
@@ -677,6 +946,7 @@ components:
     get:
       tags: [Owners]
       summary: List owners
+      description: Requires an organization Owner or Manager.
       responses:
         '200':
           description: OK
@@ -772,271 +1042,6 @@ components:
         '204': { description: Removed }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-
-  # ============================================================
-  # BRANCHES
-  # ============================================================
-  /restaurants/{slug}/branches:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-    get:
-      tags: [Branches]
-      summary: List branches
-      security: []
-      parameters:
-        - $ref: '#/components/parameters/PageParam'
-        - $ref: '#/components/parameters/PageSizeParam'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedBranches'
-    post:
-      tags: [Branches]
-      summary: Create branch (OWNER, CNPJ verification required)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateBranchRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Branch'
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { $ref: '#/components/responses/Conflict' }
-
-  /restaurants/{slug}/branches/{branch_id}:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-    get:
-      tags: [Branches]
-      summary: Get branch
-      security: []
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Branch'
-        '404': { $ref: '#/components/responses/NotFound' }
-    put:
-      tags: [Branches]
-      summary: Update branch (manager+)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateBranchRequest'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Branch'
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [Branches]
-      summary: Deactivate branch (OWNER)
-      responses:
-        '204': { description: Deactivated }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /restaurants/{slug}/branches/{branch_id}/address:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-    put:
-      tags: [Branches]
-      summary: Update address
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Address'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Address'
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /restaurants/{slug}/branches/{branch_id}/phones:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-    get:
-      tags: [Branches]
-      summary: List phones
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Phone'
-    post:
-      tags: [Branches]
-      summary: Add phone
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreatePhoneRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Phone'
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /restaurants/{slug}/branches/{branch_id}/phones/{phone_id}:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-      - name: phone_id
-        in: path
-        required: true
-        schema: { type: integer }
-    delete:
-      tags: [Branches]
-      summary: Remove phone
-      responses:
-        '204': { description: Removed }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ============================================================
-  # OPERATING HOURS
-  # ============================================================
-  /restaurants/{slug}/branches/{branch_id}/hours:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-    get:
-      tags: [OperatingHours]
-      summary: Get operating hours
-      security: []
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/OperatingHour'
-    put:
-      tags: [OperatingHours]
-      summary: Replace operating hours
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/OperatingHour'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/OperatingHour'
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  # ============================================================
-  # TABLES
-  # ============================================================
-  /restaurants/{slug}/branches/{branch_id}/tables:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-    get:
-      tags: [Tables]
-      summary: List tables
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Table'
-    post:
-      tags: [Tables]
-      summary: Create table
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateTableRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Table'
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /restaurants/{slug}/branches/{branch_id}/tables/{table_id}:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-      - name: table_id
-        in: path
-        required: true
-        schema: { type: integer }
-    put:
-      tags: [Tables]
-      summary: Update table
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateTableRequest'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Table'
-        '403': { $ref: '#/components/responses/Forbidden' }
-    delete:
-      tags: [Tables]
-      summary: Delete table
-      responses:
-        '204': { description: Removed }
-        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ============================================================
   # EMPLOYEES
@@ -1143,41 +1148,6 @@ components:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  # ============================================================
-  # TERMINAL SESSIONS
-  # ============================================================
-  /restaurants/{slug}/branches/{branch_id}/terminal-sessions:
-    parameters:
-      - $ref: '#/components/parameters/SlugParam'
-      - $ref: '#/components/parameters/BranchIdParam'
-    post:
-      tags: [TerminalSessions]
-      summary: Open terminal session with branch shared PIN
-      description: |
-        The 6-digit PIN is shared per branch and rotates every 8 hours.
-        Returns a device-bound token scoped to this branch, read-only orders
-        access, expiring with the shift. Aggressively rate-limited.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [pin]
-              properties:
-                pin:
-                  type: string
-                  pattern: '^\d{6}$'
-      responses:
-        '201':
-          description: Session opened
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TerminalSession'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   # ============================================================
   # STAFF SESSIONS
@@ -2667,16 +2637,14 @@ components:
       bearerFormat: JWT
       description: |
         JWT accepted from any of:
+        - `POST /auth/register`
         - `POST /auth/login`
         - `POST /auth/login/phone/verify`
         - `POST /auth/register/phone/verify`
         - `POST /auth/refresh`
-        - `POST /restaurants/{slug}/branches/{branch_id}/terminal-sessions`
 
-        User and terminal tokens share the same header. The server distinguishes
-        on the `typ` claim (`user` vs `terminal`). Terminal tokens only grant
-        read-only orders access scoped to one branch — the server rejects them
-        on any endpoint requiring a user, manager, owner, employee, or sysadmin role.
+        Send the access token as a bearer credential. Refresh tokens are accepted
+        only by the session endpoints that explicitly request them.
 
   parameters:
     SlugParam:
@@ -2790,6 +2758,10 @@ components:
         phone:
           type: string
           description: Stored as unverified contact data. Use /me/phone/verify to enable OTP login.
+        cpf:
+          type: string
+          pattern: '^[0-9]{11}$'
+          description: Optional. Graduates a matching shadow account in place; conflicts with a real account.
     LoginRequest:
       type: object
       required: [email, password]
@@ -2806,7 +2778,7 @@ components:
         expires_in: { type: integer, description: seconds }
     Account:
       type: object
-      required: [id, created_at]
+      required: [id, created_at, is_shadow]
       properties:
         id: { type: integer }
         email:
@@ -2822,8 +2794,11 @@ components:
         phone_verified:
           type: boolean
           description: Only verified phones can be used for OTP login
+        name: { type: string, nullable: true }
+        cpf: { type: string, nullable: true, pattern: '^[0-9]{11}$' }
+        cpf_claimed_at: { type: string, format: date-time, nullable: true }
+        is_shadow: { type: boolean, description: CPF-only accounts cannot authenticate until graduated. }
         created_at: { type: string, format: date-time }
-        two_factor_enabled: { type: boolean }
     JwtClaims:
       type: object
       description: |
@@ -2904,7 +2879,7 @@ components:
           $ref: '#/components/schemas/Restaurant'
         role:
           type: string
-          enum: [OWNER, MANAGER, EMPLOYEE]
+          enum: [OWNER, MANAGER, ANALYST]
     Membership:
       type: object
       required: [account_id, role]
@@ -2956,7 +2931,7 @@ components:
         cnpj:
           type: string
           pattern: '^\d{14}$'
-          description: Verified against Receita Federal
+          description: Pending manual review by a platform Sysadmin.
         owner_cnpj:
           type: string
           pattern: '^\d{14}$'
@@ -2990,7 +2965,7 @@ components:
 
     OperatingHour:
       type: object
-      required: [weekday, opens_at, closes_at, is_closed]
+      required: [weekday, is_closed]
       properties:
         weekday:
           type: integer
@@ -2998,9 +2973,11 @@ components:
           maximum: 6
         opens_at:
           type: string
+          nullable: true
           pattern: '^([01]\d|2[0-3]):[0-5]\d$'
         closes_at:
           type: string
+          nullable: true
           pattern: '^([01]\d|2[0-3]):[0-5]\d$'
         is_closed: { type: boolean }
 
@@ -3068,19 +3045,6 @@ components:
           type: string
           enum: [WAITER, COOK, CASHIER, BARTENDER, HOST, OTHER]
         is_active: { type: boolean }
-
-    # ---------- Terminal sessions ----------
-    TerminalSession:
-      type: object
-      required: [access_token, expires_at, branch_id, scopes]
-      properties:
-        access_token: { type: string }
-        expires_at: { type: string, format: date-time }
-        branch_id: { type: integer }
-        scopes:
-          type: array
-          items: { type: string }
-          example: ['orders:read']
 
     # ---------- Staff sessions ----------
     StaffSession:

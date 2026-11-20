@@ -3,21 +3,278 @@ package restaurants
 import (
 	"context"
 	"errors"
-	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
+	"time"
+	"unicode/utf8"
 )
+
+var (
+	errInvalid     = errors.New("invalid input")
+	errForbidden   = errors.New("forbidden")
+	errMissing     = errors.New("resource not found")
+	errConflict    = errors.New("resource conflicts with existing data")
+	errLastOwner   = errors.New("cannot remove the last owner")
+	errUnavailable = errors.New("restaurant database unavailable")
+)
+
+type operation string
+
+const (
+	listOrg          operation = "restaurant.list"
+	myOrg            operation = "restaurant.mine"
+	getOrg           operation = "restaurant.get"
+	createOrg        operation = "restaurant.create"
+	updateOrg        operation = "restaurant.update"
+	archiveOrg       operation = "restaurant.archive"
+	listBranch       operation = "branch.list"
+	getBranch        operation = "branch.get"
+	createBranch     operation = "branch.create"
+	updateBranch     operation = "branch.update"
+	archiveBranch    operation = "branch.archive"
+	verifyBranch     operation = "branch.verify"
+	setAddress       operation = "branch.address.update"
+	listPhones       operation = "branch.phone.list"
+	addPhone         operation = "branch.phone.add"
+	removePhone      operation = "branch.phone.remove"
+	getHours         operation = "branch.hours.get"
+	setHours         operation = "branch.hours.update"
+	listTables       operation = "branch.table.list"
+	addTable         operation = "branch.table.add"
+	updateTable      operation = "branch.table.update"
+	removeTable      operation = "branch.table.remove"
+	listOwners       operation = "restaurant.owner.list"
+	addOwner         operation = "restaurant.owner.add"
+	removeOwner      operation = "restaurant.owner.remove"
+	publishedCatalog operation = "restaurant.catalog.published"
+	assignManager    operation = "branch.manager.assign"
+	revokeManager    operation = "branch.manager.revoke"
+	listOrgManagers  operation = "restaurant.manager.list"
+	addOrgManager    operation = "restaurant.manager.add"
+	removeOrgManager operation = "restaurant.manager.remove"
+)
+
+type address struct {
+	CEP        string `json:"cep"`
+	Street     string `json:"street"`
+	Number     string `json:"number"`
+	Apt        string `json:"apt,omitempty"`
+	Complement string `json:"complement,omitempty"`
+	City       string `json:"city,omitempty"`
+	State      string `json:"state,omitempty"`
+}
+
+type details struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type newOrg struct {
+	details
+	Slug string `json:"slug,omitempty"`
+}
+
+type branchInput struct {
+	Name      string  `json:"name"`
+	CNPJ      string  `json:"cnpj"`
+	OwnerCNPJ string  `json:"owner_cnpj"`
+	Address   address `json:"address"`
+}
+
+type phoneInput struct {
+	Number string `json:"phone_number"`
+	Type   string `json:"phone_type"`
+}
+
+type hour struct {
+	Weekday *int    `json:"weekday"`
+	Opens   *string `json:"opens_at"`
+	Closes  *string `json:"closes_at"`
+	Closed  *bool   `json:"is_closed"`
+}
+
+type tableInput struct {
+	Number int   `json:"number"`
+	Seats  *int  `json:"seats"`
+	Order  int   `json:"display_order"`
+	Active *bool `json:"is_active"`
+}
+
+type accountInput struct {
+	ID int `json:"account_id"`
+}
+
+type request struct {
+	op                                operation
+	slug                              string
+	actor, branch, target, page, size int
+	body                              any
+}
+
+type access struct {
+	orgID                                  int
+	orgRole                                string
+	manager, employee, sysadmin, published bool
+}
+
+func (a access) managesOrg() bool { return a.orgRole == "OWNER" || a.orgRole == "MANAGER" }
+
+func (a access) managesBranch() bool { return a.managesOrg() || a.manager }
+
+type repository interface {
+	transact(context.Context, bool, func(transaction) error) error
+}
+
+type transaction interface {
+	scope(context.Context, request, bool) (access, error)
+	execute(context.Context, request, access) (any, error)
+	audit(context.Context, request, access, any) error
+}
+
+type service struct{ repo repository }
+
+func (s service) run(ctx context.Context, r request) (any, error) {
+	if err := validate(&r); err != nil {
+		return nil, err
+	}
+	write := isWrite(r.op)
+	var result any
+	err := s.repo.transact(ctx, write, func(tx transaction) error {
+		a, err := tx.scope(ctx, r, write)
+		if err != nil {
+			return err
+		}
+		if err = authorize(r, a); err != nil {
+			return err
+		}
+		result, err = tx.execute(ctx, r, a)
+		if err != nil || !write {
+			return err
+		}
+		return tx.audit(ctx, r, a, result)
+	})
+	return result, err
+}
+
+func isWrite(op operation) bool {
+	switch op {
+	case listOrg, myOrg, getOrg, listBranch, getBranch, listPhones, getHours, listTables, listOwners, listOrgManagers:
+		return false
+	default:
+		return true
+	}
+}
+
+func authorize(r request, a access) error {
+	allowed := false
+	switch r.op {
+	case listOrg, getOrg, listBranch:
+		return nil
+	case createOrg, myOrg:
+		allowed = r.actor > 0
+	case getBranch, getHours:
+		if a.published || a.managesBranch() || a.sysadmin {
+			return nil
+		}
+		return errMissing
+	case updateOrg, createBranch, archiveBranch, assignManager, revokeManager:
+		allowed = a.managesOrg()
+	case listOwners, listOrgManagers:
+		allowed = a.managesOrg()
+	case archiveOrg, addOwner, removeOwner, addOrgManager, removeOrgManager:
+		allowed = a.orgRole == "OWNER"
+	case verifyBranch:
+		allowed = a.sysadmin
+	case listPhones, listTables:
+		allowed = a.managesBranch() || a.employee
+	case updateBranch, setAddress, addPhone, removePhone, setHours, addTable, updateTable, removeTable:
+		allowed = a.managesBranch()
+	}
+	if !allowed {
+		return errForbidden
+	}
+	return nil
+}
+
+var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+var slugSeparator = regexp.MustCompile(`[^a-z0-9]+`)
+
+var cnpjPattern = regexp.MustCompile(`^[0-9]{14}$`)
+
+var cepPattern = regexp.MustCompile(`^[0-9]{8}$`)
+
+var phonePattern = regexp.MustCompile(`^\+?[0-9]{8,15}$`)
+
+func text(s string, max int, required bool) bool {
+	return (!required || strings.TrimSpace(s) != "") && utf8.RuneCountInString(s) <= max && !strings.ContainsRune(s, 0)
+}
+
+func validAddress(a address) bool {
+	return cepPattern.MatchString(a.CEP) && text(a.Street, 255, true) && text(a.Number, 20, true) && text(a.Apt, 50, false) && text(a.Complement, 255, false) && text(a.City, 255, false) && text(a.State, 2, false)
+}
+
+func validate(r *request) error {
+	valid := true
+	switch b := r.body.(type) {
+	case *newOrg:
+		b.Name = strings.TrimSpace(b.Name)
+		if b.Slug == "" {
+			b.Slug = strings.Trim(slugSeparator.ReplaceAllString(strings.ToLower(b.Name), "-"), "-")
+		}
+		valid = slugPattern.MatchString(b.Slug) && len(b.Slug) <= 255 && text(b.Name, 255, true) && text(b.Description, 10000, false)
+	case *details:
+		b.Name = strings.TrimSpace(b.Name)
+		valid = text(b.Name, 255, true) && text(b.Description, 10000, false)
+	case *branchInput:
+		b.Name = strings.TrimSpace(b.Name)
+		valid = text(b.Name, 255, true) && cnpjPattern.MatchString(b.CNPJ) && cnpjPattern.MatchString(b.OwnerCNPJ) && validAddress(b.Address)
+	case *address:
+		valid = validAddress(*b)
+	case *phoneInput:
+		if b.Type == "" {
+			b.Type = "mobile"
+		}
+		valid = phonePattern.MatchString(b.Number) && (b.Type == "mobile" || b.Type == "landline" || b.Type == "whatsapp" || b.Type == "other")
+	case *[]hour:
+		valid = len(*b) == 7
+		seen := [7]bool{}
+		for _, h := range *b {
+			if h.Weekday == nil || *h.Weekday < 0 || *h.Weekday > 6 || seen[*h.Weekday] || h.Closed == nil {
+				return errInvalid
+			}
+			seen[*h.Weekday] = true
+			if *h.Closed {
+				if h.Opens != nil || h.Closes != nil {
+					return errInvalid
+				}
+				continue
+			}
+			if h.Opens == nil || h.Closes == nil || *h.Opens == *h.Closes {
+				return errInvalid
+			}
+			for _, value := range []string{*h.Opens, *h.Closes} {
+				if _, err := time.Parse("15:04", value); err != nil || len(value) != 5 {
+					return errInvalid
+				}
+			}
+		}
+	case *tableInput:
+		valid = b.Number > 0 && b.Number <= 2147483647 && (b.Seats == nil || (*b.Seats > 0 && *b.Seats <= 2147483647)) && b.Order >= 0 && b.Order <= 2147483647
+	case *accountInput:
+		valid = b.ID > 0 && b.ID <= 2147483647
+	}
+	if !valid {
+		return errInvalid
+	}
+	return nil
+}
 
 // Domain Errors: Exported as vars so http.go or callers can match with errors.Is.
 var (
-	ErrNotFound                     = errors.New("not found")
-	ErrConflict                     = errors.New("conflict: resource already exists")
-	ErrValidation                   = errors.New("validation failed")
-	ErrAccountRequiredForRedemption = errors.New("loyalty coins can only be redeemed by users with an active registered account")
+	ErrNotFound   = errors.New("not found")
+	ErrValidation = errors.New("validation failed")
 )
-
-// ---------------- DOMAIN TYPES (NO JSON TAGS) ----------------
 
 // Restaurant represents a logical restaurant entity.
 type Restaurant struct {
@@ -52,19 +309,6 @@ type Dish struct {
 	ImageURL       string
 }
 
-// NewRestaurant holds the business fields required to create a restaurant.
-type NewRestaurant struct {
-	Name        string
-	Slug        string
-	Description string
-}
-
-// UpdateRestaurantInput holds modifications for an existing restaurant.
-type UpdateRestaurantInput struct {
-	Name        string
-	Description string
-}
-
 // NewDish holds the business fields required to create a dish.
 type NewDish struct {
 	RestaurantSlug string
@@ -87,12 +331,8 @@ type UpdateDishInput struct {
 }
 
 // store defines the consumer-side interface for restaurant persistence.
-type store interface {
-	ListRestaurants(ctx context.Context) ([]Restaurant, error)
+type catalogStore interface {
 	GetRestaurantBySlug(ctx context.Context, slug string) (*Restaurant, error)
-	CreateRestaurant(ctx context.Context, r *Restaurant) error
-	UpdateRestaurant(ctx context.Context, slug string, input UpdateRestaurantInput) (*Restaurant, error)
-	DeleteRestaurant(ctx context.Context, slug string) error
 
 	ListDishes(ctx context.Context, restaurantSlug string) ([]Dish, error)
 	CreateDish(ctx context.Context, input NewDish) (*Dish, error)
@@ -101,100 +341,7 @@ type store interface {
 	UpdateDishImage(ctx context.Context, restaurantSlug string, dishID int, imageURL string) (*Dish, error)
 }
 
-// Service orchestrates domain logic for restaurants, dishes, menus, and loyalty.
-type Service struct {
-	store   store
-	loyalty *LoyaltyService
-}
-
-// NewService constructs a Service with the provided persistence implementation.
-func NewService(s store) *Service {
-	return &Service{
-		store:   s,
-		loyalty: NewLoyaltyService(),
-	}
-}
-
-// NormalizeSlug converts a name to a clean, URL-safe kebab-case slug.
-func NormalizeSlug(input string) string {
-	input = strings.TrimSpace(strings.ToLower(input))
-	re := regexp.MustCompile(`[\s_]+`)
-	input = re.ReplaceAllString(input, "-")
-
-	clean := strings.Builder{}
-	for _, r := range input {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' {
-			clean.WriteRune(r)
-		}
-	}
-	res := clean.String()
-	reHyphens := regexp.MustCompile(`-+`)
-	return strings.Trim(reHyphens.ReplaceAllString(res, "-"), "-")
-}
-
-// ListRestaurants retrieves all restaurants.
-func (s *Service) ListRestaurants(ctx context.Context) ([]Restaurant, error) {
-	return s.store.ListRestaurants(ctx)
-}
-
-// GetRestaurant fetches a single restaurant by slug.
-func (s *Service) GetRestaurant(ctx context.Context, slug string) (*Restaurant, error) {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	if slug == "" {
-		return nil, errors.Join(ErrValidation, errors.New("slug is required"))
-	}
-	return s.store.GetRestaurantBySlug(ctx, slug)
-}
-
-// CreateRestaurant handles name validation, slug generation/normalization, conflict detection, and persistence.
-func (s *Service) CreateRestaurant(ctx context.Context, input NewRestaurant) (*Restaurant, error) {
-	name := strings.TrimSpace(input.Name)
-	if len(name) < 2 {
-		return nil, errors.Join(ErrValidation, errors.New("restaurant name must have at least 2 characters"))
-	}
-	if len(name) > 100 {
-		return nil, errors.Join(ErrValidation, errors.New("restaurant name cannot exceed 100 characters"))
-	}
-
-	slug := strings.TrimSpace(input.Slug)
-	if slug == "" {
-		slug = NormalizeSlug(name)
-	} else {
-		slug = NormalizeSlug(slug)
-	}
-
-	if slug == "" {
-		return nil, errors.Join(ErrValidation, errors.New("failed to generate valid slug from name"))
-	}
-
-	existing, err := s.store.GetRestaurantBySlug(ctx, slug)
-	if err == nil && existing != nil {
-		return nil, ErrConflict
-	}
-
-	restaurant := &Restaurant{
-		Slug:        slug,
-		Name:        name,
-		Description: strings.TrimSpace(input.Description),
-	}
-
-	if err := s.store.CreateRestaurant(ctx, restaurant); err != nil {
-		return nil, err
-	}
-	return restaurant, nil
-}
-
-// UpdateRestaurant modifies restaurant metadata.
-func (s *Service) UpdateRestaurant(ctx context.Context, slug string, input UpdateRestaurantInput) (*Restaurant, error) {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	return s.store.UpdateRestaurant(ctx, slug, input)
-}
-
-// DeleteRestaurant deletes a restaurant by slug.
-func (s *Service) DeleteRestaurant(ctx context.Context, slug string) error {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	return s.store.DeleteRestaurant(ctx, slug)
-}
+type Service struct{ store catalogStore }
 
 // ListDishes retrieves all dishes belonging to a restaurant.
 func (s *Service) ListDishes(ctx context.Context, restaurantSlug string) ([]Dish, error) {
@@ -285,126 +432,4 @@ func (s *Service) GetRestaurantMenu(ctx context.Context, slug string) (*Restaura
 	}
 
 	return res, categories, dishes, nil
-}
-
-// SeedDefaultRestaurant resets and re-seeds "mamma-mia-mario" with sample menu items.
-func (s *Service) SeedDefaultRestaurant(ctx context.Context) error {
-	marioSlug := "mamma-mia-mario"
-	_ = s.store.DeleteRestaurant(ctx, marioSlug)
-	if err := s.store.CreateRestaurant(ctx, &Restaurant{
-		Slug:         marioSlug,
-		Name:         "Mamma mia Mario",
-		Description:  "Um pedacinho de Napoli. Pizza no fogão a lenha, feita com amor atrás do armário.",
-		Cuisine:      "Italiana",
-		IsOpen:       true,
-		OpenTime:     "07:00",
-		ClosingTime:  "22:00",
-		Rating:       4.9,
-		ReviewsCount: 324,
-		DeliveryFee:  1.99,
-		CEP:          "15555-555",
-		DeliveryTime: "20–30 min",
-		Neighborhood: "Mission District",
-		Phone:        "(81) 95552-0148",
-		BannerURL:    "https://lh3.googleusercontent.com/aida-public/AB6AXuD8i7X0qDoCvkouDq-uUv7UEDtkKSTah3gKO68ElZOQTiDH0KjKi_fyaIcGAqaF7mZ_ZgqueJ6j_U-Z-tt30B1fuhs28n6b5ZhcHjaFmjEgmxSSCJChcNGK27S-R-GsleUn0DChdITkkqd3lz-H6R4XMb81BP7tfPtAvQa2d2wjv4dqHh-zPRTB2cfC81OAkENDitgwJzfayVROlNm2Y_cpClw84FTUl8AaFP--O1M",
-		LogoURL:      "https://i.pinimg.com/736x/9e/f2/b9/9ef2b9c1ac760f54c9e7aeb5c1784460.jpg",
-	}); err != nil {
-		return fmt.Errorf("failed to insert mamma-mia-mario: %w", err)
-	}
-
-	sampleDishes := []NewDish{
-		{
-			RestaurantSlug: marioSlug,
-			Name:           "Margherita",
-			Description:    "San Marzano tomato, fior di latte mozzarella, fresh basil.",
-			Category:       "Pizzas",
-			Tags:           []string{"MOST LOVED", "MOST ORDERED"},
-			Price:          16.00,
-			ImageURL:       "https://lh3.googleusercontent.com/aida-public/AB6AXuCb-eU4XxPHWKrxNYHn7-TPGZZiDJ7J43_wyHW35GGvB4ZYni8tfx_WXwM5FpIXR5sPzrKxs7IsbzM8We9VCULm7jAj3tnmjxGjgDsOIjDnBTMIWNwM3hGed30aeoT2VhHS9PkWMmiaJALNAfdW7EcUR2jaBsZXviPHVg-BLQ_Yf-JaqHsdxRAb3o6FWddiPqt9vxwkUpiL3darOkhD4kKfXX9-ff_dhL3G24HQmLw",
-		},
-		{
-			RestaurantSlug: marioSlug,
-			Name:           "Spicy Diavola",
-			Description:    "Spicy salami, mozzarella, tomato and a drizzle of chili honey.",
-			Category:       "Pizzas",
-			Tags:           []string{"MOST LOVED"},
-			Price:          19.00,
-			ImageURL:       "https://lh3.googleusercontent.com/aida-public/AB6AXuCTmOctI0RewSPwuz-BWjt1KjY06cnghRQd_5aD3yZ1mdACQ5v5UPrVcEaIeltyls3yjVEikrahYf-2fyZK4fwkm_VkaoGT7Rf2YHIePG4HfGnJJBV-j7xf-amYSPa3IDHVXFqKEhwbdbJomOR_fOEgiJJV31ru_FWjl8K31Wfai5rpjXVPa8DMj8HxJ_xQ4WWAwo0ZsO10gZXIHGP9fjCJZqNz6-vn7YPrM4fqcM8",
-		},
-		{
-			RestaurantSlug: marioSlug,
-			Name:           "Burrata & tomatoes",
-			Description:    "Creamy burrata, heirloom tomatoes, basil and extra virgin olive oil.",
-			Category:       "Acompanhamentos",
-			Tags:           []string{},
-			Price:          14.00,
-			ImageURL:       "https://lh3.googleusercontent.com/aida-public/AB6AXuBFETatsb6xiRzdMPM-1wMApk2RxLzpPFaJRKZ7yhdMVwciJo0Y53nDdCJM2yXu6qiqF4MZhPHNMAMwt_xVzRCnp2QM2M1YnoXM0bZks8dQ9-rrvPxY2LrYt1WwMYvUKvwgdw4FMn-O9G0clEClprlRhqIKNsE95Xbulp8jfHSz4g_3Snl6Isi9kNw_rLR0ZtjJf8FsS4esS6B-XfCxNztdT6WBZKjFfkPHG95JYM",
-		},
-	}
-
-	for _, d := range sampleDishes {
-		if _, err := s.store.CreateDish(ctx, d); err != nil {
-			return fmt.Errorf("failed to insert sample dish: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// ---------------- LOYALTY BUSINESS LOGIC ----------------
-
-// LoyaltyService implements loyalty coin business rules:
-// 1. Accrual: Anonymous/by CPF on purchase (1 coin per R$ 10).
-// 2. Redemption: Strictly requires an active registered account (hasAccount == true).
-type LoyaltyService struct {
-	balances map[string]int
-}
-
-func NewLoyaltyService() *LoyaltyService {
-	return &LoyaltyService{
-		balances: make(map[string]int),
-	}
-}
-
-// CalculateEarnedCoins computes coin accrual for an order amount.
-func (s *LoyaltyService) CalculateEarnedCoins(orderAmount float64) int {
-	if orderAmount < 10.00 {
-		return 0
-	}
-	return int(orderAmount / 10.00)
-}
-
-// AccrueCoins credits coins to a CPF.
-func (s *LoyaltyService) AccrueCoins(cpf string, orderAmount float64) int {
-	cpf = strings.TrimSpace(cpf)
-	if len(cpf) != 11 {
-		return 0
-	}
-	earned := s.CalculateEarnedCoins(orderAmount)
-	if earned > 0 {
-		s.balances[cpf] += earned
-	}
-	return s.balances[cpf]
-}
-
-// RedeemCoins spends coins. Invariant: strictly requires an active user account.
-func (s *LoyaltyService) RedeemCoins(cpf string, coinsToRedeem int, hasAccount bool) (discountAmount float64, err error) {
-	if !hasAccount {
-		return 0, ErrAccountRequiredForRedemption
-	}
-	if coinsToRedeem <= 0 {
-		return 0, errors.Join(ErrValidation, errors.New("coins to redeem must be greater than zero"))
-	}
-	currentBalance := s.balances[cpf]
-	if currentBalance < coinsToRedeem {
-		return 0, errors.Join(ErrValidation, fmt.Errorf("insufficient coins: balance %d, requested %d", currentBalance, coinsToRedeem))
-	}
-
-	s.balances[cpf] -= coinsToRedeem
-	discountAmount = float64(coinsToRedeem) * 1.00
-	return discountAmount, nil
-}
-
-func (s *Service) Loyalty() *LoyaltyService {
-	return s.loyalty
 }

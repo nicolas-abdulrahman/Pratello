@@ -2,36 +2,28 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"math/big"
 	"net/mail"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
 )
-
-// -------------------------------------------------------------
-// Domain Errors
-// -------------------------------------------------------------
 
 var (
-	ErrInvalidCredentials    = errors.New("e-mail ou senha inválidos")
-	ErrNotFound              = errors.New("recurso não encontrado")
-	ErrConflict              = errors.New("conflito de dados (registro já existente)")
-	ErrValidation            = errors.New("erro de validação dos dados")
-	ErrUnauthorized          = errors.New("não autorizado")
-	ErrForbidden             = errors.New("acesso proibido para este nível de privilégio")
-	ErrTerminalLocked        = errors.New("terminal bloqueado temporariamente por excesso de tentativas")
-	ErrInvalidPIN            = errors.New("PIN incorreto")
-	ErrCannotRemoveLastOwner = errors.New("não é possível remover o último proprietário (proteção contra orfandade)")
+	ErrInvalidCredentials = errors.New("e-mail ou senha inválidos")
+	ErrNotFound           = errors.New("recurso não encontrado")
+	ErrConflict           = errors.New("conflito de dados (registro já existente)")
+	ErrValidation         = errors.New("erro de validação dos dados")
+	ErrUnauthorized       = errors.New("não autorizado")
+	ErrForbidden          = errors.New("acesso proibido para este nível de privilégio")
 )
-
-// -------------------------------------------------------------
-// Consumer-defined Store Interface
-// -------------------------------------------------------------
 
 type authStore interface {
 	CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error)
@@ -40,34 +32,8 @@ type authStore interface {
 
 	ListSysadmins(ctx context.Context) ([]Sysadmin, error)
 	AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error)
-
-	ListManagers(ctx context.Context, restaurantSlug string) ([]Manager, error)
-	AddManager(ctx context.Context, restaurantSlug string, accountID int) (*Manager, error)
-	RemoveManager(ctx context.Context, restaurantSlug string, accountID int) error
-
-	ListOwners(ctx context.Context, restaurantSlug string) ([]Owner, error)
-	AddOwner(ctx context.Context, restaurantSlug string, accountID int) (*Owner, error)
-	RemoveOwner(ctx context.Context, restaurantSlug string, accountID int) error
-	GetAccountRoles(ctx context.Context, restaurantSlug string, accountID int) ([]string, error)
-
-	CreatePhysicalRestaurant(ctx context.Context, restaurantSlug, name, cnpj, ownerCnpj string) (*PhysicalRestaurant, error)
-	ListPhysicalRestaurants(ctx context.Context, restaurantSlug string) ([]PhysicalRestaurant, error)
-	GetPhysicalRestaurant(ctx context.Context, branchID int) (*PhysicalRestaurant, error)
-	GetRestaurantCNPJ(ctx context.Context, restaurantSlug string) (string, error)
-
-	ListEmployees(ctx context.Context, branchID int) ([]Employee, error)
-	CreateEmployee(ctx context.Context, branchID int, name, cpf, position string) (*Employee, error)
-	LinkEmployeeAccount(ctx context.Context, employeeID int, accountID int) (*Employee, error)
-
-	VerifyAndOpenTerminalSession(ctx context.Context, branchID int, pin string, deviceID string) (*TerminalSession, error)
-	GetTerminalSession(ctx context.Context, token string) (*TerminalSession, error)
-	RotateTerminalPIN(ctx context.Context, branchID int, newPIN string) error
-	GetTerminalOrders(ctx context.Context, branchID int) ([]TerminalOrder, error)
+	IsSysadmin(context.Context, int) (bool, error)
 }
-
-// -------------------------------------------------------------
-// Domain Types & Claims
-// -------------------------------------------------------------
 
 type AccountClaims struct {
 	AccountID    int    `json:"account_id"`
@@ -93,15 +59,15 @@ type RegisterInput struct {
 	CPF      string
 }
 
-// -------------------------------------------------------------
-// Service
-// -------------------------------------------------------------
-
 type Service struct {
 	store     authStore
 	jwtSecret []byte
 	hashCost  int
 	notifier  Notifier
+}
+
+func (s *Service) IsSysadmin(ctx context.Context, id int) (bool, error) {
+	return s.store.IsSysadmin(ctx, id)
 }
 
 // Notifier delivers verification credentials to an account's contact method.
@@ -113,17 +79,19 @@ type Notifier interface {
 // MockNotifier accepts notifications without contacting an external service.
 type MockNotifier struct{}
 
-func (MockNotifier) SendOTP(phone, code string) error   { return nil }
+func (MockNotifier) SendOTP(phone, code string) error { return nil }
+
 func (MockNotifier) SendEmail(email, code string) error { return nil }
 
 func NewService(store authStore) *Service {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "pratello-default-jwt-secret-key-change-in-prod"
+	secret := []byte(os.Getenv("JWT_SECRET"))
+	if len(secret) == 0 {
+		secret = make([]byte, 32)
+		rand.Read(secret)
 	}
 	return &Service{
 		store:     store,
-		jwtSecret: []byte(secret),
+		jwtSecret: secret,
 		hashCost:  bcrypt.DefaultCost,
 		notifier:  MockNotifier{},
 	}
@@ -298,96 +266,342 @@ func (s *Service) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, er
 	return s.store.AddSysadmin(ctx, accountID)
 }
 
-func (s *Service) ListManagers(ctx context.Context, restaurantSlug string) ([]Manager, error) {
-	return s.store.ListManagers(ctx, restaurantSlug)
-}
-
-func (s *Service) AddManager(ctx context.Context, restaurantSlug string, accountID int) (*Manager, error) {
-	return s.store.AddManager(ctx, restaurantSlug, accountID)
-}
-
-func (s *Service) RemoveManager(ctx context.Context, restaurantSlug string, accountID int) error {
-	return s.store.RemoveManager(ctx, restaurantSlug, accountID)
-}
-
-func (s *Service) ListOwners(ctx context.Context, restaurantSlug string) ([]Owner, error) {
-	return s.store.ListOwners(ctx, restaurantSlug)
-}
-
-func (s *Service) AddOwner(ctx context.Context, restaurantSlug string, accountID int) (*Owner, error) {
-	return s.store.AddOwner(ctx, restaurantSlug, accountID)
-}
-
-func (s *Service) RemoveOwner(ctx context.Context, restaurantSlug string, accountID int) error {
-	return s.store.RemoveOwner(ctx, restaurantSlug, accountID)
-}
-
-func (s *Service) CheckRole(ctx context.Context, restaurantSlug string, accountID int, requiredRole string) (bool, error) {
-	roles, err := s.store.GetAccountRoles(ctx, restaurantSlug, accountID)
-	if err != nil {
-		return false, err
+func validCPF(cpf string) bool {
+	if len(cpf) != 11 {
+		return false
 	}
-	for _, r := range roles {
-		if strings.EqualFold(r, requiredRole) || strings.EqualFold(r, "sysadmin") {
-			return true, nil
+	for _, c := range cpf {
+		if c < '0' || c > '9' {
+			return false
 		}
 	}
-	return false, nil
+	return true
 }
 
-func (s *Service) CheckOwnerOrManager(ctx context.Context, restaurantSlug string, accountID int) (bool, error) {
-	roles, err := s.store.GetAccountRoles(ctx, restaurantSlug, accountID)
-	if err != nil {
-		return false, err
+func (s *Service) ClaimCPF(ctx context.Context, id int, cpf string) (*Account, error) {
+	if !validCPF(cpf) {
+		return nil, ErrValidation
 	}
-	for _, r := range roles {
-		rLower := strings.ToLower(r)
-		if rLower == "owner" || rLower == "manager" || rLower == "sysadmin" {
-			return true, nil
-		}
+	store, ok := s.store.(cpfStore)
+	if !ok {
+		return nil, ErrUnauthorized
 	}
-	return false, nil
-}
-
-func (s *Service) ListEmployees(ctx context.Context, branchID int) ([]Employee, error) {
-	return s.store.ListEmployees(ctx, branchID)
-}
-
-func (s *Service) CreateEmployee(ctx context.Context, branchID int, name, cpf, position string) (*Employee, error) {
-	if strings.TrimSpace(name) == "" || strings.TrimSpace(cpf) == "" {
-		return nil, errors.Join(ErrValidation, errors.New("nome e CPF do colaborador são obrigatórios"))
-	}
-	return s.store.CreateEmployee(ctx, branchID, strings.TrimSpace(name), strings.TrimSpace(cpf), strings.TrimSpace(position))
-}
-
-func (s *Service) LinkEmployeeAccount(ctx context.Context, employeeID, accountID int) (*Employee, error) {
-	if _, err := s.store.GetAccountByID(ctx, accountID); err != nil {
+	if err := store.ClaimCPF(ctx, id, cpf); err != nil {
 		return nil, err
 	}
-	return s.store.LinkEmployeeAccount(ctx, employeeID, accountID)
+	return s.store.GetAccountByID(ctx, id)
 }
 
-func (s *Service) OpenTerminalSession(ctx context.Context, branchID int, pin, deviceID string) (*TerminalSession, error) {
-	if len(pin) != 6 {
-		return nil, errors.Join(ErrValidation, errors.New("o PIN deve conter exatamente 6 dígitos"))
+func (s *Service) RemoveCPF(ctx context.Context, id int) error {
+	store, ok := s.store.(cpfStore)
+	if !ok {
+		return ErrUnauthorized
 	}
-	if strings.TrimSpace(deviceID) == "" {
-		return nil, errors.Join(ErrValidation, errors.New("identificador do dispositivo é obrigatório"))
-	}
-	return s.store.VerifyAndOpenTerminalSession(ctx, branchID, pin, deviceID)
+	return store.RemoveCPF(ctx, id)
 }
 
-func (s *Service) ValidateTerminalToken(ctx context.Context, token, deviceID string) (*TerminalSession, error) {
-	ts, err := s.store.GetTerminalSession(ctx, token)
+type emailStore interface {
+	SetVerifiedEmail(context.Context, int, string, string, string) error
+	RemoveEmail(context.Context, int) error
+}
+
+func (s *Service) SetEmail(ctx context.Context, id int, email, password, currentPassword string) (*Account, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Address != email || len(password) < 8 {
+		return nil, ErrValidation
+	}
+	a, err := s.store.GetAccountByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if a.Email != "" && bcrypt.CompareHashAndPassword([]byte(a.Password), []byte(currentPassword)) != nil {
+		return nil, ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.hashCost)
+	if err != nil {
+		return nil, err
+	}
+	store, ok := s.store.(emailStore)
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	if other, err := s.store.GetAccountByEmail(ctx, email); err == nil && other.ID != id {
+		return nil, ErrConflict
+	} else if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	if err = s.notifier.SendEmail(email, ""); err != nil {
+		return nil, err
+	}
+	if err = store.SetVerifiedEmail(ctx, id, email, string(hash), a.Password); err != nil {
+		return nil, err
+	}
+	return s.store.GetAccountByID(ctx, id)
+}
+
+func (s *Service) RemoveEmail(ctx context.Context, id int) error {
+	store, ok := s.store.(emailStore)
+	if !ok {
+		return ErrUnauthorized
+	}
+	return store.RemoveEmail(ctx, id)
+}
+
+func validPhone(phone string) bool {
+	if len(phone) < 8 || len(phone) > 20 {
+		return false
+	}
+	for i, c := range phone {
+		if c == '+' && i == 0 {
+			continue
+		}
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) notifyPhone(phone string) error {
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return err
+	}
+	return s.notifier.SendOTP(phone, fmt.Sprintf("%06d", n.Int64()))
+}
+
+// RequestPhoneLogin always succeeds for unknown or unverified phone numbers.
+func (s *Service) RequestPhoneLogin(ctx context.Context, phone string) error {
+	phone = strings.TrimSpace(phone)
+	if !validPhone(phone) {
+		return ErrValidation
+	}
+	store, ok := s.store.(phoneStore)
+	if !ok {
+		return ErrUnauthorized
+	}
+	a, err := store.GetAccountByPhone(ctx, phone)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !a.PhoneVerified || a.Phone != phone {
+		return nil
+	}
+	return s.notifyPhone(phone)
+}
+
+func (s *Service) RequestPhoneRegistration(ctx context.Context, phone string) error {
+	phone = strings.TrimSpace(phone)
+	if !validPhone(phone) {
+		return ErrValidation
+	}
+	store, ok := s.store.(phoneStore)
+	if !ok {
+		return ErrUnauthorized
+	}
+	_, err := store.GetAccountByPhone(ctx, phone)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	return s.notifyPhone(phone)
+}
+
+func (s *Service) RegisterPhone(ctx context.Context, phone, name, cpf string) (*TokenPair, error) {
+	phone = strings.TrimSpace(phone)
+	if !validPhone(phone) || (cpf != "" && !validCPF(cpf)) {
+		return nil, ErrValidation
+	}
+	store, ok := s.store.(phoneStore)
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	var a *Account
+	var err error
+	if cpf != "" {
+		cpfStore, ok := s.store.(cpfStore)
+		if !ok {
+			return nil, ErrUnauthorized
+		}
+		a, err = cpfStore.RegisterWithCPF(ctx, strings.TrimSpace(name), "", "", phone, cpf, true)
+	} else {
+		a, err = store.CreatePhoneAccount(ctx, phone, strings.TrimSpace(name))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.IssueTokens(ctx, a.ID)
+}
+
+// LoginPhone completes simulated verification without requiring a user-entered PIN.
+func (s *Service) LoginPhone(ctx context.Context, phone string) (*TokenPair, error) {
+	phone = strings.TrimSpace(phone)
+	if !validPhone(phone) {
+		return nil, ErrInvalidCredentials
+	}
+	store, ok := s.store.(phoneStore)
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	a, err := store.GetAccountByPhone(ctx, phone)
+	if errors.Is(err, ErrNotFound) {
+		return nil, ErrInvalidCredentials
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !a.PhoneVerified || a.Phone != phone {
+		return nil, ErrInvalidCredentials
+	}
+	return s.IssueTokens(ctx, a.ID)
+}
+
+func (s *Service) AddPhone(ctx context.Context, id int, phone string) (*Account, error) {
+	phone = strings.TrimSpace(phone)
+	if !validPhone(phone) {
+		return nil, ErrValidation
+	}
+	store, ok := s.store.(phoneStore)
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	existing, err := store.GetAccountByPhone(ctx, phone)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	if err == nil && existing.ID != id {
+		return nil, ErrConflict
+	}
+	if err = s.notifyPhone(phone); err != nil {
+		return nil, err
+	}
+	if err = store.SetVerifiedPhone(ctx, id, phone); err != nil {
+		return nil, err
+	}
+	return s.store.GetAccountByID(ctx, id)
+}
+
+func (s *Service) RemovePhone(ctx context.Context, id int) error {
+	store, ok := s.store.(phoneStore)
+	if !ok {
+		return ErrUnauthorized
+	}
+	return store.RemovePhone(ctx, id)
+}
+
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+func tokenHash(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
+func (s *Service) IssueTokens(ctx context.Context, id int) (*TokenPair, error) {
+	return s.issueTokens(ctx, id, nil)
+}
+
+func (s *Service) issueTokens(ctx context.Context, id int, expectedVersion *int) (*TokenPair, error) {
+	store, ok := s.store.(sessionStore)
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	a, err := s.store.GetAccountByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if expectedVersion != nil && a.TokenVersion != *expectedVersion {
+		return nil, ErrUnauthorized
+	}
+	access, err := s.signAccess(a)
+	if err != nil {
+		return nil, err
+	}
+	var nonce [32]byte
+	if _, err = rand.Read(nonce[:]); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	expiry := now.Add(30 * 24 * time.Hour)
+	claims := AccountClaims{AccountID: a.ID, TokenVersion: a.TokenVersion, Type: "refresh", RegisteredClaims: jwt.RegisteredClaims{ID: hex.EncodeToString(nonce[:]), IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(expiry)}}
+	refresh, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+	if err = store.SaveRefresh(ctx, id, a.TokenVersion, tokenHash(refresh), expiry); err != nil {
+		return nil, err
+	}
+	return &TokenPair{access, refresh, "Bearer", 900}, nil
+}
+
+func (s *Service) Refresh(ctx context.Context, raw string) (*TokenPair, error) {
+	store, ok := s.store.(sessionStore)
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	token, err := jwt.ParseWithClaims(raw, &AccountClaims{}, func(t *jwt.Token) (any, error) {
+		if t.Method != jwt.SigningMethodHS256 {
+			return nil, ErrUnauthorized
+		}
+		return s.jwtSecret, nil
+	}, jwt.WithExpirationRequired())
+	if err != nil || !token.Valid {
+		return nil, ErrUnauthorized
+	}
+	claims, ok := token.Claims.(*AccountClaims)
+	if !ok || claims.Type != "refresh" || claims.AccountID <= 0 {
+		return nil, ErrUnauthorized
+	}
+	id, err := store.ConsumeRefresh(ctx, tokenHash(raw), claims.TokenVersion)
+	if err != nil {
+		return nil, err
+	}
+	if id != claims.AccountID {
+		return nil, ErrUnauthorized
+	}
+	return s.issueTokens(ctx, id, &claims.TokenVersion)
+}
+
+func (s *Service) Authenticate(ctx context.Context, token string) (*AccountClaims, error) {
+	claims, err := s.ParseToken(token)
 	if err != nil {
 		return nil, ErrUnauthorized
 	}
-	if ts.DeviceID != deviceID {
-		return nil, ErrForbidden
+	a, err := s.store.GetAccountByID(ctx, claims.AccountID)
+	if err != nil {
+		if err == ErrNotFound {
+			return nil, ErrUnauthorized
+		}
+		return nil, err
 	}
-	return ts, nil
+	if a.TokenVersion != claims.TokenVersion || (a.Email == "" && a.Phone == "" && a.Password == "") {
+		return nil, ErrUnauthorized
+	}
+	return claims, nil
 }
 
-func (s *Service) GetTerminalOrders(ctx context.Context, branchID int) ([]TerminalOrder, error) {
-	return s.store.GetTerminalOrders(ctx, branchID)
+func (s *Service) Logout(ctx context.Context, id int, raw string) error {
+	store, ok := s.store.(sessionStore)
+	if !ok {
+		return ErrUnauthorized
+	}
+	return store.RevokeRefresh(ctx, tokenHash(raw), id)
+}
+
+func (s *Service) LogoutAll(ctx context.Context, id int) error {
+	store, ok := s.store.(sessionStore)
+	if !ok {
+		return ErrUnauthorized
+	}
+	return store.RevokeAll(ctx, id)
 }

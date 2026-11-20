@@ -1,16 +1,8 @@
-// ============================================================
-// Pratello DBML — matches OpenAPI v2.1
-// ============================================================
-// Naming conventions preserved from original DBML.
-// Money columns renamed to *_cents (BIGINT) — the only broad rename.
-// Enums changed from UPPER_CASE to lowercase where the API contract
-// requires specific values (order_status, transaction_status,
-// transaction_type, discount_type).
-// ============================================================
-
-// ============================================================
-// ENUMS
-// ============================================================
+Enum "public"."account_type_enum" {
+    "OWNER"
+    "MANAGER"
+    "ANALYST"
+}
 
 Enum "public"."card_brand_enum" {
     "VISA"
@@ -59,11 +51,6 @@ Enum "public"."transaction_type_enum" {
     "cash"
 }
 
-Enum "public"."account_type_enum" {
-    "OWNER"
-    "MANAGER"
-}
-
 Enum "public"."employee_position_enum" {
     "WAITER"
     "COOK"
@@ -84,7 +71,7 @@ Enum "public"."verification_purpose_enum" {
     "register_phone"
     "login_phone"
     "add_phone"
-    "claim_loyalty"
+    "claim_cpf"
     "verify_email"
 }
 
@@ -98,9 +85,38 @@ Enum "public"."ingredient_unit_enum" {
     "colher"
 }
 
-// ============================================================
-// ADDRESS
-// ============================================================
+Enum "public"."ux_channel_enum" {
+    "qr_table"
+    "counter"
+    "remote_link"
+}
+
+Enum "public"."device_type_enum" {
+    "mobile"
+    "tablet"
+    "desktop"
+}
+
+Enum "public"."ux_event_type_enum" {
+    "menu_open"
+    "category_view"
+    "item_impression"
+    "item_detail_open"
+    "item_detail_close"
+    "item_side_select"
+    "cart_item_add"
+    "cart_item_remove"
+    "cart_qty_change"
+    "checkout_open"
+    "checkout_abandon"
+    "order_submitted"
+}
+
+Enum "public"."price_change_reason_enum" {
+    "base_price_update"
+    "sale_created"
+    "sale_ended"
+}
 
 Table "public"."Address" {
   "id" int [pk, not null, increment]
@@ -111,198 +127,6 @@ Table "public"."Address" {
   "complementary" varchar(255)
   "city" varchar(255)
   "state" varchar(2)
-}
-
-// ============================================================
-// ACCOUNT + AUTH
-// ============================================================
-
-Table "public"."account" {
-  "id" int [pk, not null, increment]
-  "email" varchar(255) [unique]
-  "email_verified" boolean [not null, default: false]
-  "password" varchar(255)
-  "phone" varchar(20) [unique]
-  "phone_verified" boolean [not null, default: false]
-  "name" varchar(500)
-  "address_id" int [ref: > "public"."Address"."id"]
-  "two_factor_enabled" boolean [not null, default: false]
-  "last_password_change" timestamptz
-  "token_version" int [not null, default: 0]
-  "created_at" timestamptz [not null, default: `now()`]
-  "updated_at" timestamptz [not null, default: `now()`]
-
-  Note: '''
-  At least one auth method (email or phone) must exist.
-  If email is set, password must also be set.
-  Both email and password are nullable to support phone-only accounts.
-  '''
-
-  Indexes {
-    (email) [unique]
-    (phone) [unique]
-  }
-}
-
-Table "public"."verification_code" {
-  "id" bigserial [pk, not null]
-  "account_id" int [ref: > "public"."account"."id"]
-  "phone" varchar(20)
-  "email" varchar(255)
-  "code_hash" varchar(255) [not null]
-  "purpose" verification_purpose_enum [not null]
-  "attempts" int [not null, default: 0]
-  "expires_at" timestamptz [not null]
-  "consumed_at" timestamptz
-  "created_at" timestamptz [not null, default: `now()`]
-}
-
-Table "public"."refresh_token" {
-  "id" bigserial [pk, not null]
-  "account_id" int [not null, ref: > "public"."account"."id"]
-  "token_hash" varchar(255) [unique, not null]
-  "expires_at" timestamptz [not null]
-  "revoked_at" timestamptz
-  "user_agent" varchar(255)
-  "ip" varchar(45)
-  "created_at" timestamptz [not null, default: `now()`]
-}
-
-Table "public"."sysadmin" {
-  "id" int [pk, not null, increment]
-  "account_id" int [unique, not null, ref: > "public"."account"."id"]
-  "created_at" timestamptz [not null, default: `now()`]
-}
-
-// ============================================================
-// RESTAURANT (logical)
-// ============================================================
-
-Table "public"."restaurant" {
-  "id" int [pk, not null, increment]
-  "name_slug" varchar(255) [unique, not null]
-  "name" varchar(255) [not null]
-  "description" text
-  "archived_at" timestamptz
-  "created_at" timestamptz [not null, default: `now()`]
-  "updated_at" timestamptz [not null, default: `now()`]
-}
-
-Table "public"."account_restaurant" {
-  "id" bigserial [pk, not null]
-  "account_id" int [not null, ref: > "public"."account"."id"]
-  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
-  "account_type" account_type_enum [not null]
-  "created_at" timestamptz [not null, default: `now()`]
-
-  Indexes {
-    (account_id, restaurant_id) [unique]
-  }
-}
-
-Table "public"."menu" {
-  "id" int [pk, not null, increment]
-  "restaurant_id" int [not null, unique, ref: > "public"."restaurant"."id"]
-  "name" varchar(255)
-  "style" menu_style_enum [not null, default: 'CLASSICO']
-  "accent_color" varchar(7)
-  "typography" varchar(50)
-  "updated_at" timestamptz [not null, default: `now()`]
-}
-
-// ============================================================
-// CATALOG
-// ============================================================
-
-Table "public"."category" {
-  "id" int [pk, not null, increment]
-  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
-  "name" varchar(100) [not null]
-  "display_order" int [not null, default: 0]
-  "created_at" timestamptz [not null, default: `now()`]
-}
-
-Table "public"."ingredient" {
-  "id" int [pk, not null, increment]
-  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
-  "name" varchar(255) [not null]
-  "default_unit" ingredient_unit_enum
-
-  Indexes {
-    (restaurant_id, name) [unique]
-  }
-}
-
-Table "public"."menu_item" {
-  "id" int [pk, not null, increment]
-  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
-  "category_id" int [not null, ref: > "public"."category"."id"]
-  "name" varchar(255) [not null]
-  "description" text
-  "base_price_cents" bigint [not null, note: 'money in BRL cents']
-  "image_url" text
-  "is_available" boolean [not null, default: true]
-  "is_combo" boolean [not null, default: false]
-  "allows_review" boolean [not null, default: true]
-  "archived_at" timestamptz
-  "created_at" timestamptz [not null, default: `now()`]
-  "updated_at" timestamptz [not null, default: `now()`]
-}
-
-Table "public"."item_ingredient" {
-  "id" int [pk, not null, increment]
-  "item_id" int [not null, ref: > "public"."menu_item"."id"]
-  "ingredient_id" int [not null, ref: > "public"."ingredient"."id"]
-  "quantity" numeric(10,3)
-  "measure" ingredient_unit_enum
-  "is_removable" boolean [not null, default: false]
-
-  Indexes {
-    (item_id, ingredient_id) [unique]
-  }
-}
-
-// item_side was flat before; now it represents a *group* of options
-// (the API's Side { title, min_options, max_options, options[] }).
-Table "public"."item_side" {
-  "id" int [pk, not null, increment]
-  "item_id" int [not null, ref: > "public"."menu_item"."id"]
-  "title" varchar(255) [not null]
-  "min_options" int [not null, default: 0]
-  "max_options" int [not null]
-}
-
-Table "public"."item_side_option" {
-  "id" int [pk, not null, increment]
-  "item_side_id" int [not null, ref: > "public"."item_side"."id"]
-  "name" varchar(255) [not null]
-  "additional_price_cents" bigint [not null, default: 0]
-  "is_available" boolean [not null, default: true]
-}
-
-Table "public"."combo_item" {
-  "combo_id" int [not null, ref: > "public"."menu_item"."id"]
-  "included_item_id" int [not null, ref: > "public"."menu_item"."id"]
-  "quantity" int [not null, default: 1]
-
-  Indexes {
-    (combo_id, included_item_id) [pk]
-  }
-}
-
-Table "public"."item_sale" {
-  "id" int [pk, not null, increment]
-  "item_id" int [not null, ref: > "public"."menu_item"."id"]
-  "discount_type" discount_type_enum [not null]
-  "discount_value" bigint [not null]
-  "starts_at" timestamptz [not null]
-  "ends_at" timestamptz [not null]
-  "is_active" boolean [not null, default: true]
-  "created_at" timestamptz [not null, default: `now()`]
-
-  Indexes {
-    (item_id, is_active)
-  }
 }
 
 Table "public"."coupon" {
@@ -324,180 +148,218 @@ Table "public"."coupon" {
   }
 }
 
-// ============================================================
-// PHYSICAL RESTAURANT
-// ============================================================
-
-Table "public"."physical_restaurant" {
+Table "public"."restaurant" {
   "id" int [pk, not null, increment]
-  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
-  "address_id" int [not null, ref: > "public"."Address"."id"]
-  "name" varchar(255) [not null, default: '']
-  "cnpj" varchar(14) [not null]
-  "owner_cnpj" varchar(14) [not null, default: '']
-  "cnpj_verified" boolean [not null, default: false]
-  "terminal_pin_hash" varchar(255)
-  "pin_updated_at" timestamptz [not null, default: `now()`]
-  "failed_pin_attempts" int [not null, default: 0]
-  "locked_until" timestamptz
-  "operating_hours" jsonb [not null, default: `'[]'::jsonb`, note: 'array of {weekday, opens_at, closes_at, is_closed}']
-  "is_active" boolean [not null, default: true]
+  "name_slug" varchar(255) [unique, not null]
+  "name" varchar(255) [not null]
+  "description" text
+  "loyalty_earn_rate" numeric(5,2) [not null, default: 1, note: 'coins per R$ 1 spent']
   "archived_at" timestamptz
   "created_at" timestamptz [not null, default: `now()`]
   "updated_at" timestamptz [not null, default: `now()`]
 }
 
-Table "public"."restaurant_phone" {
-  "id" int [pk, not null, increment]
-  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
-  "phone" varchar(20) [not null]
-  "phone_type" restaurant_phone_type_enum [not null, default: 'mobile']
-}
-
-Table "public"."dining_table" {
-  "id" int [pk, not null, increment]
-  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
-  "number" int [not null]
-  "seats" int
-  "display_order" int [not null, default: 0]
-  "is_active" boolean [not null, default: true]
+Table "public"."verification_code" {
+  "id" bigserial [pk, not null, increment]
+  "account_id" int [ref: > "public"."account"."id"]
+  "phone" varchar(20)
+  "email" varchar(255)
+  "code_hash" varchar(255) [not null]
+  "purpose" verification_purpose_enum [not null]
+  "attempts" int [not null, default: 0]
+  "expires_at" timestamptz [not null]
+  "consumed_at" timestamptz
+  "created_at" timestamptz [not null, default: `now()`]
 
   Indexes {
-    (physical_restaurant_id, number) [unique]
+    (email, purpose) [name: "idx_verification_code_email_purpose"]
+    (phone, purpose) [name: "idx_verification_code_phone_purpose"]
   }
+
+  Note: 'One active row per (phone|email, purpose). Purge where expires_at < now().'
 }
 
-// ============================================================
-// STAFF
-// ============================================================
-
-Table "public"."employee" {
-  "id" int [pk, not null, increment]
-  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
-  "name" varchar(500) [not null]
-  "cpf" varchar(11)
-  "position" employee_position_enum [not null]
-  "account_id" int [ref: > "public"."account"."id"]
-  "is_active" boolean [not null, default: true]
-  "hired_at" date
-  "created_at" timestamptz [not null, default: `now()`]
-  "updated_at" timestamptz [not null, default: `now()`]
-}
-
-Table "public"."terminal_session" {
-  "id" int [pk, not null, increment]
-  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
-  "jti" uuid [unique, not null]
-  "device_id" varchar(255)
+Table "public"."refresh_token" {
+  "id" bigserial [pk, not null, increment]
+  "account_id" int [not null, ref: > "public"."account"."id"]
+  "token_hash" varchar(255) [unique, not null]
   "expires_at" timestamptz [not null]
   "revoked_at" timestamptz
+  "user_agent" varchar(255)
+  "ip" varchar(45)
   "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (account_id, expires_at) [name: "idx_refresh_token_account_id_expires_at"]
+  }
+
+  Note: 'Store sha256(token). token_version on account is the kill-switch.'
 }
 
-Table "public"."staff_session" {
+Table "public"."menu_item" {
   "id" int [pk, not null, increment]
-  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
-  "shift_code" varchar(50) [not null]
-  "qr_token_hash" varchar(255) [unique, not null]
-  "is_active" boolean [not null, default: true]
-  "opened_at" timestamptz [not null, default: `now()`]
-  "closed_at" timestamptz
-}
-
-Table "public"."staff_checkin" {
-  "id" bigserial [pk, not null]
-  "staff_session_id" int [not null, ref: > "public"."staff_session"."id"]
-  "account_id" int [not null, ref: > "public"."account"."id"]
-  "checked_in_at" timestamptz [not null, default: `now()`]
-  "checked_out_at" timestamptz
-}
-
-// ============================================================
-// LOYALTY
-// ============================================================
-
-Table "public"."loyalty_customer" {
-  "id" uuid [pk, not null, default: `gen_random_uuid()`]
-  "cpf" varchar(11) [unique, not null]
-  "name" varchar(255)
-  "phone" varchar(20)
-  "account_id" int [ref: > "public"."account"."id"]
-  "claimed_at" timestamptz
-  "created_at" timestamptz [not null, default: `now()`]
-}
-
-// user_restaurant is the per-restaurant wallet.
-// account_id and cpf moved to loyalty_customer (single source of truth).
-Table "public"."user_restaurant" {
-  "id" int [pk, not null, increment]
-  "loyalty_customer_id" uuid [not null, ref: > "public"."loyalty_customer"."id"]
   "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
-  "coins_amount" bigint [not null, default: 0]
+  "category_id" int [not null, ref: > "public"."category"."id"]
+  "name" varchar(255) [not null]
+  "description" text
+  "base_price_cents" bigint [not null, note: 'money in BRL cents']
+  "base_cost_cents" bigint [note: 'optional recipe/production cost; null or 0 if undisclosed']
+  "image_url" text
+  "is_available" boolean [not null, default: true]
+  "is_combo" boolean [not null, default: false]
+  "allows_review" boolean [not null, default: true]
+  "archived_at" timestamptz
   "created_at" timestamptz [not null, default: `now()`]
   "updated_at" timestamptz [not null, default: `now()`]
 
-  Indexes {
-    (loyalty_customer_id, restaurant_id) [unique]
-  }
+  Note: 'Cost is optional. Margin / Menu Engineering queries must check base_cost_cents > 0 before computing.'
 }
 
-Table "public"."wallet_transaction" {
-  "id" bigserial [pk, not null]
-  "user_restaurant_id" int [not null, ref: > "public"."user_restaurant"."id"]
-  "points_delta" bigint [not null]
-  "balance_after" bigint [not null]
-  "reason" varchar(255) [not null]
-  "order_id" int [ref: > "public"."order"."id"]
-  "idempotency_key" varchar(64)
-  "created_at" timestamptz [not null, default: `now()`]
-
-  Indexes {
-    (user_restaurant_id, created_at)
-    (user_restaurant_id, idempotency_key) [unique]
-  }
+Table "public"."menu" {
+  "id" int [pk, not null, increment]
+  "restaurant_id" int [unique, not null, ref: > "public"."restaurant"."id"]
+  "name" varchar(255)
+  "style" menu_style_enum [not null, default: 'CLASSICO']
+  "accent_color" varchar(7)
+  "typography" varchar(50)
+  "updated_at" timestamptz [not null, default: `now()`]
 }
-
-// ============================================================
-// ORDERS
-// ============================================================
 
 Table "public"."order" {
   "id" int [pk, not null, increment]
   "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
-  "account_id" int [ref: > "public"."account"."id"]
-  "customer_cpf" varchar(11)
+  "account_id" int [note: 'authenticated customer or employee who placed it', ref: > "public"."account"."id"]
+  "customer_cpf" varchar(11) [note: 'anonymous CPF for loyalty accrual']
   "coupon_id" int [ref: > "public"."coupon"."id"]
-  "coupon_code" varchar(50)
+  "coupon_code" varchar(50) [note: 'snapshot']
   "order_type" order_type_enum [not null]
   "status" order_status_enum [not null, default: 'pending']
   "subtotal_cents" bigint [not null, default: 0]
   "discount_cents" bigint [not null, default: 0]
   "freight_cents" bigint [not null, default: 0]
   "total_cents" bigint [not null, default: 0]
-  "rating" smallint
+  "rating" smallint [note: '1-5; null until rated']
   "feedback" text
   "rated_at" timestamptz
   "created_at" timestamptz [not null, default: `now()`]
   "updated_at" timestamptz [not null, default: `now()`]
 
-  Note: 'account_id and customer_cpf are mutually exclusive'
+  Indexes {
+    (account_id, created_at) [name: "idx_order_account_id_created_at"]
+    (customer_cpf, created_at) [name: "idx_order_customer_cpf_created_at"]
+    (physical_restaurant_id, status, created_at) [name: "idx_order_physical_restaurant_id_status_created_at"]
+  }
+
+  Note: 'account_id and customer_cpf are mutually exclusive — app-enforced XOR. Both null = anonymous walk-in. When customer_cpf is set, the app resolves to account via account.cpf (creating a shadow account if needed) to credit the wallet.'
+}
+
+Table "public"."order_item" {
+  "id" int [pk, not null, increment]
+  "order_id" int [not null, ref: > "public"."order"."id"]
+  "item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "item_name" varchar(255) [not null, note: 'snapshot']
+  "unit_price_cents" bigint [not null, note: 'snapshot']
+  "unit_cost_cents" bigint [note: 'snapshot of menu_item.base_cost_cents at order time']
+  "line_total_cents" bigint [not null]
+  "quantity" int [not null, default: 1]
+  "notes" text
+  "selected_options" jsonb [not null, default: ` '[]'::jsonb `, note: 'snapshot of chosen side options']
+  "parent_order_item_id" int [ref: > "public"."order_item"."id"]
+  "voided_at" timestamptz
+  "voided_reason" text
+  "created_at" timestamptz [not null, default: `now()`]
+}
+
+Table "public"."category" {
+  "id" int [pk, not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "name" varchar(100) [not null]
+  "display_order" int [not null, default: 0]
+  "created_at" timestamptz [not null, default: `now()`]
+}
+
+Table "public"."ingredient" {
+  "id" int [pk, not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "name" varchar(255) [not null]
+  "default_unit" ingredient_unit_enum
 
   Indexes {
-    (physical_restaurant_id, status, created_at)
-    (account_id, created_at)
-    (customer_cpf, created_at)
+    (restaurant_id, name) [unique, name: "idx_ingredient_restaurant_id_name"]
   }
+}
+
+Table "public"."item_sale" {
+  "id" int [pk, not null, increment]
+  "item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "discount_type" discount_type_enum [not null]
+  "discount_value" bigint [not null]
+  "starts_at" timestamptz [not null]
+  "ends_at" timestamptz [not null]
+  "is_active" boolean [not null, default: true]
+  "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (item_id, is_active) [name: "idx_item_sale_item_id_is_active"]
+  }
+}
+
+Table "public"."item_side_option" {
+  "id" int [pk, not null, increment]
+  "item_side_id" int [not null, ref: > "public"."item_side"."id"]
+  "name" varchar(255) [not null]
+  "additional_price_cents" bigint [not null, default: 0]
+  "is_available" boolean [not null, default: true]
+}
+
+Table "public"."transaction" {
+  "id" int [pk, not null, increment]
+  "order_id" int [not null, ref: > "public"."order"."id"]
+  "transaction_type" transaction_type_enum [not null]
+  "card_brand" card_brand_enum
+  "amount_cents" bigint [not null]
+  "refunded_cents" bigint [not null, default: 0]
+  "status" transaction_status_enum [not null, default: 'pending']
+  "created_by_account_id" int [ref: > "public"."account"."id"]
+  "notes" varchar(100)
+  "created_at" timestamptz [not null, default: `now()`]
+  "updated_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (order_id, status) [name: "idx_transaction_order_id_status"]
+  }
+
+  Note: 'Idempotency via Redis: idempotency:transaction:{key} → transaction_id (TTL 24h)'
+}
+
+Table "public"."combo_item" {
+  "combo_id" int [not null, ref: > "public"."menu_item"."id"]
+  "included_item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "quantity" int [not null, default: 1]
+
+  Indexes {
+    (combo_id, included_item_id) [pk]
+  }
+}
+
+Table "public"."item_side" {
+  "id" int [pk, not null, increment]
+  "item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "title" varchar(255) [not null]
+  "min_options" int [not null, default: 0]
+  "max_options" int [not null]
 }
 
 Table "public"."local_order" {
   "id" int [pk, not null, ref: - "public"."order"."id"]
-  "table_id" int [not null, ref: > "public"."dining_table"."id"]
-  "table_number" int [not null, note: 'snapshot at order time']
+  "table_id" int [ref: > "public"."dining_table"."id"]
+  "table_number" int [note: 'snapshot; null for counter/takeout/bar']
   "display_order" int [not null, default: 0]
   "notes" text
+
+  Note: 'table_id null = counter/takeout/bar service with no assigned table'
 }
 
-// delivery address is a SNAPSHOT, not an FK to Address.
 Table "public"."remote_order" {
   "id" int [pk, not null, ref: - "public"."order"."id"]
   "contact_phone" varchar(20) [not null]
@@ -512,42 +374,167 @@ Table "public"."remote_order" {
   "delivery_state" varchar(2)
 }
 
-Table "public"."order_item" {
+Table "public"."item_ingredient" {
   "id" int [pk, not null, increment]
-  "order_id" int [not null, ref: > "public"."order"."id"]
   "item_id" int [not null, ref: > "public"."menu_item"."id"]
-  "item_name" varchar(255) [not null, note: 'snapshot']
-  "unit_price_cents" bigint [not null, note: 'snapshot']
-  "line_total_cents" bigint [not null]
-  "quantity" int [not null, default: 1]
-  "notes" text
-  "selected_options" jsonb [not null, default: `'[]'::jsonb`, note: 'snapshot of chosen side_options']
-  "parent_order_item_id" int [ref: > "public"."order_item"."id"]
-  "voided_at" timestamptz
-  "voided_reason" text
-  "created_at" timestamptz [not null, default: `now()`]
+  "ingredient_id" int [not null, ref: > "public"."ingredient"."id"]
+  "quantity" numeric(10,3)
+  "measure" ingredient_unit_enum
+  "is_removable" boolean [not null, default: false]
+
+  Indexes {
+    (item_id, ingredient_id) [unique, name: "idx_item_ingredient_item_id_ingredient_id"]
+  }
 }
 
-// ============================================================
-// REVIEWS
-// ============================================================
+Table "public"."physical_restaurant" {
+  "id" int [pk, not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "address_id" int [not null, ref: > "public"."Address"."id"]
+  "name" varchar(255) [not null]
+  "cnpj" varchar(14) [not null]
+  "owner_cnpj" varchar(14) [not null]
+  "cnpj_verified" boolean [not null, default: false]
+  "operating_hours" jsonb [not null, default: ` '[]'::jsonb `, note: 'array of {weekday, opens_at, closes_at, is_closed}']
+  "is_active" boolean [not null, default: true]
+  "archived_at" timestamptz
+  "created_at" timestamptz [not null, default: `now()`]
+  "updated_at" timestamptz [not null, default: `now()`]
+}
+
+Table "public"."dining_table" {
+  "id" int [pk, not null, increment]
+  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
+  "number" int [not null]
+  "seats" int
+  "display_order" int [not null, default: 0]
+  "is_active" boolean [not null, default: true]
+
+  Indexes {
+    (physical_restaurant_id, number) [unique, name: "idx_dining_table_physical_restaurant_id_number"]
+  }
+}
+
+Table "public"."account" {
+  "id" int [pk, not null, increment]
+  "email" varchar(255) [unique]
+  "email_verified" boolean [not null, default: false]
+  "password" varchar(255)
+  "phone" varchar(20) [unique]
+  "phone_verified" boolean [not null, default: false]
+  "name" varchar(500)
+  "address_id" int [ref: > "public"."Address"."id"]
+  "cpf" varchar(11) [unique, note: 'set when CPF is entered at register OR claimed; UNIQUE prevents double-claim']
+  "cpf_claimed_at" timestamptz
+  "is_sysadmin" boolean [not null, default: false]
+  "two_factor_enabled" boolean [not null, default: false]
+  "last_password_change" timestamptz
+  "token_version" int [not null, default: 0]
+  "created_at" timestamptz [not null, default: `now()`]
+  "updated_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    cpf [unique, name: "idx_account_cpf"]
+    email [unique, name: "idx_account_email"]
+    phone [unique, name: "idx_account_phone"]
+  }
+
+  Note: 'Shadow account: email = password = phone = NULL, only cpf set. Created by the register flow when a cashier enters an unknown CPF to accrue coins. \"Graduates\" to a real account when the customer signs up with that CPF: UPDATE account SET email=..., password=..., phone=... WHERE cpf=... UNIQUE(cpf) makes this safe under concurrent signup. At least one auth method (email or phone) is required for LOGIN, but shadow accounts are exempt until graduation — app-enforced. If email is set, password must also be set — app-enforced.'
+}
+
+Table "public"."employee" {
+  "id" int [pk, not null, increment]
+  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
+  "account_id" int [unique, not null, ref: > "public"."account"."id"]
+  "name" varchar(500) [not null, note: 'snapshot at hire time']
+  "cpf" varchar(11) [note: 'snapshot at hire time']
+  "position" employee_position_enum [not null]
+  "is_active" boolean [not null, default: true]
+  "hired_at" date
+  "created_at" timestamptz [not null, default: `now()`]
+  "updated_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    physical_restaurant_id [name: "idx_employee_physical_restaurant_id"]
+    account_id [unique, name: "idx_employee_account_id"]
+  }
+
+  Note: 'Join: account ↔ branch. UNIQUE(account_id) = one active employment per account.'
+}
+
+Table "public"."loyalty_wallet" {
+  "id" int [pk, not null, increment]
+  "account_id" int [not null, ref: > "public"."account"."id"]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "coins_amount" bigint [not null, default: 0]
+  "created_at" timestamptz [not null, default: `now()`]
+  "updated_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (account_id, restaurant_id) [unique, name: "idx_loyalty_wallet_account_restaurant"]
+  }
+
+  Note: 'One wallet per (account, restaurant). For shadow accounts, the wallet is created on first CPF entry at the register. When the account \"graduates\" (real signup with that CPF), the wallet is already there and immediately visible. coins_amount is a cache; wallet_transaction is the ledger.'
+}
+
+Table "public"."wallet_transaction" {
+  "id" bigserial [pk, not null, increment]
+  "loyalty_wallet_id" int [not null, ref: > "public"."loyalty_wallet"."id"]
+  "points_delta" bigint [not null, note: 'positive = earned, negative = redeemed/expired']
+  "balance_after" bigint [not null]
+  "reason" varchar(100) [not null, note: 'earned | redeemed | admin_adjustment | expired | reversed']
+  "order_id" int [ref: > "public"."order"."id"]
+  "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    order_id [name: "idx_wallet_transaction_order_id"]
+    (loyalty_wallet_id, created_at) [name: "idx_wallet_transaction_wallet_id_created_at"]
+  }
+
+  Note: 'Append-only. Never UPDATE or DELETE. Idempotency via Redis: idempotency:wallet:{loyalty_wallet_id}:{key} → wallet_transaction_id (TTL 24h)'
+}
+
+Table "public"."account_restaurant" {
+  "id" bigserial [pk, not null, increment]
+  "account_id" int [not null, ref: > "public"."account"."id"]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "account_type" account_type_enum [not null]
+  "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (restaurant_id, account_type) [name: "idx_account_restaurant_restaurant_id_account_type"]
+    (account_id, restaurant_id) [unique, name: "idx_account_restaurant_account_id_restaurant_id"]
+  }
+
+  Note: 'OWNER — entity authority: transfer, delete, billing, appoint roles MANAGER — full operations: menu, employees, orders, payments ANALYST — read-only across all branches of this restaurant'
+}
+
+Table "public"."receipt" {
+  "id" int [pk, not null, increment]
+  "order_id" int [unique, not null, ref: > "public"."order"."id"]
+  "receipt_code" varchar(100) [unique, not null]
+  "receipt" jsonb [not null]
+  "issued_at" timestamptz [not null, default: `now()`]
+}
 
 Table "public"."item_review" {
-  "id" bigserial [pk, not null]
+  "id" bigserial [pk, not null, increment]
   "item_id" int [not null, ref: > "public"."menu_item"."id"]
   "order_item_id" int [unique, not null, ref: > "public"."order_item"."id"]
-  "account_id" int [not null, ref: > "public"."account"."id"]
+  "account_id" int [ref: > "public"."account"."id"]
   "rating" smallint [not null, note: '1-5']
   "comment" text
   "created_at" timestamptz [not null, default: `now()`]
 
   Indexes {
-    (item_id, created_at)
+    (item_id, created_at) [name: "idx_item_review_item_id_created_at"]
   }
+
+  Note: 'Only insertable if menu_item.allows_review = true (app-enforced).'
 }
 
 Table "public"."restaurant_review" {
-  "id" bigserial [pk, not null]
+  "id" bigserial [pk, not null, increment]
   "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
   "account_id" int [not null, ref: > "public"."account"."id"]
   "rating" smallint [not null, note: '1-5']
@@ -556,32 +543,18 @@ Table "public"."restaurant_review" {
   "updated_at" timestamptz [not null, default: `now()`]
 
   Indexes {
-    (restaurant_id, account_id) [unique]
-    (restaurant_id, created_at)
+    (restaurant_id, created_at) [name: "idx_restaurant_review_restaurant_id_created_at"]
+    (restaurant_id, account_id) [unique, name: "idx_restaurant_review_restaurant_id_account_id"]
   }
+
+  Note: 'One per account per restaurant (UNIQUE). Purchase-gated (app-enforced).'
 }
 
-// ============================================================
-// PAYMENTS
-// ============================================================
-
-Table "public"."transaction" {
+Table "public"."restaurant_phone" {
   "id" int [pk, not null, increment]
-  "order_id" int [not null, ref: > "public"."order"."id"]
-  "transaction_type" transaction_type_enum [not null]
-  "card_brand" card_brand_enum
-  "amount_cents" bigint [not null]
-  "refunded_cents" bigint [not null, default: 0]
-  "status" transaction_status_enum [not null, default: 'pending']
-  "idempotency_key" varchar(64)
-  "notes" varchar(100)
-  "created_at" timestamptz [not null, default: `now()`]
-  "updated_at" timestamptz [not null, default: `now()`]
-
-  Indexes {
-    (order_id, status)
-    (idempotency_key) [unique]
-  }
+  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
+  "phone" varchar(20) [not null]
+  "phone_type" restaurant_phone_type_enum [not null, default: 'mobile']
 }
 
 Table "public"."pix_charge" {
@@ -594,29 +567,91 @@ Table "public"."pix_charge" {
   "created_at" timestamptz [not null, default: `now()`]
 }
 
+Table "public"."menu_session" {
+  "id" bigint [pk, not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
+  "dining_table_id" int [ref: > "public"."dining_table"."id"]
+  "account_id" int [ref: > "public"."account"."id"]
+  "visitor_fingerprint" varchar(128) [note: 'anonymous device/session hash for dedup']
+  "channel" ux_channel_enum [not null]
+  "device_type" device_type_enum [not null]
+  "total_duration_ms" int [note: 'dwell time on the menu']
+  "max_scroll_depth_pct" smallint [note: '0..100']
+  "converted_order_id" int [ref: > "public"."order"."id"]
+  "started_at" timestamptz [not null, default: `now()`]
+  "last_activity_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (physical_restaurant_id, started_at) [name: "idx_menu_session_branch_started_at"]
+    converted_order_id [name: "idx_menu_session_converted_order_id"]
+    visitor_fingerprint [name: "idx_menu_session_visitor_fingerprint"]
+  }
+
+  Note: 'Session conversion rate = COUNT(converted_order_id) / COUNT(*). Partition candidate by started_at (monthly).'
+}
+
 Table "public"."refund" {
   "id" int [pk, not null, increment]
   "transaction_id" int [not null, ref: > "public"."transaction"."id"]
   "amount_cents" bigint [not null]
   "reason" text
-  "idempotency_key" varchar(64) [unique]
+  "created_by_account_id" int [ref: > "public"."account"."id"]
   "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    transaction_id [name: "idx_refund_transaction_id"]
+  }
+
+  Note: 'Idempotency via Redis: idempotency:refund:{key} → refund_id (TTL 24h)'
 }
 
-Table "public"."receipt" {
-  "id" int [pk, not null, increment]
-  "order_id" int [unique, not null, ref: > "public"."order"."id"]
-  "receipt_code" varchar(100) [unique, not null]
-  "receipt" jsonb [not null]
-  "issued_at" timestamptz [not null, default: `now()`]
+Table "public"."ux_event" {
+  "id" bigserial [pk, not null, increment]
+  "session_id" bigint [not null, ref: > "public"."menu_session"."id"]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "physical_restaurant_id" int [not null, ref: > "public"."physical_restaurant"."id"]
+  "event_type" ux_event_type_enum [not null]
+  "category_id" int [ref: > "public"."category"."id"]
+  "item_id" int [ref: > "public"."menu_item"."id"]
+  "duration_ms" int
+  "quantity" int
+  "cart_total_cents" bigint
+  "metadata" jsonb
+  "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (physical_restaurant_id, created_at) [name: "idx_ux_event_branch_created_at"]
+    (item_id, event_type, created_at) [name: "idx_ux_event_item_event_created_at"]
+    session_id [name: "idx_ux_event_session_id"]
+    (event_type, created_at) [name: "idx_ux_event_type_created_at"]
+  }
+
+  Note: 'High-volume. Partition candidate by created_at (monthly).'
 }
 
-// ============================================================
-// AUDIT
-// ============================================================
+Table "public"."menu_item_price_history" {
+  "id" bigserial [pk, not null, increment]
+  "restaurant_id" int [not null, ref: > "public"."restaurant"."id"]
+  "physical_restaurant_id" int [note: 'null for org-wide price change', ref: > "public"."physical_restaurant"."id"]
+  "item_id" int [not null, ref: > "public"."menu_item"."id"]
+  "changed_by_account_id" int [ref: > "public"."account"."id"]
+  "old_price_cents" bigint [not null]
+  "new_price_cents" bigint [not null]
+  "reason" price_change_reason_enum [not null]
+  "created_at" timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (item_id, created_at) [name: "idx_price_history_item_id_created_at"]
+    (reason, created_at) [name: "idx_price_history_reason_created_at"]
+    (restaurant_id, created_at) [name: "idx_price_history_restaurant_id_created_at"]
+  }
+
+  Note: 'Append-only audit of base_price_cents changes.'
+}
 
 Table "public"."audit_entry" {
-  "id" bigserial [pk, not null]
+  "id" bigserial [pk, not null, increment]
   "actor_account_id" int [ref: > "public"."account"."id"]
   "actor_role" varchar(20)
   "restaurant_id" int [ref: > "public"."restaurant"."id"]
@@ -628,7 +663,11 @@ Table "public"."audit_entry" {
   "created_at" timestamptz [not null, default: `now()`]
 
   Indexes {
-    (restaurant_id, created_at)
-    (entity_type, entity_id, created_at)
+    (action, created_at) [name: "idx_audit_entry_action_created_at"]
+    (actor_account_id, created_at) [name: "idx_audit_entry_actor_account_id_created_at"]
+    (entity_type, entity_id, created_at) [name: "idx_audit_entry_entity_type_entity_id_created_at"]
+    (restaurant_id, created_at) [name: "idx_audit_entry_restaurant_id_created_at"]
   }
+
+  Note: 'Append-only. For forensics and customer-tendency analytics.'
 }

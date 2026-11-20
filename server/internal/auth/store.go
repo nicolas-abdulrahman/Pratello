@@ -2,19 +2,13 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
-	"fmt"
+	"github.com/lib/pq"
 	"strings"
 	"sync"
 	"time"
 )
-
-// -------------------------------------------------------------
-// Domain Entities (Database Representation)
-// -------------------------------------------------------------
 
 type Account struct {
 	ID            int
@@ -36,66 +30,6 @@ type Sysadmin struct {
 	CreatedAt time.Time
 }
 
-type Manager struct {
-	ID             int
-	RestaurantSlug string
-	AccountID      int
-}
-
-type Owner struct {
-	ID             int
-	RestaurantSlug string
-	AccountID      int
-}
-
-type PhysicalRestaurant struct {
-	ID                int
-	RestaurantID      int
-	RestaurantSlug    string
-	AddressID         int
-	Name              string
-	CNPJ              string
-	OwnerCNPJ         string
-	TerminalPIN       string
-	FailedPINAttempts int
-	LockedUntil       *time.Time
-}
-
-type Employee struct {
-	ID                   int
-	PhysicalRestaurantID int
-	Name                 string
-	CPF                  string
-	Position             string
-	AccountID            *int
-	CreatedAt            time.Time
-}
-
-type TerminalSession struct {
-	ID                   int
-	PhysicalRestaurantID int
-	Token                string
-	DeviceID             string
-	ExpiresAt            time.Time
-	CreatedAt            time.Time
-}
-
-type TerminalOrder struct {
-	ID                   int
-	PhysicalRestaurantID int
-	AccountID            int
-	OrderType            string
-	Status               string
-	Subtotal             float64
-	Discount             float64
-	Total                float64
-	CreatedAt            time.Time
-}
-
-// -------------------------------------------------------------
-// Store Interface
-// -------------------------------------------------------------
-
 type Store interface {
 	CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error)
 	GetAccountByEmail(ctx context.Context, email string) (*Account, error)
@@ -103,34 +37,8 @@ type Store interface {
 
 	ListSysadmins(ctx context.Context) ([]Sysadmin, error)
 	AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error)
-
-	ListManagers(ctx context.Context, restaurantSlug string) ([]Manager, error)
-	AddManager(ctx context.Context, restaurantSlug string, accountID int) (*Manager, error)
-	RemoveManager(ctx context.Context, restaurantSlug string, accountID int) error
-
-	ListOwners(ctx context.Context, restaurantSlug string) ([]Owner, error)
-	AddOwner(ctx context.Context, restaurantSlug string, accountID int) (*Owner, error)
-	RemoveOwner(ctx context.Context, restaurantSlug string, accountID int) error
-	GetAccountRoles(ctx context.Context, restaurantSlug string, accountID int) ([]string, error)
-
-	CreatePhysicalRestaurant(ctx context.Context, restaurantSlug, name, cnpj, ownerCnpj string) (*PhysicalRestaurant, error)
-	ListPhysicalRestaurants(ctx context.Context, restaurantSlug string) ([]PhysicalRestaurant, error)
-	GetPhysicalRestaurant(ctx context.Context, branchID int) (*PhysicalRestaurant, error)
-	GetRestaurantCNPJ(ctx context.Context, restaurantSlug string) (string, error)
-
-	ListEmployees(ctx context.Context, branchID int) ([]Employee, error)
-	CreateEmployee(ctx context.Context, branchID int, name, cpf, position string) (*Employee, error)
-	LinkEmployeeAccount(ctx context.Context, employeeID int, accountID int) (*Employee, error)
-
-	VerifyAndOpenTerminalSession(ctx context.Context, branchID int, pin string, deviceID string) (*TerminalSession, error)
-	GetTerminalSession(ctx context.Context, token string) (*TerminalSession, error)
-	RotateTerminalPIN(ctx context.Context, branchID int, newPIN string) error
-	GetTerminalOrders(ctx context.Context, branchID int) ([]TerminalOrder, error)
+	IsSysadmin(context.Context, int) (bool, error)
 }
-
-// -------------------------------------------------------------
-// Constructors
-// -------------------------------------------------------------
 
 func NewStore(db *sql.DB) Store {
 	if db == nil {
@@ -139,28 +47,37 @@ func NewStore(db *sql.DB) Store {
 	return NewSQLStore(db)
 }
 
-func NewSQLiteStore(db *sql.DB) Store {
-	return NewStore(db)
-}
-
 func NewSQLStore(db *sql.DB) *sqlStore {
 	return &sqlStore{db: db}
 }
-
-// -------------------------------------------------------------
-// SQL Implementation
-// -------------------------------------------------------------
 
 type sqlStore struct {
 	db *sql.DB
 }
 
+func (s *sqlStore) IsSysadmin(ctx context.Context, id int) (bool, error) {
+	var allowed bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND is_sysadmin)`, id).Scan(&allowed)
+	return allowed, err
+}
+
+func (m *memoryStore) IsSysadmin(_ context.Context, id int) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, admin := range m.sysadmins {
+		if admin.AccountID == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *sqlStore) CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error) {
 	var a Account
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO "account" (name, email, email_verified, password_hash, phone, created_at)
+		`INSERT INTO "account" (name, email, email_verified, password, phone, created_at)
 		 VALUES (NULLIF($1, ''), $2, TRUE, $3, NULLIF($4, ''), NOW())
-		 RETURNING id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password_hash, ''), COALESCE(phone, ''), created_at`,
+		 RETURNING id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password, ''), COALESCE(phone, ''), created_at`,
 		name, strings.ToLower(strings.TrimSpace(email)), passwordHash, phone,
 	).Scan(&a.ID, &a.Name, &a.Email, &a.Password, &a.Phone, &a.CreatedAt)
 	if err != nil {
@@ -175,7 +92,7 @@ func (s *sqlStore) CreateAccount(ctx context.Context, name, email, passwordHash,
 func (s *sqlStore) GetAccountByEmail(ctx context.Context, email string) (*Account, error) {
 	var a Account
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password_hash, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at
+		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at
 		 FROM "account"
 		 WHERE LOWER(email) = $1`,
 		strings.ToLower(strings.TrimSpace(email)),
@@ -192,7 +109,7 @@ func (s *sqlStore) GetAccountByEmail(ctx context.Context, email string) (*Accoun
 func (s *sqlStore) GetAccountByID(ctx context.Context, id int) (*Account, error) {
 	var a Account
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password_hash, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at
+		`SELECT id, COALESCE(name, ''), COALESCE(email, ''), COALESCE(password, ''), COALESCE(phone, ''), created_at, token_version, email_verified, phone_verified, COALESCE(cpf, ''), cpf_claimed_at
 		 FROM "account"
 		 WHERE id = $1`,
 		id,
@@ -208,7 +125,7 @@ func (s *sqlStore) GetAccountByID(ctx context.Context, id int) (*Account, error)
 
 func (s *sqlStore) ListSysadmins(ctx context.Context) ([]Sysadmin, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, account_id, created_at FROM "sysadmin" ORDER BY id ASC`,
+		`SELECT id, id, created_at FROM account WHERE is_sysadmin ORDER BY id`,
 	)
 	if err != nil {
 		return nil, err
@@ -236,10 +153,7 @@ func (s *sqlStore) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, e
 
 	var sa Sysadmin
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO "sysadmin" (account_id, created_at)
-		 VALUES ($1, NOW())
-		 ON CONFLICT (account_id) DO UPDATE SET account_id = EXCLUDED.account_id
-		 RETURNING id, account_id, created_at`,
+		`UPDATE account SET is_sysadmin=true WHERE id=$1 RETURNING id, id, created_at`,
 		accountID,
 	).Scan(&sa.ID, &sa.AccountID, &sa.CreatedAt)
 	if err != nil {
@@ -248,566 +162,24 @@ func (s *sqlStore) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, e
 	return &sa, nil
 }
 
-func (s *sqlStore) getRestaurantID(ctx context.Context, slug string) (int, error) {
-	var id int
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM "restaurant" WHERE name_slug = $1`, slug).Scan(&id)
-	if err == nil {
-		return id, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, err
-	}
-
-	var legacyName string
-	err = s.db.QueryRowContext(ctx, `SELECT name FROM restaurants WHERE slug = $1`, slug).Scan(&legacyName)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrNotFound
-		}
-		return 0, err
-	}
-
-	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO "restaurant" (name_slug, name) VALUES ($1, $2)
-		 ON CONFLICT DO NOTHING
-		 RETURNING id`,
-		slug, legacyName,
-	).Scan(&id)
-	if err != nil {
-		_ = s.db.QueryRowContext(ctx, `SELECT id FROM "restaurant" WHERE name_slug = $1`, slug).Scan(&id)
-	}
-	if id == 0 {
-		return 0, ErrNotFound
-	}
-	return id, nil
-}
-
-func (s *sqlStore) ListManagers(ctx context.Context, restaurantSlug string) ([]Manager, error) {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT ar.id, ar.account_id
-		 FROM "account_restaurant" ar
-		 WHERE ar.restaurant_id = $1 AND ar.account_type = 'manager'
-		 ORDER BY ar.id ASC`,
-		restID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var managers []Manager
-	for rows.Next() {
-		var m Manager
-		if err := rows.Scan(&m.ID, &m.AccountID); err != nil {
-			return nil, err
-		}
-		m.RestaurantSlug = restaurantSlug
-		managers = append(managers, m)
-	}
-	if managers == nil {
-		managers = make([]Manager, 0)
-	}
-	return managers, rows.Err()
-}
-
-func (s *sqlStore) AddManager(ctx context.Context, restaurantSlug string, accountID int) (*Manager, error) {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := s.GetAccountByID(ctx, accountID); err != nil {
-		return nil, err
-	}
-
-	var id int
-	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO "account_restaurant" (account_id, restaurant_id, account_type)
-		 VALUES ($1, $2, 'manager')
-		 RETURNING id`,
-		accountID, restID,
-	).Scan(&id)
-	if err != nil {
-		return nil, err
-	}
-	return &Manager{
-		ID:             id,
-		RestaurantSlug: restaurantSlug,
-		AccountID:      accountID,
-	}, nil
-}
-
-func (s *sqlStore) RemoveManager(ctx context.Context, restaurantSlug string, accountID int) error {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return err
-	}
-
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM "account_restaurant"
-		 WHERE restaurant_id = $1 AND account_id = $2 AND account_type = 'manager'`,
-		restID, accountID,
-	)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (s *sqlStore) ListOwners(ctx context.Context, restaurantSlug string) ([]Owner, error) {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT ar.id, ar.account_id
-		 FROM "account_restaurant" ar
-		 WHERE ar.restaurant_id = $1 AND ar.account_type = 'owner'
-		 ORDER BY ar.id ASC`,
-		restID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var owners []Owner
-	for rows.Next() {
-		var o Owner
-		if err := rows.Scan(&o.ID, &o.AccountID); err != nil {
-			return nil, err
-		}
-		o.RestaurantSlug = restaurantSlug
-		owners = append(owners, o)
-	}
-	if owners == nil {
-		owners = make([]Owner, 0)
-	}
-	return owners, rows.Err()
-}
-
-func (s *sqlStore) AddOwner(ctx context.Context, restaurantSlug string, accountID int) (*Owner, error) {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := s.GetAccountByID(ctx, accountID); err != nil {
-		return nil, err
-	}
-
-	var id int
-	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO "account_restaurant" (account_id, restaurant_id, account_type)
-		 VALUES ($1, $2, 'owner')
-		 RETURNING id`,
-		accountID, restID,
-	).Scan(&id)
-	if err != nil {
-		return nil, err
-	}
-	return &Owner{
-		ID:             id,
-		RestaurantSlug: restaurantSlug,
-		AccountID:      accountID,
-	}, nil
-}
-
-func (s *sqlStore) RemoveOwner(ctx context.Context, restaurantSlug string, accountID int) error {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return err
-	}
-
-	var count int
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM "account_restaurant" WHERE restaurant_id = $1 AND account_type = 'owner'`,
-		restID,
-	).Scan(&count); err != nil {
-		return err
-	}
-	if count <= 1 {
-		return ErrCannotRemoveLastOwner
-	}
-
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM "account_restaurant"
-		 WHERE restaurant_id = $1 AND account_id = $2 AND account_type = 'owner'`,
-		restID, accountID,
-	)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (s *sqlStore) GetAccountRoles(ctx context.Context, restaurantSlug string, accountID int) ([]string, error) {
-	var roles []string
-
-	var saCount int
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "sysadmin" WHERE account_id = $1`, accountID).Scan(&saCount)
-	if saCount > 0 {
-		roles = append(roles, "sysadmin")
-	}
-
-	if restaurantSlug != "" {
-		restID, err := s.getRestaurantID(ctx, restaurantSlug)
-		if err == nil {
-			rows, err := s.db.QueryContext(ctx,
-				`SELECT DISTINCT account_type FROM "account_restaurant" WHERE restaurant_id = $1 AND account_id = $2`,
-				restID, accountID,
-			)
-			if err == nil {
-				defer rows.Close()
-				for rows.Next() {
-					var rType string
-					if err := rows.Scan(&rType); err == nil && rType != "" {
-						roles = append(roles, rType)
-					}
-				}
-			}
-		}
-	}
-
-	return roles, nil
-}
-
-func (s *sqlStore) GetRestaurantCNPJ(ctx context.Context, restaurantSlug string) (string, error) {
-	var cnpj sql.NullString
-	err := s.db.QueryRowContext(ctx,
-		`SELECT cnpj FROM "restaurant" WHERE name_slug = $1`,
-		restaurantSlug,
-	).Scan(&cnpj)
-	if err == nil && cnpj.Valid && cnpj.String != "" {
-		return cnpj.String, nil
-	}
-
-	err = s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(cep, '') FROM restaurants WHERE slug = $1`,
-		restaurantSlug,
-	).Scan(&cnpj)
-	if err == nil && cnpj.Valid {
-		return cnpj.String, nil
-	}
-	return "", nil
-}
-
-func (s *sqlStore) CreatePhysicalRestaurant(ctx context.Context, restaurantSlug, name, cnpj, ownerCnpj string) (*PhysicalRestaurant, error) {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return nil, err
-	}
-
-	var addressID int
-	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO "Address" ("CEP", number, complementary) VALUES ('00000-000', 0, 'Sede') RETURNING id`,
-	).Scan(&addressID)
-	if err != nil {
-		_ = s.db.QueryRowContext(ctx, `SELECT id FROM "Address" LIMIT 1`).Scan(&addressID)
-		if addressID == 0 {
-			addressID = 1
-		}
-	}
-
-	var pr PhysicalRestaurant
-	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO "physical_restaurant" (restaurant_id, address_id, name, cnpj, owner_cnpj, terminal_pin, pin_updated_at, failed_pin_attempts)
-		 VALUES ($1, $2, $3, $4, $5, '123456', NOW(), 0)
-		 RETURNING id, restaurant_id, address_id, name, cnpj, owner_cnpj, terminal_pin, failed_pin_attempts, locked_until`,
-		restID, addressID, name, cnpj, ownerCnpj,
-	).Scan(&pr.ID, &pr.RestaurantID, &pr.AddressID, &pr.Name, &pr.CNPJ, &pr.OwnerCNPJ, &pr.TerminalPIN, &pr.FailedPINAttempts, &pr.LockedUntil)
-	if err != nil {
-		return nil, err
-	}
-	pr.RestaurantSlug = restaurantSlug
-	return &pr, nil
-}
-
-func (s *sqlStore) ListPhysicalRestaurants(ctx context.Context, restaurantSlug string) ([]PhysicalRestaurant, error) {
-	restID, err := s.getRestaurantID(ctx, restaurantSlug)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, restaurant_id, address_id, COALESCE(name, ''), cnpj, COALESCE(owner_cnpj, ''), terminal_pin, failed_pin_attempts, locked_until
-		 FROM "physical_restaurant"
-		 WHERE restaurant_id = $1
-		 ORDER BY id ASC`,
-		restID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []PhysicalRestaurant
-	for rows.Next() {
-		var pr PhysicalRestaurant
-		if err := rows.Scan(&pr.ID, &pr.RestaurantID, &pr.AddressID, &pr.Name, &pr.CNPJ, &pr.OwnerCNPJ, &pr.TerminalPIN, &pr.FailedPINAttempts, &pr.LockedUntil); err != nil {
-			return nil, err
-		}
-		pr.RestaurantSlug = restaurantSlug
-		list = append(list, pr)
-	}
-	if list == nil {
-		list = make([]PhysicalRestaurant, 0)
-	}
-	return list, rows.Err()
-}
-
-func (s *sqlStore) GetPhysicalRestaurant(ctx context.Context, branchID int) (*PhysicalRestaurant, error) {
-	var pr PhysicalRestaurant
-	err := s.db.QueryRowContext(ctx,
-		`SELECT pr.id, pr.restaurant_id, COALESCE(r.name_slug, ''), pr.address_id, COALESCE(pr.name, ''), pr.cnpj, COALESCE(pr.owner_cnpj, ''), pr.terminal_pin, pr.failed_pin_attempts, pr.locked_until
-		 FROM "physical_restaurant" pr
-		 JOIN "restaurant" r ON r.id = pr.restaurant_id
-		 WHERE pr.id = $1`,
-		branchID,
-	).Scan(&pr.ID, &pr.RestaurantID, &pr.RestaurantSlug, &pr.AddressID, &pr.Name, &pr.CNPJ, &pr.OwnerCNPJ, &pr.TerminalPIN, &pr.FailedPINAttempts, &pr.LockedUntil)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	return &pr, nil
-}
-
-func (s *sqlStore) ListEmployees(ctx context.Context, branchID int) ([]Employee, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, physical_restaurant_id, name, cpf, position, account_id, created_at
-		 FROM "employee"
-		 WHERE physical_restaurant_id = $1
-		 ORDER BY id ASC`,
-		branchID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []Employee
-	for rows.Next() {
-		var emp Employee
-		if err := rows.Scan(&emp.ID, &emp.PhysicalRestaurantID, &emp.Name, &emp.CPF, &emp.Position, &emp.AccountID, &emp.CreatedAt); err != nil {
-			return nil, err
-		}
-		list = append(list, emp)
-	}
-	if list == nil {
-		list = make([]Employee, 0)
-	}
-	return list, rows.Err()
-}
-
-func (s *sqlStore) CreateEmployee(ctx context.Context, branchID int, name, cpf, position string) (*Employee, error) {
-	var emp Employee
-	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO "employee" (physical_restaurant_id, name, cpf, position, created_at)
-		 VALUES ($1, $2, $3, $4, NOW())
-		 RETURNING id, physical_restaurant_id, name, cpf, position, account_id, created_at`,
-		branchID, name, cpf, position,
-	).Scan(&emp.ID, &emp.PhysicalRestaurantID, &emp.Name, &emp.CPF, &emp.Position, &emp.AccountID, &emp.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &emp, nil
-}
-
-func (s *sqlStore) LinkEmployeeAccount(ctx context.Context, employeeID int, accountID int) (*Employee, error) {
-	var emp Employee
-	err := s.db.QueryRowContext(ctx,
-		`UPDATE "employee"
-		 SET account_id = $1
-		 WHERE id = $2
-		 RETURNING id, physical_restaurant_id, name, cpf, position, account_id, created_at`,
-		accountID, employeeID,
-	).Scan(&emp.ID, &emp.PhysicalRestaurantID, &emp.Name, &emp.CPF, &emp.Position, &emp.AccountID, &emp.CreatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	return &emp, nil
-}
-
-func (s *sqlStore) VerifyAndOpenTerminalSession(ctx context.Context, branchID int, pin string, deviceID string) (*TerminalSession, error) {
-	pr, err := s.GetPhysicalRestaurant(ctx, branchID)
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	if pr.LockedUntil != nil && pr.LockedUntil.After(now) {
-		return nil, ErrTerminalLocked
-	}
-
-	if pr.TerminalPIN != pin {
-		attempts := pr.FailedPINAttempts + 1
-		if attempts >= 5 {
-			lockout := now.Add(15 * time.Minute)
-			_, _ = s.db.ExecContext(ctx,
-				`UPDATE "physical_restaurant" SET failed_pin_attempts = $1, locked_until = $2 WHERE id = $3`,
-				attempts, lockout, branchID,
-			)
-			return nil, ErrTerminalLocked
-		}
-		_, _ = s.db.ExecContext(ctx,
-			`UPDATE "physical_restaurant" SET failed_pin_attempts = $1 WHERE id = $2`,
-			attempts, branchID,
-		)
-		return nil, ErrInvalidPIN
-	}
-
-	_, _ = s.db.ExecContext(ctx,
-		`UPDATE "physical_restaurant" SET failed_pin_attempts = 0, locked_until = NULL WHERE id = $1`,
-		branchID,
-	)
-
-	tokenBytes := make([]byte, 32)
-	_, _ = rand.Read(tokenBytes)
-	tokenStr := hex.EncodeToString(tokenBytes)
-	expiresAt := now.Add(8 * time.Hour)
-
-	var ts TerminalSession
-	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO "terminal_session" (physical_restaurant_id, token, device_id, expires_at, created_at)
-		 VALUES ($1, $2, $3, $4, NOW())
-		 RETURNING id, physical_restaurant_id, token, device_id, expires_at, created_at`,
-		branchID, tokenStr, deviceID, expiresAt,
-	).Scan(&ts.ID, &ts.PhysicalRestaurantID, &ts.Token, &ts.DeviceID, &ts.ExpiresAt, &ts.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &ts, nil
-}
-
-func (s *sqlStore) GetTerminalSession(ctx context.Context, token string) (*TerminalSession, error) {
-	var ts TerminalSession
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, physical_restaurant_id, token, device_id, expires_at, created_at
-		 FROM "terminal_session"
-		 WHERE token = $1 AND expires_at > NOW()`,
-		token,
-	).Scan(&ts.ID, &ts.PhysicalRestaurantID, &ts.Token, &ts.DeviceID, &ts.ExpiresAt, &ts.CreatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	return &ts, nil
-}
-
-func (s *sqlStore) RotateTerminalPIN(ctx context.Context, branchID int, newPIN string) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE "physical_restaurant"
-		 SET terminal_pin = $1, pin_updated_at = NOW(), failed_pin_attempts = 0, locked_until = NULL
-		 WHERE id = $2`,
-		newPIN, branchID,
-	)
-	if err != nil {
-		return err
-	}
-	aff, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if aff == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (s *sqlStore) GetTerminalOrders(ctx context.Context, branchID int) ([]TerminalOrder, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, physical_restaurant_id, account_id, order_type, status, subtotal, discount, total, created_at
-		 FROM "order"
-		 WHERE physical_restaurant_id = $1
-		 ORDER BY id DESC`,
-		branchID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var orders []TerminalOrder
-	for rows.Next() {
-		var o TerminalOrder
-		if err := rows.Scan(&o.ID, &o.PhysicalRestaurantID, &o.AccountID, &o.OrderType, &o.Status, &o.Subtotal, &o.Discount, &o.Total, &o.CreatedAt); err != nil {
-			return nil, err
-		}
-		orders = append(orders, o)
-	}
-	if orders == nil {
-		orders = make([]TerminalOrder, 0)
-	}
-	return orders, rows.Err()
-}
-
-// -------------------------------------------------------------
-// Memory Implementation (Fast isolated tests & zero-db fallback)
-// -------------------------------------------------------------
-
 type memoryStore struct {
-	mu               sync.RWMutex
-	accounts         map[int]*Account
-	byEmail          map[string]*Account
-	nextAcctID       int
-	sysadmins        map[int]*Sysadmin
-	nextSysID        int
-	managers         map[int]*Manager
-	nextManID        int
-	owners           map[int]*Owner
-	nextOwnID        int
-	branches         map[int]*PhysicalRestaurant
-	nextBranchID     int
-	employees        map[int]*Employee
-	nextEmpID        int
-	terminalSessions map[string]*TerminalSession
-	refreshTokens    map[string]refreshRecord
+	mu            sync.RWMutex
+	accounts      map[int]*Account
+	byEmail       map[string]*Account
+	nextAcctID    int
+	sysadmins     map[int]*Sysadmin
+	nextSysID     int
+	refreshTokens map[string]refreshRecord
 }
 
 func NewMemoryStore() *memoryStore {
 	return &memoryStore{
-		accounts:         make(map[int]*Account),
-		byEmail:          make(map[string]*Account),
-		nextAcctID:       1,
-		sysadmins:        make(map[int]*Sysadmin),
-		nextSysID:        1,
-		managers:         make(map[int]*Manager),
-		nextManID:        1,
-		owners:           make(map[int]*Owner),
-		nextOwnID:        1,
-		branches:         make(map[int]*PhysicalRestaurant),
-		nextBranchID:     1,
-		employees:        make(map[int]*Employee),
-		nextEmpID:        1,
-		terminalSessions: make(map[string]*TerminalSession),
-		refreshTokens:    make(map[string]refreshRecord),
+		accounts:      make(map[int]*Account),
+		byEmail:       make(map[string]*Account),
+		nextAcctID:    1,
+		sysadmins:     make(map[int]*Sysadmin),
+		nextSysID:     1,
+		refreshTokens: make(map[string]refreshRecord),
 	}
 }
 
@@ -903,302 +275,558 @@ func (m *memoryStore) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin
 	return sa, nil
 }
 
-func (m *memoryStore) ListManagers(ctx context.Context, restaurantSlug string) ([]Manager, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	list := make([]Manager, 0)
-	for _, mgr := range m.managers {
-		if mgr.RestaurantSlug == restaurantSlug {
-			list = append(list, *mgr)
-		}
-	}
-	return list, nil
+type cpfStore interface {
+	RegisterWithCPF(context.Context, string, string, string, string, string, bool) (*Account, error)
+	ClaimCPF(context.Context, int, string) error
+	RemoveCPF(context.Context, int) error
 }
 
-func (m *memoryStore) AddManager(ctx context.Context, restaurantSlug string, accountID int) (*Manager, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.accounts[accountID]; !ok {
-		return nil, ErrNotFound
+func cpfDBError(err error) error {
+	var e *pq.Error
+	if errors.As(err, &e) && e.Code == "23505" {
+		return ErrConflict
 	}
-
-	for _, mgr := range m.managers {
-		if mgr.RestaurantSlug == restaurantSlug && mgr.AccountID == accountID {
-			return mgr, nil
-		}
-	}
-
-	mgr := &Manager{
-		ID:             m.nextManID,
-		RestaurantSlug: restaurantSlug,
-		AccountID:      accountID,
-	}
-	m.nextManID++
-	m.managers[mgr.ID] = mgr
-	return mgr, nil
+	return err
 }
 
-func (m *memoryStore) RemoveManager(ctx context.Context, restaurantSlug string, accountID int) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for id, mgr := range m.managers {
-		if mgr.RestaurantSlug == restaurantSlug && mgr.AccountID == accountID {
-			delete(m.managers, id)
-			return nil
-		}
-	}
-	return ErrNotFound
+func lockCPF(ctx context.Context, tx *sql.Tx, cpf string) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('account-cpf:' || $1, 0))`, cpf)
+	return err
 }
 
-func (m *memoryStore) ListOwners(ctx context.Context, restaurantSlug string) ([]Owner, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	list := make([]Owner, 0)
-	for _, own := range m.owners {
-		if own.RestaurantSlug == restaurantSlug {
-			list = append(list, *own)
-		}
+// RegisterWithCPF performs shadow graduation and uniqueness checks atomically.
+func (s *sqlStore) RegisterWithCPF(ctx context.Context, name, email, hash, phone, cpf string, phoneOnly bool) (*Account, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
-	return list, nil
+	defer tx.Rollback()
+	if err = lockCPF(ctx, tx, cpf); err != nil {
+		return nil, err
+	}
+	var id int
+	var shadow bool
+	err = tx.QueryRowContext(ctx, `SELECT id, email IS NULL AND phone IS NULL AND password IS NULL AND NOT is_sysadmin FROM account WHERE cpf=$1 FOR UPDATE`, cpf).Scan(&id, &shadow)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if err == nil {
+		if !shadow {
+			return nil, ErrConflict
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE account SET name=NULLIF($2,''), email=NULLIF($3,''), password=NULLIF($4,''), phone=NULLIF($5,''), email_verified=$6, phone_verified=$7, cpf_claimed_at=NOW() WHERE id=$1`, id, name, email, hash, phone, !phoneOnly, phoneOnly)
+	} else {
+		err = tx.QueryRowContext(ctx, `INSERT INTO account (name,email,password,phone,email_verified,phone_verified,cpf,cpf_claimed_at) VALUES (NULLIF($1,''),NULLIF($2,''),NULLIF($3,''),NULLIF($4,''),$5,$6,$7,NOW()) RETURNING id`, name, email, hash, phone, !phoneOnly, phoneOnly, cpf).Scan(&id)
+	}
+	if err != nil {
+		return nil, cpfDBError(err)
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, cpfDBError(err)
+	}
+	return s.GetAccountByID(ctx, id)
 }
 
-func (m *memoryStore) AddOwner(ctx context.Context, restaurantSlug string, accountID int) (*Owner, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.accounts[accountID]; !ok {
-		return nil, ErrNotFound
+func (s *sqlStore) ClaimCPF(ctx context.Context, id int, cpf string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-
-	for _, own := range m.owners {
-		if own.RestaurantSlug == restaurantSlug && own.AccountID == accountID {
-			return own, nil
-		}
+	defer tx.Rollback()
+	if err = lockCPF(ctx, tx, cpf); err != nil {
+		return err
 	}
-
-	own := &Owner{
-		ID:             m.nextOwnID,
-		RestaurantSlug: restaurantSlug,
-		AccountID:      accountID,
-	}
-	m.nextOwnID++
-	m.owners[own.ID] = own
-	return own, nil
-}
-
-func (m *memoryStore) RemoveOwner(ctx context.Context, restaurantSlug string, accountID int) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	var ownersForSlug []int
-	var targetID int
-	for id, own := range m.owners {
-		if own.RestaurantSlug == restaurantSlug {
-			ownersForSlug = append(ownersForSlug, id)
-			if own.AccountID == accountID {
-				targetID = id
-			}
-		}
-	}
-
-	if targetID == 0 {
+	var current string
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(cpf,'') FROM account WHERE id=$1 FOR UPDATE`, id).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
-	if len(ownersForSlug) <= 1 {
-		return ErrCannotRemoveLastOwner
+	if err != nil {
+		return err
 	}
+	if current != "" {
+		return ErrConflict
+	}
+	var shadowID int
+	var shadow bool
+	err = tx.QueryRowContext(ctx, `SELECT id, email IS NULL AND phone IS NULL AND password IS NULL AND NOT is_sysadmin FROM account WHERE cpf=$1 FOR UPDATE`, cpf).Scan(&shadowID, &shadow)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil {
+		if !shadow {
+			return ErrConflict
+		}
+		if err = transferWallets(ctx, tx, id, shadowID); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM account WHERE id=$1`, shadowID); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE account SET cpf=$2, cpf_claimed_at=NOW() WHERE id=$1`, id, cpf); err != nil {
+		return cpfDBError(err)
+	}
+	return cpfDBError(tx.Commit())
+}
 
-	delete(m.owners, targetID)
+func transferWallets(ctx context.Context, tx *sql.Tx, target, shadow int) error {
+	// Lock existing wallet rows before moving balances. Account locks held by
+	// the caller also serialize new wallet creation against the claim.
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM loyalty_wallet WHERE account_id IN ($1,$2) ORDER BY id FOR UPDATE`, target, shadow)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id int
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	queries := []string{
+		`UPDATE loyalty_wallet d SET coins_amount=d.coins_amount+s.coins_amount FROM loyalty_wallet s WHERE d.account_id=$1 AND s.account_id=$2 AND d.restaurant_id=s.restaurant_id`,
+		// Keep every ledger entry and its original monetary values and timestamp.
+		`UPDATE wallet_transaction l SET loyalty_wallet_id=d.id FROM loyalty_wallet s JOIN loyalty_wallet d ON d.restaurant_id=s.restaurant_id WHERE d.account_id=$1 AND s.account_id=$2 AND l.loyalty_wallet_id=s.id`,
+		`DELETE FROM loyalty_wallet s USING loyalty_wallet d WHERE d.account_id=$1 AND s.account_id=$2 AND d.restaurant_id=s.restaurant_id`,
+		`UPDATE loyalty_wallet SET account_id=$1 WHERE account_id=$2`,
+	}
+	for _, q := range queries {
+		if _, err = tx.ExecContext(ctx, q, target, shadow); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (m *memoryStore) GetAccountRoles(ctx context.Context, restaurantSlug string, accountID int) ([]string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (s *sqlStore) RemoveCPF(ctx context.Context, id int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE account SET cpf=NULL, cpf_claimed_at=NULL WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
 
-	var roles []string
-	for _, sa := range m.sysadmins {
-		if sa.AccountID == accountID {
-			roles = append(roles, "sysadmin")
+func (m *memoryStore) RegisterWithCPF(_ context.Context, name, email, hash, phone, cpf string, phoneOnly bool) (*Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email != "" && m.byEmail[email] != nil {
+		return nil, ErrConflict
+	}
+	var a *Account
+	for _, existing := range m.accounts {
+		if phone != "" && existing.Phone == phone {
+			return nil, ErrConflict
+		}
+		if existing.CPF == cpf {
+			a = existing
+		}
+	}
+	if a != nil && (a.Email != "" || a.Phone != "" || a.Password != "") {
+		return nil, ErrConflict
+	}
+	if a == nil {
+		a = &Account{ID: m.nextAcctID, CPF: cpf, CreatedAt: time.Now()}
+		m.nextAcctID++
+		m.accounts[a.ID] = a
+	}
+	now := time.Now()
+	a.Name = name
+	a.Email = email
+	a.Password = hash
+	a.Phone = phone
+	a.EmailVerified = !phoneOnly
+	a.PhoneVerified = phoneOnly
+	a.CPFClaimedAt = &now
+	if email != "" {
+		m.byEmail[email] = a
+	}
+	copy := *a
+	return &copy, nil
+}
+
+func (m *memoryStore) ClaimCPF(_ context.Context, id int, cpf string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrNotFound
+	}
+	if a.CPF != "" {
+		return ErrConflict
+	}
+	for _, other := range m.accounts {
+		if other.CPF == cpf {
+			if other.Email != "" || other.Phone != "" || other.Password != "" {
+				return ErrConflict
+			}
+			delete(m.accounts, other.ID)
 			break
 		}
 	}
-
-	if restaurantSlug != "" {
-		for _, own := range m.owners {
-			if own.RestaurantSlug == restaurantSlug && own.AccountID == accountID {
-				roles = append(roles, "owner")
-				break
-			}
-		}
-		for _, mgr := range m.managers {
-			if mgr.RestaurantSlug == restaurantSlug && mgr.AccountID == accountID {
-				roles = append(roles, "manager")
-				break
-			}
-		}
-	}
-
-	return roles, nil
-}
-
-func (m *memoryStore) GetRestaurantCNPJ(ctx context.Context, restaurantSlug string) (string, error) {
-	return "12.345.678/0001-90", nil
-}
-
-func (m *memoryStore) CreatePhysicalRestaurant(ctx context.Context, restaurantSlug, name, cnpj, ownerCnpj string) (*PhysicalRestaurant, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	pr := &PhysicalRestaurant{
-		ID:                m.nextBranchID,
-		RestaurantSlug:    restaurantSlug,
-		Name:              name,
-		CNPJ:              cnpj,
-		OwnerCNPJ:         ownerCnpj,
-		TerminalPIN:       "123456",
-		FailedPINAttempts: 0,
-	}
-	m.nextBranchID++
-	m.branches[pr.ID] = pr
-	return pr, nil
-}
-
-func (m *memoryStore) ListPhysicalRestaurants(ctx context.Context, restaurantSlug string) ([]PhysicalRestaurant, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	list := make([]PhysicalRestaurant, 0)
-	for _, pr := range m.branches {
-		if pr.RestaurantSlug == restaurantSlug {
-			list = append(list, *pr)
-		}
-	}
-	return list, nil
-}
-
-func (m *memoryStore) GetPhysicalRestaurant(ctx context.Context, branchID int) (*PhysicalRestaurant, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	pr, ok := m.branches[branchID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return pr, nil
-}
-
-func (m *memoryStore) ListEmployees(ctx context.Context, branchID int) ([]Employee, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	list := make([]Employee, 0)
-	for _, emp := range m.employees {
-		if emp.PhysicalRestaurantID == branchID {
-			list = append(list, *emp)
-		}
-	}
-	return list, nil
-}
-
-func (m *memoryStore) CreateEmployee(ctx context.Context, branchID int, name, cpf, position string) (*Employee, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	emp := &Employee{
-		ID:                   m.nextEmpID,
-		PhysicalRestaurantID: branchID,
-		Name:                 name,
-		CPF:                  cpf,
-		Position:             position,
-		CreatedAt:            time.Now(),
-	}
-	m.nextEmpID++
-	m.employees[emp.ID] = emp
-	return emp, nil
-}
-
-func (m *memoryStore) LinkEmployeeAccount(ctx context.Context, employeeID int, accountID int) (*Employee, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	emp, ok := m.employees[employeeID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	emp.AccountID = &accountID
-	return emp, nil
-}
-
-func (m *memoryStore) VerifyAndOpenTerminalSession(ctx context.Context, branchID int, pin string, deviceID string) (*TerminalSession, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	pr, ok := m.branches[branchID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-
 	now := time.Now()
-	if pr.LockedUntil != nil && pr.LockedUntil.After(now) {
-		return nil, ErrTerminalLocked
-	}
-
-	if pr.TerminalPIN != pin {
-		pr.FailedPINAttempts++
-		if pr.FailedPINAttempts >= 5 {
-			lockout := now.Add(15 * time.Minute)
-			pr.LockedUntil = &lockout
-			return nil, ErrTerminalLocked
-		}
-		return nil, ErrInvalidPIN
-	}
-
-	pr.FailedPINAttempts = 0
-	pr.LockedUntil = nil
-
-	tokenStr := fmt.Sprintf("test_session_%d_%s", branchID, hex.EncodeToString([]byte(deviceID)))
-	ts := &TerminalSession{
-		ID:                   len(m.terminalSessions) + 1,
-		PhysicalRestaurantID: branchID,
-		Token:                tokenStr,
-		DeviceID:             deviceID,
-		ExpiresAt:            now.Add(8 * time.Hour),
-		CreatedAt:            now,
-	}
-	m.terminalSessions[tokenStr] = ts
-	return ts, nil
-}
-
-func (m *memoryStore) GetTerminalSession(ctx context.Context, token string) (*TerminalSession, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	ts, ok := m.terminalSessions[token]
-	if !ok || ts.ExpiresAt.Before(time.Now()) {
-		return nil, ErrNotFound
-	}
-	return ts, nil
-}
-
-func (m *memoryStore) RotateTerminalPIN(ctx context.Context, branchID int, newPIN string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	pr, ok := m.branches[branchID]
-	if !ok {
-		return ErrNotFound
-	}
-	pr.TerminalPIN = newPIN
-	pr.FailedPINAttempts = 0
-	pr.LockedUntil = nil
+	a.CPF = cpf
+	a.CPFClaimedAt = &now
 	return nil
 }
 
-func (m *memoryStore) GetTerminalOrders(ctx context.Context, branchID int) ([]TerminalOrder, error) {
-	return []TerminalOrder{}, nil
+func (m *memoryStore) RemoveCPF(_ context.Context, id int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrNotFound
+	}
+	a.CPF = ""
+	a.CPFClaimedAt = nil
+	return nil
+}
+
+func (s *sqlStore) SetVerifiedEmail(ctx context.Context, id int, email, hash, oldHash string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE account SET email=$2, password=$3, email_verified=TRUE WHERE id=$1 AND COALESCE(password,'')=$4`, id, email, hash, oldHash)
+	var e *pq.Error
+	if errors.As(err, &e) && e.Code == "23505" {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (s *sqlStore) RemoveEmail(ctx context.Context, id int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE account SET email=NULL, password=NULL, email_verified=FALSE WHERE id=$1 AND (phone_verified OR email IS NULL)`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (m *memoryStore) SetVerifiedEmail(_ context.Context, id int, email, hash, oldHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrNotFound
+	}
+	if a.Password != oldHash {
+		return ErrConflict
+	}
+	if other := m.byEmail[email]; other != nil && other.ID != id {
+		return ErrConflict
+	}
+	if a.Email != "" {
+		delete(m.byEmail, a.Email)
+	}
+	a.Email = email
+	a.Password = hash
+	a.EmailVerified = true
+	m.byEmail[email] = a
+	return nil
+}
+
+func (m *memoryStore) RemoveEmail(_ context.Context, id int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrNotFound
+	}
+	if a.Email != "" && !a.PhoneVerified {
+		return ErrConflict
+	}
+	delete(m.byEmail, a.Email)
+	a.Email = ""
+	a.Password = ""
+	a.EmailVerified = false
+	return nil
+}
+
+type phoneStore interface {
+	GetAccountByPhone(context.Context, string) (*Account, error)
+	CreatePhoneAccount(context.Context, string, string) (*Account, error)
+	SetVerifiedPhone(context.Context, int, string) error
+	RemovePhone(context.Context, int) error
+}
+
+func (s *sqlStore) CreatePhoneAccount(ctx context.Context, phone, name string) (*Account, error) {
+	var id int
+	err := s.db.QueryRowContext(ctx, `INSERT INTO account (phone, phone_verified, name) VALUES ($1, TRUE, NULLIF($2, '')) RETURNING id`, phone, name).Scan(&id)
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+		return nil, ErrConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.GetAccountByID(ctx, id)
+}
+
+func (m *memoryStore) CreatePhoneAccount(_ context.Context, phone, name string) (*Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.accounts {
+		if a.Phone == phone {
+			return nil, ErrConflict
+		}
+	}
+	a := &Account{ID: m.nextAcctID, Name: name, Phone: phone, PhoneVerified: true, CreatedAt: time.Now()}
+	m.nextAcctID++
+	m.accounts[a.ID] = a
+	copy := *a
+	return &copy, nil
+}
+
+func (s *sqlStore) GetAccountByPhone(ctx context.Context, phone string) (*Account, error) {
+	var id int
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM account WHERE phone=$1`, phone).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.GetAccountByID(ctx, id)
+}
+
+func (s *sqlStore) SetVerifiedPhone(ctx context.Context, id int, phone string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE account SET phone=$2, phone_verified=TRUE WHERE id=$1`, id, phone)
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *sqlStore) RemovePhone(ctx context.Context, id int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE account SET phone=NULL, phone_verified=FALSE WHERE id=$1 AND (NOT phone_verified OR email_verified)`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (m *memoryStore) GetAccountByPhone(_ context.Context, phone string) (*Account, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, a := range m.accounts {
+		if a.Phone == phone && phone != "" {
+			copy := *a
+			return &copy, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *memoryStore) SetVerifiedPhone(_ context.Context, id int, phone string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrNotFound
+	}
+	for _, other := range m.accounts {
+		if other.ID != id && other.Phone == phone {
+			return ErrConflict
+		}
+	}
+	a.Phone = phone
+	a.PhoneVerified = true
+	return nil
+}
+
+func (m *memoryStore) RemovePhone(_ context.Context, id int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrNotFound
+	}
+	if a.PhoneVerified && !a.EmailVerified {
+		return ErrConflict
+	}
+	a.Phone = ""
+	a.PhoneVerified = false
+	return nil
+}
+
+type refreshRecord struct {
+	accountID int
+	expiresAt time.Time
+}
+
+type sessionStore interface {
+	SaveRefresh(context.Context, int, int, string, time.Time) error
+	ConsumeRefresh(context.Context, string, int) (int, error)
+	RevokeRefresh(context.Context, string, int) error
+	RevokeAll(context.Context, int) error
+}
+
+func (s *sqlStore) SaveRefresh(ctx context.Context, accountID, version int, hash string, expires time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var current int
+	err = tx.QueryRowContext(ctx, `SELECT token_version FROM account WHERE id=$1 FOR UPDATE`, accountID).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrUnauthorized
+	}
+	if err != nil {
+		return err
+	}
+	if current != version {
+		return ErrUnauthorized
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO refresh_token (account_id, token_hash, expires_at) VALUES ($1,$2,$3)`, accountID, hash, expires); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *sqlStore) ConsumeRefresh(ctx context.Context, hash string, version int) (int, error) {
+	var id int
+	err := s.db.QueryRowContext(ctx, `UPDATE refresh_token r SET revoked_at=NOW() FROM account a
+		WHERE r.token_hash=$1 AND r.account_id=a.id AND a.token_version=$2
+		AND r.revoked_at IS NULL AND r.expires_at>NOW() RETURNING r.account_id`, hash, version).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrUnauthorized
+	}
+	return id, err
+}
+
+func (s *sqlStore) RevokeRefresh(ctx context.Context, hash string, accountID int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE refresh_token SET revoked_at=NOW() WHERE token_hash=$1 AND account_id=$2 AND revoked_at IS NULL AND expires_at>NOW()`, hash, accountID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
+func (s *sqlStore) RevokeAll(ctx context.Context, accountID int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE account SET token_version=token_version+1 WHERE id=$1`, accountID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrUnauthorized
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE refresh_token SET revoked_at=NOW() WHERE account_id=$1 AND revoked_at IS NULL`, accountID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (m *memoryStore) SaveRefresh(_ context.Context, id, version int, hash string, expires time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil || a.TokenVersion != version {
+		return ErrUnauthorized
+	}
+	m.refreshTokens[hash] = refreshRecord{id, expires}
+	return nil
+}
+
+func (m *memoryStore) ConsumeRefresh(_ context.Context, hash string, version int) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.refreshTokens[hash]
+	if !ok || !r.expiresAt.After(time.Now()) {
+		return 0, ErrUnauthorized
+	}
+	a := m.accounts[r.accountID]
+	if a == nil || a.TokenVersion != version {
+		return 0, ErrUnauthorized
+	}
+	delete(m.refreshTokens, hash)
+	return r.accountID, nil
+}
+
+func (m *memoryStore) RevokeRefresh(_ context.Context, hash string, id int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.refreshTokens[hash]
+	if !ok || r.accountID != id || !r.expiresAt.After(time.Now()) {
+		return ErrUnauthorized
+	}
+	delete(m.refreshTokens, hash)
+	return nil
+}
+
+func (m *memoryStore) RevokeAll(_ context.Context, id int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.accounts[id]
+	if a == nil {
+		return ErrUnauthorized
+	}
+	a.TokenVersion++
+	for hash, r := range m.refreshTokens {
+		if r.accountID == id {
+			delete(m.refreshTokens, hash)
+		}
+	}
+	return nil
 }

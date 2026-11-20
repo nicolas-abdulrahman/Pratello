@@ -20,7 +20,7 @@ A suíte está estruturada em **7 Módulos Coesos de Alta Profundidade (Deep Mod
 
 ## Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP-001 a IDP-026)
 
-Os testes ficam em `server/internal/auth/*_test.go`. Execute `go test -race ./server/internal/auth/...`; os testes PostgreSQL usam `AUTH_TEST_DATABASE_URL` e um esquema temporário. A notificação e a verificação de e-mail/WhatsApp são **simuladas**, conforme solicitado: não há prova real de posse. `XFAIL` executa o cenário e registra `SKIP: XFAIL` somente quando a falha conhecida se manifesta; outros resultados inesperados falham normalmente.
+Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.go`; os casos de autorização de restaurantes ficam em `server/internal/restaurants/restaurants_casos_de_testes_test.go`. Execute `go test -race ./server/internal/auth ./server/internal/restaurants`; os testes PostgreSQL usam `AUTH_TEST_DATABASE_URL` e um esquema temporário. A notificação e a verificação de e-mail/WhatsApp são **simuladas**: não há prova real de posse. `XFAIL` executa o cenário e registra `SKIP: XFAIL` somente quando a falha conhecida se manifesta; outros resultados inesperados falham normalmente.
 
 ### IDP-001: Cadastro, tokens e hash de senha
 - **Pré-condição:** E-mail livre, notificador simulado.
@@ -150,16 +150,16 @@ Os testes ficam em `server/internal/auth/*_test.go`. Execute `go test -race ./se
 
 ### IDP-019: Proteção do último proprietário
 - **Pré-condição:** Restaurante com apenas um proprietário.
-- **Passos:** Solicitar remoção na camada de serviço; depois adicionar outro proprietário e repetir.
+- **Passos:** Solicitar remoção pela API; depois adicionar outro proprietário e repetir com o token dele.
 - **Entradas:** IDs de duas contas existentes.
 - **Esperado:** Primeira remoção rejeitada; segunda permitida sem deixar restaurante órfão.
-- **Teste:** `TestIDP019LastOwner`.
+- **Teste:** `TestRestaurantPostgresLifecycle` em `server/internal/restaurants/restaurants_casos_de_testes_test.go` (requer `AUTH_TEST_DATABASE_URL`).
 
-### IDP-020: Promoção de sysadmin sem autenticação (XFAIL)
+### IDP-020: Promoção de sysadmin sem autenticação
 - **Pré-condição:** Conta alvo existente; requisição anônima.
 - **Passos:** Chamar `POST /sysadmins` sem bearer.
 - **Entradas:** `{"account_id":1}`.
-- **Esperado:** HTTP 401 ou 403 e nenhuma promoção. **Falha conhecida:** atualmente retorna 201 e promove a conta.
+- **Esperado:** HTTP 401 e nenhuma promoção.
 - **Teste:** `TestIDP020AnonymousSysadminPromotion`.
 
 ### IDP-021: Limite de tamanho de cadastro (XFAIL)
@@ -176,12 +176,12 @@ Os testes ficam em `server/internal/auth/*_test.go`. Execute `go test -race ./se
 - **Esperado:** Serviço retorna erro e não grava conta.
 - **Teste:** `TestService_Register_NotificationFailureDoesNotCreateAccount`.
 
-### IDP-023: Gerente não promove proprietário (XFAIL)
-- **Pré-condição:** `trattoria` tem um proprietário; outra conta é gerente sem ser proprietária, e há uma conta alvo.
-- **Passos:** Enviar `POST /restaurants/trattoria/owners` com o bearer do gerente.
+### IDP-023: Gerente não promove proprietário
+- **Pré-condição:** `cafe` tem um proprietário; outra conta é gerente de uma filial sem ser proprietária, e há uma conta alvo.
+- **Passos:** Enviar `POST /restaurants/cafe/owners` com o bearer do gerente, antes de revogar seu vínculo de gerente.
 - **Entradas:** `account_id` da segunda conta.
-- **Esperado:** HTTP 403 e somente o proprietário original permanece. **Falha conhecida:** o endpoint retorna 201 e adiciona o alvo.
-- **Teste:** `TestIDP023ManagerCannotPromoteOwner`.
+- **Esperado:** HTTP 403 e somente o proprietário original permanece.
+- **Teste:** `TestRestaurantPostgresLifecycle` em `server/internal/restaurants/restaurants_casos_de_testes_test.go` (requer `AUTH_TEST_DATABASE_URL`).
 
 ### IDP-024: CPF de outra conta real não pode ser reivindicado
 - **Pré-condição:** Conta A possui CPF; conta B não possui CPF.

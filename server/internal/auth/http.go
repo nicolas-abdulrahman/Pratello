@@ -5,14 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
-
-// -------------------------------------------------------------
-// Request & Response DTOs
-// -------------------------------------------------------------
 
 type registerRequest struct {
 	Name     string `json:"name,omitempty"`
@@ -22,22 +17,9 @@ type registerRequest struct {
 	CPF      string `json:"cpf,omitempty"`
 }
 
-type userResponse struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name,omitempty"`
-	Email     string    `json:"email"`
-	Phone     string    `json:"phone,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-}
-
-type loginResponse struct {
-	Token   string       `json:"token"`
-	Account userResponse `json:"account"`
 }
 
 type accountIDRequest struct {
@@ -49,61 +31,6 @@ type sysadminResponse struct {
 	AccountID int       `json:"account_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
-
-type managerResponse struct {
-	ID             int    `json:"id"`
-	RestaurantSlug string `json:"restaurant_slug"`
-	AccountID      int    `json:"account_id"`
-}
-
-type ownerResponse struct {
-	ID             int    `json:"id"`
-	RestaurantSlug string `json:"restaurant_slug"`
-	AccountID      int    `json:"account_id"`
-}
-
-type employeeRequest struct {
-	Name     string `json:"name"`
-	CPF      string `json:"cpf"`
-	Position string `json:"position"`
-}
-
-type employeeResponse struct {
-	ID                   int       `json:"id"`
-	PhysicalRestaurantID int       `json:"physical_restaurant_id"`
-	Name                 string    `json:"name"`
-	CPF                  string    `json:"cpf"`
-	Position             string    `json:"position"`
-	AccountID            *int      `json:"account_id,omitempty"`
-	CreatedAt            time.Time `json:"created_at"`
-}
-
-type terminalSessionRequest struct {
-	PIN      string `json:"pin"`
-	DeviceID string `json:"device_id"`
-}
-
-type terminalSessionResponse struct {
-	Token     string    `json:"token"`
-	DeviceID  string    `json:"device_id"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
-type terminalOrderResponse struct {
-	ID                   int       `json:"id"`
-	PhysicalRestaurantID int       `json:"physical_restaurant_id"`
-	AccountID            int       `json:"account_id"`
-	OrderType            string    `json:"order_type"`
-	Status               string    `json:"status"`
-	Subtotal             float64   `json:"subtotal"`
-	Discount             float64   `json:"discount"`
-	Total                float64   `json:"total"`
-	CreatedAt            time.Time `json:"created_at"`
-}
-
-// -------------------------------------------------------------
-// HTTP Handler
-// -------------------------------------------------------------
 
 type Handler struct {
 	svc *Service
@@ -139,31 +66,8 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 		// Superadministradores
 		mux.HandleFunc(fmt.Sprintf("GET %s/sysadmins", p), h.listSysadmins)
 		mux.HandleFunc(fmt.Sprintf("POST %s/sysadmins", p), h.promoteSysadmin)
-
-		// Gerentes
-		mux.HandleFunc(fmt.Sprintf("GET %s/restaurants/{slug}/managers", p), h.listManagers)
-		mux.HandleFunc(fmt.Sprintf("POST %s/restaurants/{slug}/managers", p), h.assignManager)
-		mux.HandleFunc(fmt.Sprintf("DELETE %s/restaurants/{slug}/managers/{account_id}", p), h.removeManager)
-
-		// Proprietários
-		mux.HandleFunc(fmt.Sprintf("GET %s/restaurants/{slug}/owners", p), h.listOwners)
-		mux.HandleFunc(fmt.Sprintf("POST %s/restaurants/{slug}/owners", p), h.assignOwner)
-		mux.HandleFunc(fmt.Sprintf("DELETE %s/restaurants/{slug}/owners/{account_id}", p), h.removeOwner)
-
-		// Colaboradores (RH)
-		mux.HandleFunc(fmt.Sprintf("GET %s/restaurants/{slug}/branches/{branch_id}/employees", p), h.listEmployees)
-		mux.HandleFunc(fmt.Sprintf("POST %s/restaurants/{slug}/branches/{branch_id}/employees", p), h.createEmployee)
-		mux.HandleFunc(fmt.Sprintf("POST %s/restaurants/{slug}/branches/{branch_id}/employees/{employee_id}/invite", p), h.inviteEmployee)
-
-		// Terminais de Salão
-		mux.HandleFunc(fmt.Sprintf("POST %s/restaurants/{slug}/branches/{branch_id}/terminal/session", p), h.openTerminalSession)
-		mux.HandleFunc(fmt.Sprintf("GET %s/restaurants/{slug}/branches/{branch_id}/terminal/orders", p), h.getTerminalOrders)
 	}
 }
-
-// -------------------------------------------------------------
-// Handler Implementations
-// -------------------------------------------------------------
 
 func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -287,6 +191,9 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listSysadmins(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSysadmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	list, err := h.svc.ListSysadmins(r.Context())
@@ -307,6 +214,9 @@ func (h *Handler) listSysadmins(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) promoteSysadmin(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSysadmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	var req accountIDRequest
@@ -329,302 +239,21 @@ func (h *Handler) promoteSysadmin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) listManagers(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	slug := r.PathValue("slug")
-
-	list, err := h.svc.ListManagers(r.Context(), slug)
+func (h *Handler) requireSysadmin(w http.ResponseWriter, r *http.Request) bool {
+	claims, err := h.authenticate(r)
+	if err == nil {
+		var allowed bool
+		allowed, err = h.svc.IsSysadmin(r.Context(), claims.AccountID)
+		if err == nil && !allowed {
+			err = ErrForbidden
+		}
+	}
 	if err != nil {
 		h.mapServiceError(w, err)
-		return
+		return false
 	}
-
-	resp := make([]managerResponse, 0, len(list))
-	for _, m := range list {
-		resp = append(resp, managerResponse{
-			ID:             m.ID,
-			RestaurantSlug: m.RestaurantSlug,
-			AccountID:      m.AccountID,
-		})
-	}
-	_ = json.NewEncoder(w).Encode(resp)
+	return true
 }
-
-func (h *Handler) assignManager(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	slug := r.PathValue("slug")
-
-	var req accountIDRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AccountID <= 0 {
-		h.writeError(w, http.StatusBadRequest, "account_id é obrigatório")
-		return
-	}
-
-	m, err := h.svc.AddManager(r.Context(), slug, req.AccountID)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(managerResponse{
-		ID:             m.ID,
-		RestaurantSlug: m.RestaurantSlug,
-		AccountID:      m.AccountID,
-	})
-}
-
-func (h *Handler) removeManager(w http.ResponseWriter, r *http.Request) {
-	slug := r.PathValue("slug")
-	acctIDStr := r.PathValue("account_id")
-	acctID, err := strconv.Atoi(acctIDStr)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "account_id inválido")
-		return
-	}
-
-	if err := h.svc.RemoveManager(r.Context(), slug, acctID); err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handler) listOwners(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	slug := r.PathValue("slug")
-
-	list, err := h.svc.ListOwners(r.Context(), slug)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	resp := make([]ownerResponse, 0, len(list))
-	for _, o := range list {
-		resp = append(resp, ownerResponse{
-			ID:             o.ID,
-			RestaurantSlug: o.RestaurantSlug,
-			AccountID:      o.AccountID,
-		})
-	}
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-func (h *Handler) assignOwner(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	slug := r.PathValue("slug")
-
-	var req accountIDRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AccountID <= 0 {
-		h.writeError(w, http.StatusBadRequest, "account_id é obrigatório")
-		return
-	}
-
-	o, err := h.svc.AddOwner(r.Context(), slug, req.AccountID)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(ownerResponse{
-		ID:             o.ID,
-		RestaurantSlug: o.RestaurantSlug,
-		AccountID:      o.AccountID,
-	})
-}
-
-func (h *Handler) removeOwner(w http.ResponseWriter, r *http.Request) {
-	slug := r.PathValue("slug")
-	acctIDStr := r.PathValue("account_id")
-	acctID, err := strconv.Atoi(acctIDStr)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "account_id inválido")
-		return
-	}
-
-	if err := h.svc.RemoveOwner(r.Context(), slug, acctID); err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handler) listEmployees(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	branchIDStr := r.PathValue("branch_id")
-	branchID, err := strconv.Atoi(branchIDStr)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "branch_id inválido")
-		return
-	}
-
-	list, err := h.svc.ListEmployees(r.Context(), branchID)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	resp := make([]employeeResponse, 0, len(list))
-	for _, emp := range list {
-		resp = append(resp, employeeResponse{
-			ID:                   emp.ID,
-			PhysicalRestaurantID: emp.PhysicalRestaurantID,
-			Name:                 emp.Name,
-			CPF:                  emp.CPF,
-			Position:             emp.Position,
-			AccountID:            emp.AccountID,
-			CreatedAt:            emp.CreatedAt,
-		})
-	}
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-func (h *Handler) createEmployee(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	branchIDStr := r.PathValue("branch_id")
-	branchID, err := strconv.Atoi(branchIDStr)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "branch_id inválido")
-		return
-	}
-
-	var req employeeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
-		return
-	}
-
-	emp, err := h.svc.CreateEmployee(r.Context(), branchID, req.Name, req.CPF, req.Position)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(employeeResponse{
-		ID:                   emp.ID,
-		PhysicalRestaurantID: emp.PhysicalRestaurantID,
-		Name:                 emp.Name,
-		CPF:                  emp.CPF,
-		Position:             emp.Position,
-		AccountID:            emp.AccountID,
-		CreatedAt:            emp.CreatedAt,
-	})
-}
-
-func (h *Handler) inviteEmployee(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	empIDStr := r.PathValue("employee_id")
-	empID, err := strconv.Atoi(empIDStr)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "employee_id inválido")
-		return
-	}
-
-	var req accountIDRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AccountID <= 0 {
-		h.writeError(w, http.StatusBadRequest, "account_id é obrigatório")
-		return
-	}
-
-	emp, err := h.svc.LinkEmployeeAccount(r.Context(), empID, req.AccountID)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(employeeResponse{
-		ID:                   emp.ID,
-		PhysicalRestaurantID: emp.PhysicalRestaurantID,
-		Name:                 emp.Name,
-		CPF:                  emp.CPF,
-		Position:             emp.Position,
-		AccountID:            emp.AccountID,
-		CreatedAt:            emp.CreatedAt,
-	})
-}
-
-func (h *Handler) openTerminalSession(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	branchIDStr := r.PathValue("branch_id")
-	branchID, err := strconv.Atoi(branchIDStr)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "branch_id inválido")
-		return
-	}
-
-	var req terminalSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
-		return
-	}
-
-	ts, err := h.svc.OpenTerminalSession(r.Context(), branchID, req.PIN, req.DeviceID)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(terminalSessionResponse{
-		Token:     ts.Token,
-		DeviceID:  ts.DeviceID,
-		ExpiresAt: ts.ExpiresAt,
-	})
-}
-
-func (h *Handler) getTerminalOrders(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	branchIDStr := r.PathValue("branch_id")
-	branchID, err := strconv.Atoi(branchIDStr)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "branch_id inválido")
-		return
-	}
-
-	token := extractBearerToken(r)
-	deviceID := r.Header.Get("X-Device-Id")
-	if token == "" || deviceID == "" {
-		h.writeError(w, http.StatusUnauthorized, "token de sessão e cabeçalho X-Device-Id são obrigatórios")
-		return
-	}
-
-	if _, err := h.svc.ValidateTerminalToken(r.Context(), token, deviceID); err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	orders, err := h.svc.GetTerminalOrders(r.Context(), branchID)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-
-	resp := make([]terminalOrderResponse, 0, len(orders))
-	for _, o := range orders {
-		resp = append(resp, terminalOrderResponse{
-			ID:                   o.ID,
-			PhysicalRestaurantID: o.PhysicalRestaurantID,
-			AccountID:            o.AccountID,
-			OrderType:            o.OrderType,
-			Status:               o.Status,
-			Subtotal:             o.Subtotal,
-			Discount:             o.Discount,
-			Total:                o.Total,
-			CreatedAt:            o.CreatedAt,
-		})
-	}
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// -------------------------------------------------------------
-// Helpers
-// -------------------------------------------------------------
 
 func (h *Handler) authenticate(r *http.Request) (*AccountClaims, error) {
 	token := extractBearerToken(r)
@@ -655,16 +284,10 @@ func (h *Handler) mapServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrValidation):
 		h.writeError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, ErrCannotRemoveLastOwner):
-		h.writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrInvalidCredentials):
 		h.writeError(w, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, ErrUnauthorized):
 		h.writeError(w, http.StatusUnauthorized, "não autorizado")
-	case errors.Is(err, ErrInvalidPIN):
-		h.writeError(w, http.StatusUnauthorized, err.Error())
-	case errors.Is(err, ErrTerminalLocked):
-		h.writeError(w, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, ErrForbidden):
 		h.writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ErrNotFound):
@@ -674,4 +297,239 @@ func (h *Handler) mapServiceError(w http.ResponseWriter, err error) {
 	default:
 		h.writeError(w, http.StatusInternalServerError, err.Error())
 	}
+}
+
+func (h *Handler) claimCPF(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	var req struct {
+		CPF string `json:"cpf"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	a, err := h.svc.ClaimCPF(r.Context(), claims.AccountID, req.CPF)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	writeAccount(w, a)
+}
+
+func (h *Handler) removeCPF(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	if err = h.svc.RemoveCPF(r.Context(), claims.AccountID); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) setEmail(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	var req struct {
+		Email           string `json:"email"`
+		Password        string `json:"password"`
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	a, err := h.svc.SetEmail(r.Context(), claims.AccountID, req.Email, req.Password, req.CurrentPassword)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	writeAccount(w, a)
+}
+
+func (h *Handler) removeEmail(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	if err = h.svc.RemoveEmail(r.Context(), claims.AccountID); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	a, err := h.svc.Account(r.Context(), claims.AccountID)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	if !a.EmailVerified {
+		h.mapServiceError(w, ErrValidation)
+		return
+	}
+	writeAccount(w, a)
+}
+
+type phoneRequest struct {
+	Phone string `json:"phone"`
+}
+
+func (h *Handler) requestPhoneRegistration(w http.ResponseWriter, r *http.Request) {
+	phone, ok := decodePhone(w, r)
+	if !ok {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := h.svc.RequestPhoneRegistration(r.Context(), phone); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) registerPhone(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Phone string `json:"phone"`
+		Name  string `json:"name"`
+		CPF   string `json:"cpf"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Phone == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	pair, err := h.svc.RegisterPhone(r.Context(), req.Phone, req.Name, req.CPF)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(pair)
+}
+
+func decodePhone(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var req phoneRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Phone == "" {
+		return "", false
+	}
+	return req.Phone, true
+}
+
+func (h *Handler) requestPhoneLogin(w http.ResponseWriter, r *http.Request) {
+	phone, ok := decodePhone(w, r)
+	if !ok {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := h.svc.RequestPhoneLogin(r.Context(), phone); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) verifyPhoneLogin(w http.ResponseWriter, r *http.Request) {
+	phone, ok := decodePhone(w, r)
+	if !ok {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	pair, err := h.svc.LoginPhone(r.Context(), phone)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(pair)
+}
+
+func (h *Handler) addPhone(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	phone, ok := decodePhone(w, r)
+	if !ok {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if _, err := h.svc.AddPhone(r.Context(), claims.AccountID, phone); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) verifyPhone(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	phone, ok := decodePhone(w, r)
+	if !ok {
+		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	a, err := h.svc.Account(r.Context(), claims.AccountID)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	if a.Phone != phone || !a.PhoneVerified {
+		h.mapServiceError(w, ErrValidation)
+		return
+	}
+	writeAccount(w, a)
+}
+
+func (h *Handler) removePhone(w http.ResponseWriter, r *http.Request) {
+	claims, err := h.authenticate(r)
+	if err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	if err := h.svc.RemovePhone(r.Context(), claims.AccountID); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeAccount(w http.ResponseWriter, a *Account) {
+	var email, phone, name, cpf any
+	if a.Email != "" {
+		email = a.Email
+	}
+	if a.Phone != "" {
+		phone = a.Phone
+	}
+	if a.Name != "" {
+		name = a.Name
+	}
+	if a.CPF != "" {
+		cpf = a.CPF
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": a.ID, "email": email, "email_verified": a.EmailVerified, "phone": phone, "phone_verified": a.PhoneVerified, "name": name, "cpf": cpf, "cpf_claimed_at": a.CPFClaimedAt, "is_shadow": a.Email == "" && a.Phone == "" && a.Password == "", "created_at": a.CreatedAt})
 }

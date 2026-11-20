@@ -12,8 +12,6 @@ import (
 	"pratello/server/internal/auth"
 	"pratello/server/internal/db"
 	"pratello/server/internal/restaurants"
-
-	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -32,36 +30,23 @@ func main() {
 		var err error
 		database, err = db.Open(dbURL)
 		if err != nil {
-			log.Printf("Warning: failed to connect to database (%v); continuing with in-memory fallback", err)
+			log.Printf("Warning: failed to connect to database (%v); only in-memory authentication is available", err)
 			database = nil
 		} else {
 			defer database.Close()
 			if err := db.Migrate(database); err != nil {
-				log.Printf("Warning: schema migration had errors: %v", err)
+				log.Fatalf("Database migration failed: %v", err)
 			} else {
 				log.Println("Database migrated successfully")
 			}
 		}
 	} else {
-		log.Println("DATABASE_URL not set; running with flexible in-memory store")
+		log.Println("DATABASE_URL not set; only in-memory authentication is available")
 	}
 
-	// Construct stores
-	authStore := auth.NewSQLiteStore(database)
-	restStore := restaurants.NewSQLiteStore(database)
-
-	// Construct services
-	authSvc := auth.NewService(authStore)
-	restSvc := restaurants.NewService(restStore)
-
-	// Seed default sample restaurant data if needed
-	if err := restSvc.SeedDefaultRestaurant(context.Background()); err != nil {
-		log.Printf("Warning: failed to seed default restaurant: %v", err)
-	}
-
-	// Construct HTTP handlers
+	authSvc := auth.NewService(auth.NewStore(database))
 	authHandler := auth.NewHandler(authSvc)
-	restHandler := restaurants.NewHandler(restSvc)
+	restHandler := restaurants.NewHandler(database, authSvc)
 
 	// Build mux and route tree
 	mux := http.NewServeMux()

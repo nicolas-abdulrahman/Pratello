@@ -1,653 +1,287 @@
--- =============================================================
--- Pratello Database Schema — matches OpenAPI v2.1
--- Rebuild, not a migration.
--- =============================================================
+-- PostgreSQL baseline corresponding to docs/db.dbml (installed in the current schema).
+DO $$ BEGIN CREATE TYPE account_type_enum AS ENUM ('OWNER','MANAGER','ANALYST'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE card_brand_enum AS ENUM ('VISA','MASTERCARD','ELO','HIPERCARD','OTHER'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE discount_type_enum AS ENUM ('percent','fixed_cents'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE menu_style_enum AS ENUM ('CLASSICO','EXPERIENCIA'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE order_status_enum AS ENUM ('pending','preparing','ready','delivered','cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE order_type_enum AS ENUM ('local','remote'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE transaction_status_enum AS ENUM ('pending','paid','failed','refunded','partially_refunded'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE transaction_type_enum AS ENUM ('credit_card','debit_card','pix','cash'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE employee_position_enum AS ENUM ('WAITER','COOK','CASHIER','BARTENDER','HOST','OTHER'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE restaurant_phone_type_enum AS ENUM ('whatsapp','landline','mobile','other'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE verification_purpose_enum AS ENUM ('register_phone','login_phone','add_phone','claim_cpf','verify_email'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE ingredient_unit_enum AS ENUM ('g','kg','ml','l','un','cs','colher'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE ux_channel_enum AS ENUM ('qr_table','counter','remote_link'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE device_type_enum AS ENUM ('mobile','tablet','desktop'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE ux_event_type_enum AS ENUM ('menu_open','category_view','item_impression','item_detail_open','item_detail_close','item_side_select','cart_item_add','cart_item_remove','cart_qty_change','checkout_open','checkout_abandon','order_submitted'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE price_change_reason_enum AS ENUM ('base_price_update','sale_created','sale_ended'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- -------------------------------------------------------------
--- Enums
--- -------------------------------------------------------------
-DO $$ BEGIN
-    CREATE TYPE discount_type_enum AS ENUM ('percent', 'fixed_cents');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE order_status_enum AS ENUM (
-        'pending', 'preparing', 'ready', 'delivered', 'cancelled'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE order_type_enum AS ENUM ('local', 'remote');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE transaction_type_enum AS ENUM (
-        'credit_card', 'debit_card', 'pix', 'cash'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE transaction_status_enum AS ENUM (
-        'pending', 'paid', 'failed', 'refunded', 'partially_refunded'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE card_brand_enum AS ENUM (
-        'VISA', 'MASTERCARD', 'ELO', 'AMEX', 'HIPERCARD', 'OTHER'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE membership_role_enum AS ENUM ('OWNER', 'MANAGER');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE employee_position_enum AS ENUM (
-        'WAITER', 'COOK', 'CASHIER', 'BARTENDER', 'HOST', 'OTHER'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE branch_phone_type_enum AS ENUM (
-        'whatsapp', 'landline', 'mobile', 'other'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE verification_purpose_enum AS ENUM (
-        'register_phone', 'login_phone', 'add_phone', 'claim_loyalty', 'verify_email'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE ingredient_unit_enum AS ENUM (
-        'g', 'kg', 'ml', 'l', 'un', 'cs', 'colher'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
--- -------------------------------------------------------------
--- Utility: updated_at trigger
--- -------------------------------------------------------------
-CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- -------------------------------------------------------------
--- Address — one row per account OR per branch.
--- Order delivery addresses are snapshotted, never referenced.
--- -------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS address (
-    id          SERIAL PRIMARY KEY,
-    cep         VARCHAR(8)  NOT NULL,
-    street      VARCHAR(255) NOT NULL,
-    number      VARCHAR(20) NOT NULL,
-    apt         VARCHAR(50),
-    complement  VARCHAR(255),
-    city        VARCHAR(255),
-    state       VARCHAR(2),
-    CONSTRAINT chk_address_cep CHECK (cep ~ '^[0-9]{8}$')
+CREATE TABLE IF NOT EXISTS "Address" (
+    id SERIAL PRIMARY KEY, "CEP" VARCHAR(8) NOT NULL CHECK ("CEP" ~ '^[0-9]{8}$'),
+    street VARCHAR(255) NOT NULL, number VARCHAR(20) NOT NULL, apt VARCHAR(50),
+    complementary VARCHAR(255), city VARCHAR(255), state VARCHAR(2)
 );
-
--- -------------------------------------------------------------
--- Account + auth
--- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS account (
-    id                   SERIAL PRIMARY KEY,
-    email                VARCHAR(255) UNIQUE,
-    email_verified       BOOLEAN NOT NULL DEFAULT FALSE,
-    password_hash        VARCHAR(255),
-    phone                VARCHAR(20) UNIQUE,
-    phone_verified       BOOLEAN NOT NULL DEFAULT FALSE,
-    cpf                  VARCHAR(11) UNIQUE,
-    cpf_claimed_at       TIMESTAMPTZ,
-    name                 VARCHAR(255),
-    address_id           INT REFERENCES address(id) ON DELETE SET NULL,
-    two_factor_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
-    last_password_change TIMESTAMPTZ,
-    token_version        INT NOT NULL DEFAULT 0,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    -- CPF-only accounts hold loyalty balances until registration.
-    CONSTRAINT chk_account_has_method CHECK (email IS NOT NULL OR phone IS NOT NULL OR cpf IS NOT NULL),
-    CONSTRAINT chk_account_cpf CHECK (cpf IS NULL OR cpf ~ '^[0-9]{11}$'),
-    -- If an email exists, a password must exist too.
-    CONSTRAINT chk_account_email_password CHECK (email IS NULL OR password_hash IS NOT NULL)
+    id SERIAL PRIMARY KEY, email VARCHAR(255), email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    password VARCHAR(255), phone VARCHAR(20), phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    name VARCHAR(500), address_id INT REFERENCES "Address"(id) ON DELETE SET NULL,
+    cpf VARCHAR(11) CHECK (cpf ~ '^[0-9]{11}$'), cpf_claimed_at TIMESTAMPTZ,
+    is_sysadmin BOOLEAN NOT NULL DEFAULT FALSE, two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    last_password_change TIMESTAMPTZ, token_version INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (email IS NOT NULL OR phone IS NOT NULL OR cpf IS NOT NULL),
+    CHECK (email IS NULL OR password IS NOT NULL)
 );
-ALTER TABLE account ADD COLUMN IF NOT EXISTS cpf VARCHAR(11);
-ALTER TABLE account ADD COLUMN IF NOT EXISTS cpf_claimed_at TIMESTAMPTZ;
-ALTER TABLE account DROP CONSTRAINT IF EXISTS chk_account_has_method;
-ALTER TABLE account ADD CONSTRAINT chk_account_has_method CHECK (email IS NOT NULL OR phone IS NOT NULL OR cpf IS NOT NULL);
-CREATE UNIQUE INDEX IF NOT EXISTS account_cpf_unique ON account (cpf);
-CREATE UNIQUE INDEX IF NOT EXISTS account_phone_unique ON account (phone) WHERE phone IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS account_email_lower_unique ON account (LOWER(email)) WHERE email IS NOT NULL;
-DROP TRIGGER IF EXISTS trg_account_updated ON account;
-CREATE TRIGGER trg_account_updated BEFORE UPDATE ON account
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+COMMENT ON COLUMN account.password IS 'Password hash only.';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_cpf ON account(cpf);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_email ON account(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_phone ON account(phone);
+CREATE UNIQUE INDEX IF NOT EXISTS account_email_lower_unique ON account(lower(email));
 
 CREATE TABLE IF NOT EXISTS verification_code (
-    id          BIGSERIAL PRIMARY KEY,
-    account_id  INT REFERENCES account(id) ON DELETE CASCADE,
-    phone       VARCHAR(20),
-    email       VARCHAR(255),
-    code_hash   VARCHAR(255) NOT NULL,
-    purpose     verification_purpose_enum NOT NULL,
-    attempts    INT NOT NULL DEFAULT 0,
-    expires_at  TIMESTAMPTZ NOT NULL,
-    consumed_at TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    -- Exactly one contact target, matched to purpose.
-    CONSTRAINT chk_verification_target CHECK (
-        (phone IS NOT NULL AND email IS NULL)
-        OR (phone IS NULL AND email IS NOT NULL)
-    )
+    id BIGSERIAL PRIMARY KEY, account_id INT REFERENCES account(id) ON DELETE CASCADE,
+    phone VARCHAR(20), email VARCHAR(255), code_hash VARCHAR(255) NOT NULL,
+    purpose verification_purpose_enum NOT NULL, attempts INT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMPTZ NOT NULL, consumed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((phone IS NULL) <> (email IS NULL))
 );
-CREATE INDEX IF NOT EXISTS verification_code_phone
-    ON verification_code (phone, purpose) WHERE consumed_at IS NULL;
-CREATE INDEX IF NOT EXISTS verification_code_email
-    ON verification_code (email, purpose) WHERE consumed_at IS NULL;
-
+CREATE INDEX IF NOT EXISTS idx_verification_code_email_purpose ON verification_code(email,purpose);
+CREATE INDEX IF NOT EXISTS idx_verification_code_phone_purpose ON verification_code(phone,purpose);
+CREATE UNIQUE INDEX IF NOT EXISTS verification_active_email ON verification_code(email,purpose) WHERE email IS NOT NULL AND consumed_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS verification_active_phone ON verification_code(phone,purpose) WHERE phone IS NOT NULL AND consumed_at IS NULL;
 CREATE TABLE IF NOT EXISTS refresh_token (
-    id          BIGSERIAL PRIMARY KEY,
-    account_id  INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-    token_hash  VARCHAR(255) UNIQUE NOT NULL,
-    expires_at  TIMESTAMPTZ NOT NULL,
-    revoked_at  TIMESTAMPTZ,
-    user_agent  VARCHAR(255),
-    ip          VARCHAR(45),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id BIGSERIAL PRIMARY KEY, account_id INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) UNIQUE NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ, user_agent VARCHAR(255), ip VARCHAR(45), created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS refresh_token_account
-    ON refresh_token (account_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_refresh_token_account_id_expires_at ON refresh_token(account_id,expires_at);
 
--- -------------------------------------------------------------
--- Sysadmin
--- -------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS sysadmin (
-    id          SERIAL PRIMARY KEY,
-    account_id  INT NOT NULL UNIQUE REFERENCES account(id) ON DELETE CASCADE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- -------------------------------------------------------------
--- Restaurant (logical) + memberships + menu layout (inline)
--- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS restaurant (
-    id                   SERIAL PRIMARY KEY,
-    slug                 VARCHAR(255) UNIQUE NOT NULL,
-    name                 VARCHAR(255) NOT NULL,
-    description          TEXT,
-    -- Menu layout lives here: 1 per restaurant.
-    menu_name            VARCHAR(255),
-    menu_template_style  VARCHAR(50) NOT NULL DEFAULT 'classic',
-    menu_accent_color    VARCHAR(7),
-    menu_typography      VARCHAR(50),
-    archived_at          TIMESTAMPTZ,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_restaurant_accent_color
-        CHECK (menu_accent_color IS NULL OR menu_accent_color ~ '^#[0-9A-Fa-f]{6}$')
+    id SERIAL PRIMARY KEY, name_slug VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL,
+    description TEXT, loyalty_earn_rate NUMERIC(5,2) NOT NULL DEFAULT 1 CHECK (loyalty_earn_rate >= 0),
+    archived_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-DROP TRIGGER IF EXISTS trg_restaurant_updated ON restaurant;
-CREATE TRIGGER trg_restaurant_updated BEFORE UPDATE ON restaurant
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TABLE IF NOT EXISTS restaurant_membership (
-    id            SERIAL PRIMARY KEY,
-    account_id    INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS account_restaurant (
+    id BIGSERIAL PRIMARY KEY, account_id INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
     restaurant_id INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    role          membership_role_enum NOT NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (account_id, restaurant_id)
+    account_type account_type_enum NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS restaurant_membership_restaurant
-    ON restaurant_membership (restaurant_id, role);
-
--- -------------------------------------------------------------
--- Catalog
--- -------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS category (
-    id             SERIAL PRIMARY KEY,
-    restaurant_id  INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    name           VARCHAR(100) NOT NULL,
-    display_order  INT NOT NULL DEFAULT 0,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS category_restaurant
-    ON category (restaurant_id, display_order);
-
-CREATE TABLE IF NOT EXISTS ingredient (
-    id             SERIAL PRIMARY KEY,
-    restaurant_id  INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    name           VARCHAR(255) NOT NULL,
-    default_unit   ingredient_unit_enum,
-    UNIQUE (restaurant_id, name)
-);
-
-CREATE TABLE IF NOT EXISTS menu_item (
-    id               SERIAL PRIMARY KEY,
-    restaurant_id    INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    category_id      INT NOT NULL REFERENCES category(id) ON DELETE RESTRICT,
-    name             VARCHAR(255) NOT NULL,
-    description      TEXT,
-    base_price_cents BIGINT NOT NULL CHECK (base_price_cents >= 0),
-    photo_url        TEXT,
-    is_available     BOOLEAN NOT NULL DEFAULT TRUE,
-    is_combo         BOOLEAN NOT NULL DEFAULT FALSE,
-    allows_review    BOOLEAN NOT NULL DEFAULT TRUE,
-    archived_at      TIMESTAMPTZ,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS menu_item_restaurant_category
-    ON menu_item (restaurant_id, category_id) WHERE archived_at IS NULL;
-DROP TRIGGER IF EXISTS trg_menu_item_updated ON menu_item;
-CREATE TRIGGER trg_menu_item_updated BEFORE UPDATE ON menu_item
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TABLE IF NOT EXISTS item_ingredient (
-    id              SERIAL PRIMARY KEY,
-    item_id         INT NOT NULL REFERENCES menu_item(id) ON DELETE CASCADE,
-    ingredient_id   INT NOT NULL REFERENCES ingredient(id) ON DELETE RESTRICT,
-    quantity        NUMERIC(10,3),
-    unit            ingredient_unit_enum,
-    is_removable    BOOLEAN NOT NULL DEFAULT FALSE,
-    UNIQUE (item_id, ingredient_id)
-);
-
-CREATE TABLE IF NOT EXISTS side_group (
-    id           SERIAL PRIMARY KEY,
-    item_id      INT NOT NULL REFERENCES menu_item(id) ON DELETE CASCADE,
-    title        VARCHAR(255) NOT NULL,
-    min_options  INT NOT NULL DEFAULT 0 CHECK (min_options >= 0),
-    max_options  INT NOT NULL CHECK (max_options >= min_options)
-);
-
-CREATE TABLE IF NOT EXISTS side_option (
-    id                     SERIAL PRIMARY KEY,
-    side_group_id          INT NOT NULL REFERENCES side_group(id) ON DELETE CASCADE,
-    name                   VARCHAR(255) NOT NULL,
-    additional_price_cents BIGINT NOT NULL DEFAULT 0 CHECK (additional_price_cents >= 0),
-    is_available           BOOLEAN NOT NULL DEFAULT TRUE
-);
-
-CREATE TABLE IF NOT EXISTS combo_item (
-    combo_id          INT NOT NULL REFERENCES menu_item(id) ON DELETE CASCADE,
-    included_item_id  INT NOT NULL REFERENCES menu_item(id) ON DELETE CASCADE,
-    quantity          INT NOT NULL DEFAULT 1 CHECK (quantity >= 1),
-    PRIMARY KEY (combo_id, included_item_id),
-    CONSTRAINT chk_combo_not_self CHECK (combo_id <> included_item_id)
-);
-
-CREATE TABLE IF NOT EXISTS item_sale (
-    id              SERIAL PRIMARY KEY,
-    item_id         INT NOT NULL REFERENCES menu_item(id) ON DELETE CASCADE,
-    discount_type   discount_type_enum NOT NULL,
-    discount_value  BIGINT NOT NULL CHECK (discount_value > 0),
-    starts_at       TIMESTAMPTZ NOT NULL,
-    ends_at         TIMESTAMPTZ NOT NULL,
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_sale_window CHECK (ends_at > starts_at)
-);
-CREATE INDEX IF NOT EXISTS item_sale_active
-    ON item_sale (item_id, is_active);
-
--- -------------------------------------------------------------
--- Coupons
--- -------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS coupon (
-    id               SERIAL PRIMARY KEY,
-    restaurant_id    INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    code             VARCHAR(50) NOT NULL,
-    discount_type    discount_type_enum NOT NULL,
-    discount_value   BIGINT NOT NULL CHECK (discount_value > 0),
-    min_order_cents  BIGINT NOT NULL DEFAULT 0 CHECK (min_order_cents >= 0),
-    max_uses         INT,
-    used_count       INT NOT NULL DEFAULT 0,
-    expires_at       TIMESTAMPTZ,
-    is_active        BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (restaurant_id, code)
-);
-DROP TRIGGER IF EXISTS trg_coupon_updated ON coupon;
-CREATE TRIGGER trg_coupon_updated BEFORE UPDATE ON coupon
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
--- -------------------------------------------------------------
--- Branch (physical restaurant)
--- operating_hours stored inline as JSONB:
---   [{"weekday":0,"opens_at":"11:00","closes_at":"22:00","is_closed":false}, ...]
--- -------------------------------------------------------------
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_restaurant_account_id_restaurant_id ON account_restaurant(account_id,restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_account_restaurant_restaurant_id_account_type ON account_restaurant(restaurant_id,account_type);
 CREATE TABLE IF NOT EXISTS physical_restaurant (
-    id                  SERIAL PRIMARY KEY,
-    restaurant_id       INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    address_id          INT NOT NULL REFERENCES address(id) ON DELETE RESTRICT,
-    name                VARCHAR(255) NOT NULL,
-    cnpj                VARCHAR(14) NOT NULL,
-    owner_cnpj          VARCHAR(14) NOT NULL,
-    cnpj_verified       BOOLEAN NOT NULL DEFAULT FALSE,
-    terminal_pin_hash   VARCHAR(255),
-    pin_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    failed_pin_attempts INT NOT NULL DEFAULT 0,
-    locked_until        TIMESTAMPTZ,
-    operating_hours     JSONB NOT NULL DEFAULT '[]'::jsonb,
-    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
-    archived_at         TIMESTAMPTZ,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_physical_cnpj       CHECK (cnpj ~ '^[0-9]{14}$'),
-    CONSTRAINT chk_physical_owner_cnpj CHECK (owner_cnpj ~ '^[0-9]{14}$'),
-    CONSTRAINT chk_operating_hours_is_array CHECK (jsonb_typeof(operating_hours) = 'array')
+    id SERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id),
+    address_id INT NOT NULL REFERENCES "Address"(id), name VARCHAR(255) NOT NULL,
+    cnpj VARCHAR(14) NOT NULL CHECK (cnpj ~ '^[0-9]{14}$'),
+    owner_cnpj VARCHAR(14) NOT NULL CHECK (owner_cnpj ~ '^[0-9]{14}$'),
+    cnpj_verified BOOLEAN NOT NULL DEFAULT FALSE, operating_hours JSONB NOT NULL DEFAULT '[]'::jsonb,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE, archived_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (jsonb_typeof(operating_hours)='array')
 );
-CREATE INDEX IF NOT EXISTS physical_restaurant_restaurant
-    ON physical_restaurant (restaurant_id) WHERE archived_at IS NULL;
-DROP TRIGGER IF EXISTS trg_physical_updated ON physical_restaurant;
-CREATE TRIGGER trg_physical_updated BEFORE UPDATE ON physical_restaurant
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TABLE IF NOT EXISTS branch_phone (
-    id                     SERIAL PRIMARY KEY,
-    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id) ON DELETE CASCADE,
-    phone_number           VARCHAR(20) NOT NULL,
-    phone_type             branch_phone_type_enum NOT NULL DEFAULT 'mobile'
+CREATE UNIQUE INDEX IF NOT EXISTS physical_restaurant_cnpj_unique ON physical_restaurant(cnpj);
+CREATE TABLE IF NOT EXISTS restaurant_phone (
+    id SERIAL PRIMARY KEY, physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id),
+    phone VARCHAR(20) NOT NULL, phone_type restaurant_phone_type_enum NOT NULL DEFAULT 'mobile'
 );
-
 CREATE TABLE IF NOT EXISTS dining_table (
-    id                     SERIAL PRIMARY KEY,
-    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id) ON DELETE CASCADE,
-    number                 INT NOT NULL CHECK (number >= 1),
-    seats                  INT,
-    display_order          INT NOT NULL DEFAULT 0,
-    is_active              BOOLEAN NOT NULL DEFAULT TRUE,
-    UNIQUE (physical_restaurant_id, number)
+    id SERIAL PRIMARY KEY, physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id),
+    number INT NOT NULL CHECK (number > 0), seats INT CHECK (seats > 0),
+    display_order INT NOT NULL DEFAULT 0, is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
-
--- -------------------------------------------------------------
--- Employee + sessions
--- -------------------------------------------------------------
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dining_table_physical_restaurant_id_number ON dining_table(physical_restaurant_id,number);
 CREATE TABLE IF NOT EXISTS employee (
-    id                     SERIAL PRIMARY KEY,
-    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id) ON DELETE CASCADE,
-    name                   VARCHAR(255) NOT NULL,
-    cpf                    VARCHAR(11),
-    position               employee_position_enum NOT NULL,
-    account_id             INT REFERENCES account(id) ON DELETE SET NULL,
-    is_active              BOOLEAN NOT NULL DEFAULT TRUE,
-    hired_at               DATE,
-    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id SERIAL PRIMARY KEY, physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id),
+    account_id INT NOT NULL REFERENCES account(id), name VARCHAR(500) NOT NULL, cpf VARCHAR(11),
+    position employee_position_enum NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, hired_at DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS employee_branch
-    ON employee (physical_restaurant_id) WHERE is_active = TRUE;
-DROP TRIGGER IF EXISTS trg_employee_updated ON employee;
-CREATE TRIGGER trg_employee_updated BEFORE UPDATE ON employee
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE INDEX IF NOT EXISTS idx_employee_physical_restaurant_id ON employee(physical_restaurant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_account_id ON employee(account_id);
 
-CREATE TABLE IF NOT EXISTS terminal_session (
-    id                     SERIAL PRIMARY KEY,
-    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id) ON DELETE CASCADE,
-    jti                    UUID UNIQUE NOT NULL,
-    device_id              VARCHAR(255),
-    expires_at             TIMESTAMPTZ NOT NULL,
-    revoked_at             TIMESTAMPTZ,
-    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS menu (
+    id SERIAL PRIMARY KEY, restaurant_id INT UNIQUE NOT NULL REFERENCES restaurant(id), name VARCHAR(255),
+    style menu_style_enum NOT NULL DEFAULT 'CLASSICO', accent_color VARCHAR(7), typography VARCHAR(50),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS terminal_session_branch
-    ON terminal_session (physical_restaurant_id, expires_at);
-
-CREATE TABLE IF NOT EXISTS staff_session (
-    id                     SERIAL PRIMARY KEY,
-    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id) ON DELETE CASCADE,
-    shift_code             VARCHAR(50) NOT NULL,
-    qr_token_hash          VARCHAR(255) UNIQUE NOT NULL,
-    is_active              BOOLEAN NOT NULL DEFAULT TRUE,
-    opened_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    closed_at              TIMESTAMPTZ
+CREATE TABLE IF NOT EXISTS category (
+    id SERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id), name VARCHAR(100) NOT NULL,
+    display_order INT NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS staff_session_branch_active
-    ON staff_session (physical_restaurant_id) WHERE is_active = TRUE;
-
-CREATE TABLE IF NOT EXISTS staff_checkin (
-    id               BIGSERIAL PRIMARY KEY,
-    staff_session_id INT NOT NULL REFERENCES staff_session(id) ON DELETE CASCADE,
-    account_id       INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-    checked_in_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    checked_out_at   TIMESTAMPTZ,
-    UNIQUE (staff_session_id, account_id, checked_in_at)
+CREATE TABLE IF NOT EXISTS ingredient (
+    id SERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id), name VARCHAR(255) NOT NULL,
+    default_unit ingredient_unit_enum
 );
-
--- -------------------------------------------------------------
--- Loyalty
--- -------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS loyalty_customer (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cpf         VARCHAR(11) UNIQUE NOT NULL,
-    name        VARCHAR(255),
-    phone       VARCHAR(20),
-    account_id  INT REFERENCES account(id) ON DELETE SET NULL,
-    claimed_at  TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_loyalty_cpf CHECK (cpf ~ '^[0-9]{11}$')
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ingredient_restaurant_id_name ON ingredient(restaurant_id,name);
+CREATE TABLE IF NOT EXISTS menu_item (
+    id SERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id), category_id INT NOT NULL REFERENCES category(id),
+    name VARCHAR(255) NOT NULL, description TEXT, base_price_cents BIGINT NOT NULL CHECK (base_price_cents >= 0),
+    base_cost_cents BIGINT CHECK (base_cost_cents >= 0), image_url TEXT, is_available BOOLEAN NOT NULL DEFAULT TRUE,
+    is_combo BOOLEAN NOT NULL DEFAULT FALSE, allows_review BOOLEAN NOT NULL DEFAULT TRUE, archived_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS loyalty_customer_account
-    ON loyalty_customer (account_id) WHERE account_id IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS loyalty_wallet (
-    id                  SERIAL PRIMARY KEY,
-    loyalty_customer_id UUID NOT NULL REFERENCES loyalty_customer(id) ON DELETE CASCADE,
-    restaurant_id       INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    points_balance      BIGINT NOT NULL DEFAULT 0 CHECK (points_balance >= 0),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (loyalty_customer_id, restaurant_id)
+CREATE TABLE IF NOT EXISTS item_ingredient (
+    id SERIAL PRIMARY KEY, item_id INT NOT NULL REFERENCES menu_item(id), ingredient_id INT NOT NULL REFERENCES ingredient(id),
+    quantity NUMERIC(10,3), measure ingredient_unit_enum, is_removable BOOLEAN NOT NULL DEFAULT FALSE
 );
-DROP TRIGGER IF EXISTS trg_loyalty_wallet_updated ON loyalty_wallet;
-CREATE TRIGGER trg_loyalty_wallet_updated BEFORE UPDATE ON loyalty_wallet
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_item_ingredient_item_id_ingredient_id ON item_ingredient(item_id,ingredient_id);
+CREATE TABLE IF NOT EXISTS combo_item (
+    combo_id INT NOT NULL REFERENCES menu_item(id), included_item_id INT NOT NULL REFERENCES menu_item(id),
+    quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0), PRIMARY KEY(combo_id,included_item_id), CHECK (combo_id <> included_item_id)
+);
+CREATE TABLE IF NOT EXISTS item_side (
+    id SERIAL PRIMARY KEY, item_id INT NOT NULL REFERENCES menu_item(id), title VARCHAR(255) NOT NULL,
+    min_options INT NOT NULL DEFAULT 0 CHECK (min_options >= 0), max_options INT NOT NULL CHECK (max_options >= min_options)
+);
+CREATE TABLE IF NOT EXISTS item_side_option (
+    id SERIAL PRIMARY KEY, item_side_id INT NOT NULL REFERENCES item_side(id), name VARCHAR(255) NOT NULL,
+    additional_price_cents BIGINT NOT NULL DEFAULT 0, is_available BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE TABLE IF NOT EXISTS item_sale (
+    id SERIAL PRIMARY KEY, item_id INT NOT NULL REFERENCES menu_item(id), discount_type discount_type_enum NOT NULL,
+    discount_value BIGINT NOT NULL CHECK (discount_value > 0), starts_at TIMESTAMPTZ NOT NULL, ends_at TIMESTAMPTZ NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), CHECK (ends_at > starts_at)
+);
+CREATE INDEX IF NOT EXISTS idx_item_sale_item_id_is_active ON item_sale(item_id,is_active);
+CREATE TABLE IF NOT EXISTS coupon (
+    id SERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id), code VARCHAR(50) NOT NULL,
+    discount_type discount_type_enum NOT NULL, discount_value BIGINT NOT NULL CHECK (discount_value > 0),
+    min_order_cents BIGINT NOT NULL DEFAULT 0, max_uses INT, used_count INT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE, expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_restaurant_id_code ON coupon(restaurant_id,code);
 
--- -------------------------------------------------------------
--- Orders
--- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS "order" (
-    id                     SERIAL PRIMARY KEY,
-    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id) ON DELETE RESTRICT,
-    account_id             INT REFERENCES account(id) ON DELETE SET NULL,
-    customer_cpf           VARCHAR(11),
-    coupon_id              INT REFERENCES coupon(id) ON DELETE SET NULL,
-    coupon_code            VARCHAR(50),
-    order_type             order_type_enum NOT NULL,
-    status                 order_status_enum NOT NULL DEFAULT 'pending',
-    subtotal_cents         BIGINT NOT NULL DEFAULT 0 CHECK (subtotal_cents >= 0),
-    discount_cents         BIGINT NOT NULL DEFAULT 0 CHECK (discount_cents >= 0),
-    freight_cents          BIGINT NOT NULL DEFAULT 0 CHECK (freight_cents >= 0),
-    total_cents            BIGINT NOT NULL DEFAULT 0 CHECK (total_cents >= 0),
-    rating                 SMALLINT CHECK (rating BETWEEN 1 AND 5),
-    feedback               TEXT,
-    rated_at               TIMESTAMPTZ,
-    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_order_single_customer
-        CHECK (account_id IS NULL OR customer_cpf IS NULL)
+    id SERIAL PRIMARY KEY, physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id),
+    account_id INT REFERENCES account(id) ON DELETE SET NULL, customer_cpf VARCHAR(11), coupon_id INT REFERENCES coupon(id),
+    coupon_code VARCHAR(50), order_type order_type_enum NOT NULL, status order_status_enum NOT NULL DEFAULT 'pending',
+    subtotal_cents BIGINT NOT NULL DEFAULT 0, discount_cents BIGINT NOT NULL DEFAULT 0,
+    freight_cents BIGINT NOT NULL DEFAULT 0, total_cents BIGINT NOT NULL DEFAULT 0,
+    rating SMALLINT CHECK (rating BETWEEN 1 AND 5), feedback TEXT, rated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (account_id IS NULL OR customer_cpf IS NULL)
 );
-CREATE INDEX IF NOT EXISTS order_branch_status
-    ON "order" (physical_restaurant_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS order_account
-    ON "order" (account_id, created_at DESC) WHERE account_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS order_customer_cpf
-    ON "order" (customer_cpf, created_at DESC) WHERE customer_cpf IS NOT NULL;
-DROP TRIGGER IF EXISTS trg_order_updated ON "order";
-CREATE TRIGGER trg_order_updated BEFORE UPDATE ON "order"
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
+CREATE INDEX IF NOT EXISTS idx_order_account_id_created_at ON "order"(account_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_order_customer_cpf_created_at ON "order"(customer_cpf,created_at);
+CREATE INDEX IF NOT EXISTS idx_order_physical_restaurant_id_status_created_at ON "order"(physical_restaurant_id,status,created_at);
 CREATE TABLE IF NOT EXISTS local_order (
-    order_id      INT PRIMARY KEY REFERENCES "order"(id) ON DELETE CASCADE,
-    table_id      INT NOT NULL REFERENCES dining_table(id) ON DELETE RESTRICT,
-    table_number  INT NOT NULL,
-    display_order INT NOT NULL DEFAULT 0
+    id INT PRIMARY KEY REFERENCES "order"(id), table_id INT REFERENCES dining_table(id), table_number INT,
+    display_order INT NOT NULL DEFAULT 0, notes TEXT
 );
-
--- Delivery address is a SNAPSHOT at order time, not a FK to `address`.
 CREATE TABLE IF NOT EXISTS remote_order (
-    order_id            INT PRIMARY KEY REFERENCES "order"(id) ON DELETE CASCADE,
-    contact_phone       VARCHAR(20) NOT NULL,
-    estimated_minutes   INT,
-    delivery_notes      TEXT,
-    delivery_cep        VARCHAR(8) NOT NULL,
-    delivery_street     VARCHAR(255) NOT NULL,
-    delivery_number     VARCHAR(20) NOT NULL,
-    delivery_apt        VARCHAR(50),
-    delivery_complement VARCHAR(255),
-    delivery_city       VARCHAR(255),
-    delivery_state      VARCHAR(2)
+    id INT PRIMARY KEY REFERENCES "order"(id), contact_phone VARCHAR(20) NOT NULL, estimated_minutes INT,
+    delivery_notes TEXT, delivery_cep VARCHAR(8) NOT NULL, delivery_street VARCHAR(255) NOT NULL,
+    delivery_number VARCHAR(20) NOT NULL, delivery_apt VARCHAR(50), delivery_complement VARCHAR(255),
+    delivery_city VARCHAR(255), delivery_state VARCHAR(2)
 );
-
--- selected_options is JSONB:
---   [{"side_id":1,"side_title":"...","option_id":5,"option_name":"...",
---     "additional_price_cents":0,"quantity":1}]
 CREATE TABLE IF NOT EXISTS order_item (
-    id                   SERIAL PRIMARY KEY,
-    order_id             INT NOT NULL REFERENCES "order"(id) ON DELETE CASCADE,
-    item_id              INT NOT NULL REFERENCES menu_item(id) ON DELETE RESTRICT,
-    item_name            VARCHAR(255) NOT NULL,
-    unit_price_cents     BIGINT NOT NULL,
-    quantity             INT NOT NULL DEFAULT 1 CHECK (quantity >= 1),
-    line_total_cents     BIGINT NOT NULL,
-    notes                TEXT,
-    selected_options     JSONB NOT NULL DEFAULT '[]'::jsonb,
-    parent_order_item_id INT REFERENCES order_item(id) ON DELETE CASCADE,
-    voided_at            TIMESTAMPTZ,
-    voided_reason        TEXT,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_selected_options_is_array
-        CHECK (jsonb_typeof(selected_options) = 'array')
+    id SERIAL PRIMARY KEY, order_id INT NOT NULL REFERENCES "order"(id), item_id INT NOT NULL REFERENCES menu_item(id),
+    item_name VARCHAR(255) NOT NULL, unit_price_cents BIGINT NOT NULL, unit_cost_cents BIGINT, line_total_cents BIGINT NOT NULL,
+    quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0), notes TEXT, selected_options JSONB NOT NULL DEFAULT '[]'::jsonb,
+    parent_order_item_id INT REFERENCES order_item(id), voided_at TIMESTAMPTZ, voided_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), CHECK (jsonb_typeof(selected_options)='array')
 );
-CREATE INDEX IF NOT EXISTS order_item_order ON order_item (order_id);
-
--- -------------------------------------------------------------
--- Reviews
--- -------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS item_review (
-    id            BIGSERIAL PRIMARY KEY,
-    item_id       INT NOT NULL REFERENCES menu_item(id) ON DELETE CASCADE,
-    order_item_id INT NOT NULL REFERENCES order_item(id) ON DELETE CASCADE,
-    account_id    INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-    rating        SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
-    comment       TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (order_item_id)
-);
-CREATE INDEX IF NOT EXISTS item_review_item
-    ON item_review (item_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS restaurant_review (
-    id            BIGSERIAL PRIMARY KEY,
-    restaurant_id INT NOT NULL REFERENCES restaurant(id) ON DELETE CASCADE,
-    account_id    INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-    rating        SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
-    comment       TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (restaurant_id, account_id)
-);
-CREATE INDEX IF NOT EXISTS restaurant_review_restaurant
-    ON restaurant_review (restaurant_id, created_at DESC);
-DROP TRIGGER IF EXISTS trg_restaurant_review_updated ON restaurant_review;
-CREATE TRIGGER trg_restaurant_review_updated BEFORE UPDATE ON restaurant_review
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
--- -------------------------------------------------------------
--- Payments
--- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transaction (
-    id                SERIAL PRIMARY KEY,
-    order_id          INT NOT NULL REFERENCES "order"(id) ON DELETE CASCADE,
-    transaction_type  transaction_type_enum NOT NULL,
-    card_brand        card_brand_enum,
-    amount_cents      BIGINT NOT NULL CHECK (amount_cents > 0),
-    refunded_cents    BIGINT NOT NULL DEFAULT 0 CHECK (refunded_cents >= 0),
-    status            transaction_status_enum NOT NULL DEFAULT 'pending',
-    idempotency_key   VARCHAR(64),
-    notes             VARCHAR(255),
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_refund_lte_amount CHECK (refunded_cents <= amount_cents)
+    id SERIAL PRIMARY KEY, order_id INT NOT NULL REFERENCES "order"(id), transaction_type transaction_type_enum NOT NULL,
+    card_brand card_brand_enum, amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+    refunded_cents BIGINT NOT NULL DEFAULT 0 CHECK (refunded_cents >= 0 AND refunded_cents <= amount_cents),
+    status transaction_status_enum NOT NULL DEFAULT 'pending', created_by_account_id INT REFERENCES account(id),
+    notes VARCHAR(100), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS transaction_order
-    ON transaction (order_id, status);
-CREATE UNIQUE INDEX IF NOT EXISTS transaction_idempotency
-    ON transaction (idempotency_key) WHERE idempotency_key IS NOT NULL;
-DROP TRIGGER IF EXISTS trg_transaction_updated ON transaction;
-CREATE TRIGGER trg_transaction_updated BEFORE UPDATE ON transaction
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
+CREATE INDEX IF NOT EXISTS idx_transaction_order_id_status ON transaction(order_id,status);
 CREATE TABLE IF NOT EXISTS pix_charge (
-    id              SERIAL PRIMARY KEY,
-    transaction_id  INT UNIQUE NOT NULL REFERENCES transaction(id) ON DELETE CASCADE,
-    copy_paste_code TEXT NOT NULL,
-    qr_code_base64  TEXT NOT NULL,
-    expires_at      TIMESTAMPTZ NOT NULL,
-    paid_at         TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id SERIAL PRIMARY KEY, transaction_id INT UNIQUE NOT NULL REFERENCES transaction(id), copy_paste_code TEXT NOT NULL,
+    qr_code_base64 TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, paid_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 CREATE TABLE IF NOT EXISTS refund (
-    id              SERIAL PRIMARY KEY,
-    transaction_id  INT NOT NULL REFERENCES transaction(id) ON DELETE CASCADE,
-    amount_cents    BIGINT NOT NULL CHECK (amount_cents > 0),
-    reason          TEXT,
-    idempotency_key VARCHAR(64) UNIQUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id SERIAL PRIMARY KEY, transaction_id INT NOT NULL REFERENCES transaction(id), amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+    reason TEXT, created_by_account_id INT REFERENCES account(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS refund_transaction ON refund (transaction_id);
-
+CREATE INDEX IF NOT EXISTS idx_refund_transaction_id ON refund(transaction_id);
 CREATE TABLE IF NOT EXISTS receipt (
-    id           SERIAL PRIMARY KEY,
-    order_id     INT UNIQUE NOT NULL REFERENCES "order"(id) ON DELETE CASCADE,
-    receipt_code VARCHAR(100) UNIQUE NOT NULL,
-    receipt      JSONB NOT NULL,
-    issued_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id SERIAL PRIMARY KEY, order_id INT UNIQUE NOT NULL REFERENCES "order"(id), receipt_code VARCHAR(100) UNIQUE NOT NULL,
+    receipt JSONB NOT NULL, issued_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- -------------------------------------------------------------
--- Wallet ledger
--- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS item_review (
+    id BIGSERIAL PRIMARY KEY, item_id INT NOT NULL REFERENCES menu_item(id), order_item_id INT UNIQUE NOT NULL REFERENCES order_item(id),
+    account_id INT REFERENCES account(id), rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5), comment TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_item_review_item_id_created_at ON item_review(item_id,created_at);
+CREATE TABLE IF NOT EXISTS restaurant_review (
+    id BIGSERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id), account_id INT NOT NULL REFERENCES account(id),
+    rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5), comment TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_review_restaurant_id_created_at ON restaurant_review(restaurant_id,created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_restaurant_review_restaurant_id_account_id ON restaurant_review(restaurant_id,account_id);
+CREATE TABLE IF NOT EXISTS loyalty_wallet (
+    id SERIAL PRIMARY KEY, account_id INT NOT NULL REFERENCES account(id), restaurant_id INT NOT NULL REFERENCES restaurant(id),
+    coins_amount BIGINT NOT NULL DEFAULT 0 CHECK (coins_amount >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loyalty_wallet_account_restaurant ON loyalty_wallet(account_id,restaurant_id);
 CREATE TABLE IF NOT EXISTS wallet_transaction (
-    id              BIGSERIAL PRIMARY KEY,
-    wallet_id       INT NOT NULL REFERENCES loyalty_wallet(id) ON DELETE CASCADE,
-    points_delta    BIGINT NOT NULL,
-    balance_after   BIGINT NOT NULL,
-    reason          VARCHAR(255) NOT NULL,
-    order_id        INT REFERENCES "order"(id) ON DELETE SET NULL,
-    idempotency_key VARCHAR(64),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id BIGSERIAL PRIMARY KEY, loyalty_wallet_id INT NOT NULL REFERENCES loyalty_wallet(id), points_delta BIGINT NOT NULL,
+    balance_after BIGINT NOT NULL, reason VARCHAR(100) NOT NULL, order_id INT REFERENCES "order"(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS wallet_transaction_wallet
-    ON wallet_transaction (wallet_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS wallet_transaction_idempotency
-    ON wallet_transaction (wallet_id, idempotency_key)
-    WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_wallet_transaction_order_id ON wallet_transaction(order_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_transaction_wallet_id_created_at ON wallet_transaction(loyalty_wallet_id,created_at);
 
--- -------------------------------------------------------------
--- Audit trail
--- -------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS audit_entry (
-    id               BIGSERIAL PRIMARY KEY,
-    actor_account_id INT REFERENCES account(id) ON DELETE SET NULL,
-    actor_role       VARCHAR(20),
-    restaurant_id    INT REFERENCES restaurant(id) ON DELETE SET NULL,
-    branch_id        INT REFERENCES physical_restaurant(id) ON DELETE SET NULL,
-    action           VARCHAR(100) NOT NULL,
-    entity_type      VARCHAR(50) NOT NULL,
-    entity_id        VARCHAR(100) NOT NULL,
-    metadata         JSONB,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS menu_session (
+    id BIGSERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id),
+    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id), dining_table_id INT REFERENCES dining_table(id),
+    account_id INT REFERENCES account(id), visitor_fingerprint VARCHAR(128), channel ux_channel_enum NOT NULL,
+    device_type device_type_enum NOT NULL, total_duration_ms INT CHECK (total_duration_ms >= 0),
+    max_scroll_depth_pct SMALLINT CHECK (max_scroll_depth_pct BETWEEN 0 AND 100), converted_order_id INT REFERENCES "order"(id),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS audit_restaurant
-    ON audit_entry (restaurant_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS audit_entity
-    ON audit_entry (entity_type, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_menu_session_branch_started_at ON menu_session(physical_restaurant_id,started_at);
+CREATE INDEX IF NOT EXISTS idx_menu_session_converted_order_id ON menu_session(converted_order_id);
+CREATE INDEX IF NOT EXISTS idx_menu_session_visitor_fingerprint ON menu_session(visitor_fingerprint);
+CREATE TABLE IF NOT EXISTS ux_event (
+    id BIGSERIAL PRIMARY KEY, session_id BIGINT NOT NULL REFERENCES menu_session(id), restaurant_id INT NOT NULL REFERENCES restaurant(id),
+    physical_restaurant_id INT NOT NULL REFERENCES physical_restaurant(id), event_type ux_event_type_enum NOT NULL,
+    category_id INT REFERENCES category(id), item_id INT REFERENCES menu_item(id), duration_ms INT, quantity INT,
+    cart_total_cents BIGINT, metadata JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ux_event_branch_created_at ON ux_event(physical_restaurant_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_ux_event_item_event_created_at ON ux_event(item_id,event_type,created_at);
+CREATE INDEX IF NOT EXISTS idx_ux_event_session_id ON ux_event(session_id);
+CREATE INDEX IF NOT EXISTS idx_ux_event_type_created_at ON ux_event(event_type,created_at);
+CREATE TABLE IF NOT EXISTS menu_item_price_history (
+    id BIGSERIAL PRIMARY KEY, restaurant_id INT NOT NULL REFERENCES restaurant(id), physical_restaurant_id INT REFERENCES physical_restaurant(id),
+    item_id INT NOT NULL REFERENCES menu_item(id), changed_by_account_id INT REFERENCES account(id), old_price_cents BIGINT NOT NULL,
+    new_price_cents BIGINT NOT NULL, reason price_change_reason_enum NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_price_history_item_id_created_at ON menu_item_price_history(item_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_price_history_reason_created_at ON menu_item_price_history(reason,created_at);
+CREATE INDEX IF NOT EXISTS idx_price_history_restaurant_id_created_at ON menu_item_price_history(restaurant_id,created_at);
+CREATE TABLE IF NOT EXISTS audit_entry (
+    id BIGSERIAL PRIMARY KEY, actor_account_id INT REFERENCES account(id), actor_role VARCHAR(20), restaurant_id INT REFERENCES restaurant(id),
+    branch_id INT REFERENCES physical_restaurant(id), action VARCHAR(100) NOT NULL, entity_type VARCHAR(50) NOT NULL,
+    entity_id VARCHAR(100) NOT NULL, metadata JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_entry_action_created_at ON audit_entry(action,created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_entry_actor_account_id_created_at ON audit_entry(actor_account_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_entry_entity_type_entity_id_created_at ON audit_entry(entity_type,entity_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_entry_restaurant_id_created_at ON audit_entry(restaurant_id,created_at);
+
+-- Runtime extensions for scoped branch management and table archival.
+CREATE TABLE IF NOT EXISTS branch_manager (
+    branch_id INT NOT NULL REFERENCES physical_restaurant(id) ON DELETE CASCADE,
+    account_id INT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    PRIMARY KEY(branch_id,account_id)
+);
+ALTER TABLE dining_table ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
+CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.updated_at := now(); RETURN NEW; END $$;
+DO $$ DECLARE t TEXT; BEGIN
+    FOREACH t IN ARRAY ARRAY['account','restaurant','physical_restaurant','employee','menu','menu_item',
+        'coupon','order','transaction','restaurant_review','loyalty_wallet'] LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS touch_updated_at ON %I',t);
+        EXECUTE format('CREATE TRIGGER touch_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()',t);
+    END LOOP;
+END $$;

@@ -5,188 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"golang.org/x/crypto/bcrypt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
-	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
-// -------------------------------------------------------------
-// SECTION A: SERVICE TESTS (Local mockStore, fast, business rules)
-// -------------------------------------------------------------
-
-type mockStore struct {
-	accounts map[string]*Account
-	byID     map[int]*Account
-	managers map[string][]Manager
-	owners   map[string][]Owner
-}
-
-func newMockStore() *mockStore {
-	return &mockStore{
-		accounts: make(map[string]*Account),
-		byID:     make(map[int]*Account),
-		managers: make(map[string][]Manager),
-		owners:   make(map[string][]Owner),
-	}
-}
-
-func (m *mockStore) CreateAccount(ctx context.Context, name, email, passwordHash, phone string) (*Account, error) {
-	if _, ok := m.accounts[email]; ok {
-		return nil, ErrConflict
-	}
-	a := &Account{
-		ID:            len(m.accounts) + 1,
-		Name:          name,
-		Email:         email,
-		EmailVerified: true,
-		Password:      passwordHash,
-		Phone:         phone,
-		CreatedAt:     time.Now(),
-	}
-	m.accounts[email] = a
-	m.byID[a.ID] = a
-	return a, nil
-}
-
-func (m *mockStore) GetAccountByEmail(ctx context.Context, email string) (*Account, error) {
-	a, ok := m.accounts[email]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return a, nil
-}
-
-func (m *mockStore) GetAccountByID(ctx context.Context, id int) (*Account, error) {
-	a, ok := m.byID[id]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return a, nil
-}
-
-func (m *mockStore) ListSysadmins(ctx context.Context) ([]Sysadmin, error) {
-	return []Sysadmin{}, nil
-}
-
-func (m *mockStore) AddSysadmin(ctx context.Context, accountID int) (*Sysadmin, error) {
-	return &Sysadmin{ID: 1, AccountID: accountID, CreatedAt: time.Now()}, nil
-}
-
-func (m *mockStore) ListManagers(ctx context.Context, restaurantSlug string) ([]Manager, error) {
-	return m.managers[restaurantSlug], nil
-}
-
-func (m *mockStore) AddManager(ctx context.Context, restaurantSlug string, accountID int) (*Manager, error) {
-	mgr := Manager{ID: len(m.managers[restaurantSlug]) + 1, RestaurantSlug: restaurantSlug, AccountID: accountID}
-	m.managers[restaurantSlug] = append(m.managers[restaurantSlug], mgr)
-	return &mgr, nil
-}
-
-func (m *mockStore) RemoveManager(ctx context.Context, restaurantSlug string, accountID int) error {
-	list := m.managers[restaurantSlug]
-	for i, mgr := range list {
-		if mgr.AccountID == accountID {
-			m.managers[restaurantSlug] = append(list[:i], list[i+1:]...)
-			return nil
-		}
-	}
-	return ErrNotFound
-}
-
-func (m *mockStore) ListOwners(ctx context.Context, restaurantSlug string) ([]Owner, error) {
-	return m.owners[restaurantSlug], nil
-}
-
-func (m *mockStore) AddOwner(ctx context.Context, restaurantSlug string, accountID int) (*Owner, error) {
-	own := Owner{ID: len(m.owners[restaurantSlug]) + 1, RestaurantSlug: restaurantSlug, AccountID: accountID}
-	m.owners[restaurantSlug] = append(m.owners[restaurantSlug], own)
-	return &own, nil
-}
-
-func (m *mockStore) RemoveOwner(ctx context.Context, restaurantSlug string, accountID int) error {
-	list := m.owners[restaurantSlug]
-	if len(list) <= 1 {
-		return ErrCannotRemoveLastOwner
-	}
-	for i, own := range list {
-		if own.AccountID == accountID {
-			m.owners[restaurantSlug] = append(list[:i], list[i+1:]...)
-			return nil
-		}
-	}
-	return ErrNotFound
-}
-
-func (m *mockStore) GetAccountRoles(ctx context.Context, restaurantSlug string, accountID int) ([]string, error) {
-	var roles []string
-	for _, o := range m.owners[restaurantSlug] {
-		if o.AccountID == accountID {
-			roles = append(roles, "owner")
-		}
-	}
-	for _, mgr := range m.managers[restaurantSlug] {
-		if mgr.AccountID == accountID {
-			roles = append(roles, "manager")
-		}
-	}
-	return roles, nil
-}
-
-func (m *mockStore) CreatePhysicalRestaurant(ctx context.Context, restaurantSlug, name, cnpj, ownerCnpj string) (*PhysicalRestaurant, error) {
-	return &PhysicalRestaurant{ID: 1, RestaurantSlug: restaurantSlug, Name: name, CNPJ: cnpj}, nil
-}
-
-func (m *mockStore) ListPhysicalRestaurants(ctx context.Context, restaurantSlug string) ([]PhysicalRestaurant, error) {
-	return []PhysicalRestaurant{}, nil
-}
-
-func (m *mockStore) GetPhysicalRestaurant(ctx context.Context, branchID int) (*PhysicalRestaurant, error) {
-	return &PhysicalRestaurant{ID: branchID, TerminalPIN: "123456"}, nil
-}
-
-func (m *mockStore) GetRestaurantCNPJ(ctx context.Context, restaurantSlug string) (string, error) {
-	return "12.345.678/0001-90", nil
-}
-
-func (m *mockStore) ListEmployees(ctx context.Context, branchID int) ([]Employee, error) {
-	return []Employee{}, nil
-}
-
-func (m *mockStore) CreateEmployee(ctx context.Context, branchID int, name, cpf, position string) (*Employee, error) {
-	return &Employee{ID: 1, PhysicalRestaurantID: branchID, Name: name, CPF: cpf, Position: position}, nil
-}
-
-func (m *mockStore) LinkEmployeeAccount(ctx context.Context, employeeID int, accountID int) (*Employee, error) {
-	return &Employee{ID: employeeID, AccountID: &accountID}, nil
-}
-
-func (m *mockStore) VerifyAndOpenTerminalSession(ctx context.Context, branchID int, pin string, deviceID string) (*TerminalSession, error) {
-	if pin != "123456" {
-		return nil, ErrInvalidPIN
-	}
-	return &TerminalSession{ID: 1, PhysicalRestaurantID: branchID, Token: "token_123", DeviceID: deviceID}, nil
-}
-
-func (m *mockStore) GetTerminalSession(ctx context.Context, token string) (*TerminalSession, error) {
-	if token == "token_123" {
-		return &TerminalSession{ID: 1, Token: token, DeviceID: "device_abc", ExpiresAt: time.Now().Add(time.Hour)}, nil
-	}
-	return nil, ErrNotFound
-}
-
-func (m *mockStore) RotateTerminalPIN(ctx context.Context, branchID int, newPIN string) error {
-	return nil
-}
-
-func (m *mockStore) GetTerminalOrders(ctx context.Context, branchID int) ([]TerminalOrder, error) {
-	return []TerminalOrder{}, nil
-}
-
 func TestService_Register_ValidationErrors(t *testing.T) {
-	mock := newMockStore()
+	mock := NewMemoryStore()
 	svc := NewService(mock)
 	svc.SetHashCost(bcrypt.MinCost)
 
@@ -208,99 +35,6 @@ func TestService_Register_ValidationErrors(t *testing.T) {
 		t.Fatalf("expected ErrValidation for invalid email, got %v", err)
 	}
 }
-
-type failingNotifier struct{}
-
-func (failingNotifier) SendOTP(string, string) error   { return errors.New("unavailable") }
-func (failingNotifier) SendEmail(string, string) error { return errors.New("unavailable") }
-
-func TestService_Register_NotificationFailureDoesNotCreateAccount(t *testing.T) {
-	store := newMockStore()
-	svc := NewService(store)
-	svc.SetHashCost(bcrypt.MinCost)
-	svc.SetNotifier(failingNotifier{})
-
-	_, err := svc.Register(context.Background(), RegisterInput{Email: "alice@example.com", Password: "password123"})
-	if err == nil {
-		t.Fatal("expected notification failure")
-	}
-	if len(store.accounts) != 0 {
-		t.Fatal("account created after notification failure")
-	}
-}
-
-func TestService_Register_And_Login_Success(t *testing.T) {
-	mock := newMockStore()
-	svc := NewService(mock)
-	svc.SetHashCost(bcrypt.MinCost)
-
-	user, err := svc.Register(context.Background(), RegisterInput{
-		Name:     "Alice Silva",
-		Email:    "alice@pratello.com",
-		Password: "password123",
-		Phone:    "11988887777",
-	})
-	if err != nil {
-		t.Fatalf("unexpected register error: %v", err)
-	}
-	if user.Email != "alice@pratello.com" {
-		t.Fatalf("unexpected user email: %s", user.Email)
-	}
-
-	// Login with wrong password
-	_, _, err = svc.Login(context.Background(), "alice@pratello.com", "wrongpass")
-	if !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("expected ErrInvalidCredentials for wrong password, got %v", err)
-	}
-
-	// Login with correct password
-	token, loginUser, err := svc.Login(context.Background(), "alice@pratello.com", "password123")
-	if err != nil {
-		t.Fatalf("unexpected login error: %v", err)
-	}
-	if token == "" || loginUser.ID != user.ID {
-		t.Fatalf("invalid login response: token=%s, id=%d", token, loginUser.ID)
-	}
-}
-
-func TestService_LoginRejectsUnverifiedEmail(t *testing.T) {
-	store := newMockStore()
-	svc := NewService(store)
-	svc.SetHashCost(bcrypt.MinCost)
-	_, err := svc.Register(context.Background(), RegisterInput{Email: "unverified@example.com", Password: "password123"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store.accounts["unverified@example.com"].EmailVerified = false
-	if _, _, err := svc.Login(context.Background(), "unverified@example.com", "password123"); !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("unverified login: %v", err)
-	}
-}
-
-func TestService_Owners_OrphanPrevention(t *testing.T) {
-	mock := newMockStore()
-	svc := NewService(mock)
-	svc.SetHashCost(bcrypt.MinCost)
-
-	// Add 1 owner
-	_, _ = svc.AddOwner(context.Background(), "trattoria", 10)
-
-	// Remove single owner -> must fail with ErrCannotRemoveLastOwner
-	err := svc.RemoveOwner(context.Background(), "trattoria", 10)
-	if !errors.Is(err, ErrCannotRemoveLastOwner) {
-		t.Fatalf("expected ErrCannotRemoveLastOwner, got %v", err)
-	}
-
-	// Add second owner -> removing one should succeed
-	_, _ = svc.AddOwner(context.Background(), "trattoria", 20)
-	if err := svc.RemoveOwner(context.Background(), "trattoria", 10); err != nil {
-		t.Fatalf("expected remove owner to succeed when multiple exist, got %v", err)
-	}
-}
-
-// -------------------------------------------------------------
-// SECTION B: STORE TESTS (Covering memory store & interface)
-// -------------------------------------------------------------
 
 func TestStore_CreateAccount_Conflict(t *testing.T) {
 	store := NewMemoryStore()
@@ -325,10 +59,6 @@ func TestStore_GetAccountByEmail_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
-
-// -------------------------------------------------------------
-// SECTION C: HTTP TESTS (Covering Handler endpoints and error mapping)
-// -------------------------------------------------------------
 
 func TestHandler_Register_Success(t *testing.T) {
 	mock := NewMemoryStore()
@@ -385,7 +115,7 @@ func TestHandler_Register_DuplicateConflict(t *testing.T) {
 }
 
 func TestHandler_Login_WrongPassword(t *testing.T) {
-	mock := newMockStore()
+	mock := NewMemoryStore()
 	svc := NewService(mock)
 	svc.SetHashCost(bcrypt.MinCost)
 	h := NewHandler(svc)
@@ -410,39 +140,38 @@ func TestHandler_Login_WrongPassword(t *testing.T) {
 	}
 }
 
-func TestHandler_Terminal_Session_And_Orders(t *testing.T) {
-	mock := newMockStore()
-	svc := NewService(mock)
-	svc.SetHashCost(bcrypt.MinCost)
-	h := NewHandler(svc)
+type recordingNotifier struct{ phone, code string }
 
-	mux := http.NewServeMux()
-	h.Routes(mux)
+func (n *recordingNotifier) SendOTP(phone, code string) error {
+	n.phone, n.code = phone, code
+	return nil
+}
 
-	// Open session with valid PIN
-	sessionReq, _ := json.Marshal(map[string]string{
-		"pin":       "123456",
-		"device_id": "device_abc",
-	})
-	wSession := httptest.NewRecorder()
-	mux.ServeHTTP(wSession, httptest.NewRequest("POST", "/api/restaurants/trattoria/branches/1/terminal/session", bytes.NewReader(sessionReq)))
-	if wSession.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for terminal session, got %d: %s", wSession.Code, wSession.Body.String())
+func (*recordingNotifier) SendEmail(string, string) error { return nil }
+
+func TestPhoneRegistrationIssuesTokensAndRejectsDuplicate(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	svc := NewService(store)
+	n := &recordingNotifier{}
+	svc.SetNotifier(n)
+	if err := svc.RequestPhoneRegistration(ctx, "+5511888888888"); err != nil {
+		t.Fatal(err)
 	}
-
-	var sessionRes terminalSessionResponse
-	_ = json.NewDecoder(wSession.Body).Decode(&sessionRes)
-	if sessionRes.Token == "" {
-		t.Fatalf("expected non-empty token")
+	if n.phone != "+5511888888888" || !regexp.MustCompile(`^[0-9]{6}$`).MatchString(n.code) {
+		t.Fatalf("invalid notification: %#v", n)
 	}
-
-	// Read terminal orders
-	reqOrders := httptest.NewRequest("GET", "/api/restaurants/trattoria/branches/1/terminal/orders", nil)
-	reqOrders.Header.Set("Authorization", "Bearer token_123")
-	reqOrders.Header.Set("X-Device-Id", "device_abc")
-	wOrders := httptest.NewRecorder()
-	mux.ServeHTTP(wOrders, reqOrders)
-	if wOrders.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for terminal orders, got %d: %s", wOrders.Code, wOrders.Body.String())
+	pair, err := svc.RegisterPhone(ctx, n.phone, "Customer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Authenticate(ctx, pair.AccessToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RegisterPhone(ctx, n.phone, "", ""); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate registration: %v", err)
+	}
+	if _, err := svc.RegisterPhone(ctx, "+5511777777777", "", "invalid"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("invalid CPF accepted: %v", err)
 	}
 }
