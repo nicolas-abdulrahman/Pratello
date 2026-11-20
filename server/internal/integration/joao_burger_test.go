@@ -29,6 +29,10 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	if dsn == "" {
 		t.Skip("set AUTH_TEST_DATABASE_URL for PostgreSQL integration")
 	}
+	redisURL := os.Getenv("AUTH_TEST_REDIS_URL")
+	if redisURL == "" {
+		t.Skip("set AUTH_TEST_REDIS_URL for verification")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	root, err := sql.Open("postgres", dsn)
@@ -66,6 +70,11 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity := auth.NewService(auth.NewStore(c))
+	closeVerification, err := identity.EnableFixedCodeVerification(redisURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closeVerification() })
 	mux := http.NewServeMux()
 	auth.NewHandler(identity).Routes(mux)
 	user.NewHandler(c, identity.Identify).Routes(mux)
@@ -78,7 +87,10 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	var tokens struct {
 		Access string `json:"access_token"`
 	}
-	if err := api.request(ctx, "POST", "/api/auth/register", "", map[string]any{"email": "bootstrap@joao-burger.test", "password": "bootstrap-test-password"}, &tokens, 201); err != nil {
+	if err := api.request(ctx, "POST", "/api/auth/register/email/request-code", "", map[string]any{"email": "bootstrap@joao-burger.test"}, nil, 202); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.request(ctx, "POST", "/api/auth/register", "", map[string]any{"email": "bootstrap@joao-burger.test", "password": "bootstrap-test-password", "code": "123456"}, &tokens, 201); err != nil {
 		t.Fatal(err)
 	}
 	// Seed only the first platform operator directly in this disposable schema.

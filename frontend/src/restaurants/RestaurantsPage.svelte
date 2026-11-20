@@ -1,11 +1,10 @@
 <script lang="ts">
   import RestaurantsSection from './RestaurantsSection.svelte';
+  import { onMount } from 'svelte';
 
   const heroImage =
     'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&h=900&fit=crop&auto=format&q=80';
 
-  type Tag = { icon: 'chef' | 'pin' | 'leaf'; label?: string };
-  type GalleryImage = { src: string; alt: string };
   type Banner = {
     id: string;
     eyebrow?: string;
@@ -16,25 +15,14 @@
     imageAlt?: string;
   };
   type Restaurant = {
-    key: string;
+    slug: string;
     name: string;
-    rating: number;
-    deliveryTime: string;
-    logoSrc?: string;
-    images?: GalleryImage[];
-    tags?: Tag[];
-    banners: Banner[];
+    icon_url?: string | null;
+    cover_url?: string | null;
   };
-
-  /** Turn "João Burger" → "joao-burger" for safe URLs. */
-  function slugify(value: string): string {
-    return value
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-  }
+  let restaurants = $state<(Restaurant & { banners: Banner[] })[]>([]);
+  let loading = $state(true);
+  let loadError = $state(false);
 
   /** Works in plain Svelte/Vite. Swap for `goto(path)` from `$app/navigation` on SvelteKit. */
   function navigateTo(path: string) {
@@ -53,80 +41,38 @@
     { emoji: '🧁', label: 'Doces', active: false }
   ];
 
-  const joaoBurgerImages: GalleryImage[] = [
-    { src: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Cheeseburger clássico' },
-    { src: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Bacon burger' },
-    { src: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Batatas fritas' },
-    { src: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Combo burger + fritas' },
-    { src: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Refrigerante gelado' }
-  ];
-
-  const restaurants: Restaurant[] = [
-    {
-      key: 'joao-burger',
-      name: 'João Burger',
-      rating: 4.9,
-      deliveryTime: '25-35 min',
-      logoSrc:
-        'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSNazKnntMiV0xmffkq5Zii4PUMFnhCOm_2wpvehU3zP4_wh-sxgWqGfja6&s=10',
-      images: joaoBurgerImages,
-      tags: [
-        { icon: 'chef' },
-        { icon: 'pin', label: 'local' },
-        { icon: 'leaf', label: 'artesanal' }
-      ],
-      banners: [
-        {
-          id: 'jb-a',
-          eyebrow: 'Oferta da semana',
-          title: 'Combo duplo João Burger',
-          subtitle: 'Dois burgers + fritas + refri por R$ 59,90',
-          cta: 'Pedir agora',
-          imageSrc:
-            'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=1200&h=600&fit=crop&auto=format&q=80',
-          imageAlt: 'Combo duplo de hambúrguer com fritas'
-        },
-        {
-          id: 'jb-b',
-          eyebrow: 'Novidade',
-          title: 'Smash Bacon Supremo',
-          subtitle: 'Blend 180g, cheddar, bacon crocante e molho da casa',
-          cta: 'Conhecer',
-          imageSrc:
-            'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=1200&h=600&fit=crop&auto=format&q=80',
-          imageAlt: 'Smash bacon burger'
-        },
-        {
-          id: 'jb-c',
-          eyebrow: 'Fritas',
-          title: 'Fritas rústicas com cheddar',
-          subtitle: 'Porção generosa pra dividir (ou não)',
-          imageSrc:
-            'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=1200&h=600&fit=crop&auto=format&q=80',
-          imageAlt: 'Batatas fritas'
-        },
-        {
-          id: 'jb-d',
-          eyebrow: 'Bebida',
-          title: 'Refrigerante gelado',
-          subtitle: 'Lata 350ml pra acompanhar seu burger',
-          imageSrc:
-            'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=1200&h=600&fit=crop&auto=format&q=80',
-          imageAlt: 'Refrigerante gelado'
-        }
-      ]
-    },
-    {
-      // Kept as restaurant 2, but with empty content.
-      key: 'restaurante-dois',
-      name: 'Restaurante Dois',
-      rating: 0,
-      deliveryTime: '—',
-      images: [],
-      tags: [],
-      banners: []
-    }
-  ];
+  onMount(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    void (async () => {
+      try {
+        const response = await fetch('/api/restaurants', { signal });
+        if (!response.ok) throw new Error('restaurant list unavailable');
+        const { data }: { data: Restaurant[] } = await response.json();
+        restaurants = data.map((r) => ({ ...r, banners: [] }));
+        loading = false;
+        await Promise.all(data.map(async (r) => {
+          try {
+            const result = await fetch(`/api/restaurants/${encodeURIComponent(r.slug)}/menu/banners`, { signal });
+            if (!result.ok) return;
+            const offers: { id: number; title?: string; code: string; description?: string; background_image_url?: string }[] = await result.json();
+            if (!signal.aborted) restaurants = restaurants.map((item) => item.slug !== r.slug ? item : {
+              ...item,
+              banners: offers.map((offer) => ({
+                id: String(offer.id), title: offer.title || offer.code, subtitle: offer.description,
+                imageSrc: offer.background_image_url,
+              })),
+            });
+          } catch {
+            // A restaurant card is still useful when its banners are unavailable.
+          }
+        }));
+      } catch {
+        if (!signal.aborted) { loadError = true; loading = false; }
+      }
+    })();
+    return () => controller.abort();
+  });
 </script>
 
 <svelte:head>
@@ -243,20 +189,26 @@
     </div>
 
     <div class="flex flex-col gap-y-space-xl py-space-sm">
-      {#each restaurants.slice(0, 2) as r (r.key)}
+      {#if loading}
+        <p class="text-text-muted" role="status">Carregando restaurantes…</p>
+      {:else if loadError}
+        <p class="text-text-muted" role="status">Não foi possível carregar os restaurantes.</p>
+      {/if}
+      {#each restaurants as r (r.slug)}
         <RestaurantsSection
           cardProps={{
             name: r.name,
-            rating: r.rating,
-            deliveryTime: r.deliveryTime,
-            logoSrc: r.logoSrc,
+            rating: 0,
+            deliveryTime: '—',
+            logoSrc: r.icon_url ?? undefined,
             logoAlt: `${r.name} logo`,
-            images: r.images,
-            tags: r.tags,
-            onmenu: () => navigateTo(`/r/${slugify(r.name)}`)
+            images: r.cover_url ? [{ src: r.cover_url, alt: `${r.name} capa` }] : [],
+            onmenu: () => navigateTo(`/r/${encodeURIComponent(r.slug)}`)
           }}
           banners={r.banners}
         />
+      {:else}
+        {#if !loading && !loadError}<p class="text-text-muted">Nenhum restaurante encontrado.</p>{/if}
       {/each}
     </div>
   </section>

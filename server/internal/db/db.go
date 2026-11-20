@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -33,34 +32,29 @@ func Open(connStr string) (*sql.DB, error) {
 	return database, nil
 }
 
-// ResetDevelopmentData empties every application table in the active schema.
-// Truncating together handles foreign keys without cascading to other schemas.
+// ResetDevelopmentData recreates the active development schema from the current
+// application definition. It does not inspect or retain its previous layout.
 func ResetDevelopmentData(ctx context.Context, database *sql.DB) error {
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT schemaname, tablename FROM pg_tables WHERE schemaname=current_schema() ORDER BY tablename`)
-	if err != nil {
-		return err
+	var schema string
+	if err := tx.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		return fmt.Errorf("resolve development schema: %w", err)
 	}
-	defer rows.Close()
-	var tables []string
-	for rows.Next() {
-		var schema, table string
-		if err := rows.Scan(&schema, &table); err != nil {
-			return err
-		}
-		tables = append(tables, "ONLY "+pq.QuoteIdentifier(schema)+"."+pq.QuoteIdentifier(table))
+	quotedSchema := pq.QuoteIdentifier(schema)
+	if _, err := tx.ExecContext(ctx, `SET LOCAL search_path TO `+quotedSchema); err != nil {
+		return fmt.Errorf("select development schema: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		return err
+	if _, err := tx.ExecContext(ctx, `DROP SCHEMA `+quotedSchema+` CASCADE`); err != nil {
+		return fmt.Errorf("drop development schema: %w", err)
 	}
-	if len(tables) == 0 {
-		return fmt.Errorf("no application tables found in active schema")
+	if _, err := tx.ExecContext(ctx, `CREATE SCHEMA `+quotedSchema); err != nil {
+		return fmt.Errorf("recreate development schema: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `TRUNCATE `+strings.Join(tables, ", ")+` RESTART IDENTITY`); err != nil {
+	if err := applySchema(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -77,24 +71,39 @@ func Migrate(database *sql.DB) error {
 		return fmt.Errorf("failed to start migration: %w", err)
 	}
 	defer tx.Rollback()
+	ctx := context.Background()
+	legacy, err := legacyLayout(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if legacy {
+		return fmt.Errorf("pre-DBML database layout detected: import data into the DBML baseline before starting the API")
+	}
+	if err := applySchema(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func legacyLayout(ctx context.Context, tx *sql.Tx) (bool, error) {
 	// CREATE TABLE IF NOT EXISTS does not upgrade old table layouts. Refuse
 	// known incompatible baselines before applying partial DDL to their data.
 	var legacy bool
-	if err := tx.QueryRow(`SELECT EXISTS (
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
 		SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND (
 		(table_name='account' AND column_name='password_hash') OR
 		(table_name='loyalty_wallet' AND column_name='loyalty_customer_id') OR
 		(table_name='menu_item' AND column_name='price') OR
 		(table_name='physical_restaurant' AND column_name='operational_address_id'))
 	)`).Scan(&legacy); err != nil {
-		return fmt.Errorf("inspect database baseline: %w", err)
+		return false, fmt.Errorf("inspect database baseline: %w", err)
 	}
-	if legacy {
-		return fmt.Errorf("pre-DBML database layout detected: import data into the DBML baseline before starting the API")
-	}
-	if _, err := tx.Exec(SchemaSQL); err != nil {
+	return legacy, nil
+}
+
+func applySchema(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, SchemaSQL); err != nil {
 		return fmt.Errorf("failed to execute schema.sql: %w", err)
 	}
-
-	return tx.Commit()
+	return nil
 }

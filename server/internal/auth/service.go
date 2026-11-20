@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
-	"math/big"
 	"net/mail"
 	"os"
 	"pratello/server/internal/common"
@@ -18,12 +17,14 @@ import (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("e-mail ou senha inválidos")
-	ErrNotFound           = errors.New("recurso não encontrado")
-	ErrConflict           = errors.New("conflito de dados (registro já existente)")
-	ErrValidation         = errors.New("erro de validação dos dados")
-	ErrUnauthorized       = errors.New("não autorizado")
-	ErrForbidden          = errors.New("acesso proibido para este nível de privilégio")
+	ErrInvalidCredentials      = errors.New("e-mail ou senha inválidos")
+	ErrNotFound                = errors.New("recurso não encontrado")
+	ErrConflict                = errors.New("conflito de dados (registro já existente)")
+	ErrValidation              = errors.New("erro de validação dos dados")
+	ErrUnauthorized            = errors.New("não autorizado")
+	ErrForbidden               = errors.New("acesso proibido para este nível de privilégio")
+	ErrWrongCode               = errors.New("código incorreto ou expirado")
+	ErrVerificationUnavailable = errors.New("verificação temporariamente indisponível")
 )
 
 type authStore interface {
@@ -57,10 +58,10 @@ type RegisterInput struct {
 }
 
 type Service struct {
-	store     authStore
-	jwtSecret []byte
-	hashCost  int
-	notifier  Notifier
+	store        authStore
+	jwtSecret    []byte
+	hashCost     int
+	verification verificationStore
 }
 
 func (s *Service) Identify(ctx context.Context, token string) (int, error) {
@@ -74,18 +75,59 @@ func (s *Service) Identify(ctx context.Context, token string) (int, error) {
 	return claims.AccountID, nil
 }
 
-// Notifier delivers verification credentials to an account's contact method.
-type Notifier interface {
-	SendOTP(phone, code string) error
-	SendEmail(email, code string) error
+const fixedCode = "123456"
+const verificationTTL = 5 * time.Minute
+
+type verificationStore interface {
+	put(context.Context, string, string, time.Duration) error
+	consume(context.Context, string, string) (bool, error)
 }
 
-// MockNotifier accepts notifications without contacting an external service.
-type MockNotifier struct{}
+func challengeKey(purpose string, id, version int, contact string) string {
+	return "pratello:auth:code:" + purpose + ":" + tokenHash(fmt.Sprintf("%d:%d:%s", id, version, contact))
+}
 
-func (MockNotifier) SendOTP(phone, code string) error { return nil }
+func (s *Service) requestVerification(ctx context.Context, purpose string, id, version int, contact string) error {
+	if s.verification == nil {
+		return ErrVerificationUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := s.verification.put(ctx, challengeKey(purpose, id, version, contact), fixedCode, verificationTTL); err != nil {
+		return fmt.Errorf("%w: %v", ErrVerificationUnavailable, err)
+	}
+	return nil
+}
 
-func (MockNotifier) SendEmail(email, code string) error { return nil }
+func (s *Service) verifyCode(ctx context.Context, purpose string, id, version int, contact, code string) error {
+	if s.verification == nil {
+		return ErrVerificationUnavailable
+	}
+	if len(code) != 6 {
+		return ErrWrongCode
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ok, err := s.verification.consume(ctx, challengeKey(purpose, id, version, contact), code)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrVerificationUnavailable, err)
+	}
+	if !ok {
+		return ErrWrongCode
+	}
+	return nil
+}
+
+func normalizeEmail(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
+
+func (s *Service) requestEmailCode(ctx context.Context, purpose string, id, version int, value string) error {
+	email := normalizeEmail(value)
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Address != email || len(email) > 255 {
+		return ErrValidation
+	}
+	return s.requestVerification(ctx, purpose, id, version, email)
+}
 
 func NewService(store authStore) *Service {
 	secret := []byte(os.Getenv("JWT_SECRET"))
@@ -97,14 +139,6 @@ func NewService(store authStore) *Service {
 		store:     store,
 		jwtSecret: secret,
 		hashCost:  bcrypt.DefaultCost,
-		notifier:  MockNotifier{},
-	}
-}
-
-// SetNotifier supplies a notification provider for verification flows.
-func (s *Service) SetNotifier(notifier Notifier) {
-	if notifier != nil {
-		s.notifier = notifier
 	}
 }
 
@@ -142,11 +176,6 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*User, err
 	if err != nil {
 		return nil, fmt.Errorf("falha ao criptografar senha: %w", err)
 	}
-	// The mock notifier treats confirmation as immediate in the local flow.
-	if err := s.notifier.SendEmail(strings.TrimSpace(input.Email), ""); err != nil {
-		return nil, fmt.Errorf("falha ao enviar confirmação: %w", err)
-	}
-
 	var acct *Account
 	if input.CPF != "" {
 		store, ok := s.store.(cpfStore)
@@ -347,9 +376,6 @@ func (s *Service) SetEmail(ctx context.Context, id int, email, password, current
 	} else if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	if err = s.notifier.SendEmail(email, ""); err != nil {
-		return nil, err
-	}
 	if err = store.SetVerifiedEmail(ctx, id, email, string(hash), a.Password); err != nil {
 		return nil, err
 	}
@@ -379,14 +405,6 @@ func validPhone(phone string) bool {
 	return true
 }
 
-func (s *Service) notifyPhone(phone string) error {
-	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
-	if err != nil {
-		return err
-	}
-	return s.notifier.SendOTP(phone, fmt.Sprintf("%06d", n.Int64()))
-}
-
 // RequestPhoneLogin always succeeds for unknown or unverified phone numbers.
 func (s *Service) RequestPhoneLogin(ctx context.Context, phone string) error {
 	phone = strings.TrimSpace(phone)
@@ -407,7 +425,7 @@ func (s *Service) RequestPhoneLogin(ctx context.Context, phone string) error {
 	if !a.PhoneVerified || a.Phone != phone {
 		return nil
 	}
-	return s.notifyPhone(phone)
+	return s.requestVerification(ctx, "login-phone", 0, 0, phone)
 }
 
 func (s *Service) RequestPhoneRegistration(ctx context.Context, phone string) error {
@@ -426,7 +444,7 @@ func (s *Service) RequestPhoneRegistration(ctx context.Context, phone string) er
 	if !errors.Is(err, ErrNotFound) {
 		return err
 	}
-	return s.notifyPhone(phone)
+	return s.requestVerification(ctx, "register-phone", 0, 0, phone)
 }
 
 func (s *Service) RegisterPhone(ctx context.Context, phone, name, cpf string) (*TokenPair, error) {
@@ -455,7 +473,6 @@ func (s *Service) RegisterPhone(ctx context.Context, phone, name, cpf string) (*
 	return s.IssueTokens(ctx, a.ID)
 }
 
-// LoginPhone completes simulated verification without requiring a user-entered PIN.
 func (s *Service) LoginPhone(ctx context.Context, phone string) (*TokenPair, error) {
 	phone = strings.TrimSpace(phone)
 	if !validPhone(phone) {
@@ -493,9 +510,6 @@ func (s *Service) AddPhone(ctx context.Context, id int, phone string) (*Account,
 	}
 	if err == nil && existing.ID != id {
 		return nil, ErrConflict
-	}
-	if err = s.notifyPhone(phone); err != nil {
-		return nil, err
 	}
 	if err = store.SetVerifiedPhone(ctx, id, phone); err != nil {
 		return nil, err

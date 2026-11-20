@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -69,6 +70,31 @@ func TestLegacySchemaRefusedWithoutModifyingData(t *testing.T) {
 	var value string
 	if err := db.QueryRow(`SELECT password_hash FROM account WHERE id=7`).Scan(&value); err != nil || value != "preserve" {
 		t.Fatalf("legacy row changed: %q %v", value, err)
+	}
+}
+
+func TestDevelopmentResetCreatesFreshSchema(t *testing.T) {
+	db := isolatedDatabase(t)
+	if _, err := db.Exec(`CREATE TABLE account (id int, password_hash text); INSERT INTO account VALUES(7,'old'); CREATE TABLE legacy_only (id int)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResetDevelopmentData(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var accounts int
+	var legacyTable bool
+	if err := db.QueryRow(`SELECT (SELECT count(*) FROM account), to_regclass('legacy_only') IS NOT NULL`).Scan(&accounts, &legacyTable); err != nil || accounts != 0 || legacyTable {
+		t.Fatalf("legacy data survived the reset: accounts=%d legacy_table=%t err=%v", accounts, legacyTable, err)
+	}
+	if _, err := db.Exec(`INSERT INTO account(email,password) VALUES('demo@example.test','hash')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResetDevelopmentData(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var id int
+	if err := db.QueryRow(`INSERT INTO account(email,password) VALUES('demo@example.test','hash') RETURNING id`).Scan(&id); err != nil || id != 1 {
+		t.Fatalf("second reset did not restart account IDs: id=%d err=%v", id, err)
 	}
 }
 

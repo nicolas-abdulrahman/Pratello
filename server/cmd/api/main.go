@@ -34,6 +34,9 @@ func main() {
 	addr := ":" + port
 
 	dbURL := os.Getenv("DATABASE_URL")
+	if *reset && (os.Getenv("AUTH_FIXED_CODE") != "1" || os.Getenv("REDIS_URL") == "") {
+		log.Fatal("-reset-demo requires AUTH_FIXED_CODE=1 and REDIS_URL")
+	}
 	if *reset && dbURL == "" {
 		log.Fatal("DATABASE_URL is required for npm run server")
 	}
@@ -49,9 +52,10 @@ func main() {
 			database = nil
 		} else {
 			defer database.Close()
-			if err := db.Migrate(database); err != nil {
-				log.Fatalf("Database migration failed: %v", err)
-			} else {
+			if !*reset {
+				if err := db.Migrate(database); err != nil {
+					log.Fatalf("Database migration failed: %v", err)
+				}
 				log.Println("Database migrated successfully")
 			}
 		}
@@ -66,6 +70,13 @@ func main() {
 	}
 
 	authSvc := auth.NewService(auth.NewStore(database))
+	if os.Getenv("AUTH_FIXED_CODE") == "1" {
+		closeVerification, err := authSvc.EnableFixedCodeVerification(os.Getenv("REDIS_URL"))
+		if err != nil {
+			log.Fatalf("Fixed-code verification requires a valid REDIS_URL: %v", err)
+		}
+		defer closeVerification()
+	}
 	authHandler := auth.NewHandler(authSvc)
 	restHandler := restaurants.NewHandler(database, authSvc)
 

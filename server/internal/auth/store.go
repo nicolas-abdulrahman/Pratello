@@ -5,11 +5,38 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 	"pratello/server/internal/user"
 	"strings"
 	"sync"
 	"time"
 )
+
+type redisVerification struct{ client *redis.Client }
+
+func (s *Service) EnableFixedCodeVerification(rawURL string) (func() error, error) {
+	options, err := redis.ParseURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	options.ContextTimeoutEnabled = true
+	client := redis.NewClient(options)
+	s.verification = redisVerification{client}
+	return client.Close, nil
+}
+
+func (r redisVerification) put(ctx context.Context, key, code string, ttl time.Duration) error {
+	return r.client.Set(ctx, key, code, ttl).Err()
+}
+
+var consumeVerification = redis.NewScript(`
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+return redis.call('DEL', KEYS[1])`)
+
+func (r redisVerification) consume(ctx context.Context, key, code string) (bool, error) {
+	n, err := consumeVerification.Run(ctx, r.client, []string{key}, code).Int()
+	return n == 1, err
+}
 
 type Account = user.Account
 

@@ -10,13 +10,14 @@ export interface AccountData {
   name?: string;
   phone?: string;
   created_at?: string;
-  role?: string;       // 'cliente' | 'funcionario' | 'gerente' | 'proprietario' | 'sysadmin'
   initials?: string;
 }
 
 export interface AccountState extends AccountData {
   isLoggedIn: boolean;
   token: string | null;
+  refreshToken: string | null;
+  expiresAt: number;
   error: string | null;
   loading: boolean;
 }
@@ -24,15 +25,30 @@ export interface AccountState extends AccountData {
 export interface LoginParams {
   email: string;
   password: string;
-  name?: string;
-  role?: string;
+  rememberMe?: boolean;
 }
 
 export interface RegisterParams {
   email: string;
   password: string;
-  phone?: string;
   name?: string;
+  cpf?: string;
+}
+
+type AuthMode = 'login' | 'register';
+
+interface TokenPair {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+}
+
+interface AccountProfile {
+  id: number;
+  email: string | null;
+  phone: string | null;
+  name: string | null;
+  created_at?: string;
 }
 
 export interface CreateRestaurantParams {
@@ -75,11 +91,12 @@ const API_BASE = '/api';
 const emptyState: AccountState = {
   isLoggedIn: false,
   token: null,
+  refreshToken: null,
+  expiresAt: 0,
   id: undefined,
   name: '',
   email: '',
   phone: '',
-  role: '',
   initials: '',
   created_at: undefined,
   error: null,
@@ -108,17 +125,24 @@ function deriveNameFromEmail(email: string): string {
 }
 
 function loadFromStorage(): AccountState {
-  if (typeof localStorage === 'undefined') return emptyState;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyState;
     const parsed = JSON.parse(raw);
-    if (typeof parsed?.isLoggedIn === 'boolean') {
+    if (parsed?.isLoggedIn === true && typeof parsed.token === 'string' && parsed.token &&
+        typeof parsed.refreshToken === 'string' && parsed.refreshToken && Number.isFinite(parsed.expiresAt)) {
       return {
         ...emptyState,
-        ...parsed,
-        error: null,
-        loading: false
+        isLoggedIn: true,
+        token: parsed.token,
+        refreshToken: parsed.refreshToken,
+        expiresAt: parsed.expiresAt,
+        id: parsed.id,
+        name: parsed.name,
+        email: parsed.email ?? '',
+        phone: parsed.phone,
+        initials: parsed.initials,
+        created_at: parsed.created_at
       };
     }
     return emptyState;
@@ -127,26 +151,68 @@ function loadFromStorage(): AccountState {
   }
 }
 
-function saveToStorage(state: AccountState): void {
-  if (typeof localStorage === 'undefined') return;
+function saveToStorage(state: AccountState, rememberMe: boolean): void {
   // Never persist passwords or transient error/loading states
   const toSave = {
     isLoggedIn: state.isLoggedIn,
     token: state.token,
+    refreshToken: state.refreshToken,
+    expiresAt: state.expiresAt,
     id: state.id,
     name: state.name,
     email: state.email,
     phone: state.phone,
-    role: state.role,
     initials: state.initials,
     created_at: state.created_at
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  try {
+    (rememberMe ? localStorage : sessionStorage).setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch {
+    // Storage may be unavailable; the session still works in memory.
+  }
 }
 
 function clearStorage(): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.removeItem(STORAGE_KEY);
+  try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* Storage unavailable */ }
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* Storage unavailable */ }
+}
+
+function isRemembered(): boolean {
+  try { return sessionStorage.getItem(STORAGE_KEY) === null; } catch { return true; }
+}
+
+function postJSON(path: string, body: object): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
+async function readTokens(res: Response) {
+  const pair: TokenPair = await res.json();
+  if (!pair?.access_token || !pair.refresh_token || !Number.isFinite(pair.expires_in) || pair.expires_in <= 0) {
+    throw new Error('O servidor não retornou uma sessão válida.');
+  }
+  return {
+    token: pair.access_token,
+    refreshToken: pair.refresh_token,
+    expiresAt: Date.now() + pair.expires_in * 1000
+  };
+}
+
+function profileFields(profile: AccountProfile): AccountData {
+  const email = profile.email ?? '';
+  const name = profile.name || deriveNameFromEmail(email);
+
+  return {
+    id: profile.id,
+    email,
+    name,
+    phone: profile.phone ?? '',
+    created_at: profile.created_at,
+    initials: makeInitials(name, email)
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -156,11 +222,9 @@ function clearStorage(): void {
 function createAccountStore() {
   const store = writable<AccountState>(loadFromStorage());
   const { subscribe, set, update } = store;
-
-  // Helper to get current bearer token
-  function getToken(): string | null {
-    return get(store).token;
-  }
+  let rememberMe = isRemembered();
+  let sessionVersion = 0;
+  let pendingRefresh: Promise<string | null> | null = null;
 
   // Helper to handle API response errors cleanly and descriptively
   async function parseError(res: Response, fallback: string): Promise<string> {
@@ -178,12 +242,6 @@ function createAccountStore() {
     } catch {
       // Body not JSON
     }
-    if (res.status === 401) {
-      return 'E-mail ou senha incorretos.';
-    }
-    if (res.status === 409) {
-      return 'Este endereço de e-mail já está cadastrado no sistema.';
-    }
     if (res.status === 400) {
       return 'Dados incompletos ou em formato inválido.';
     }
@@ -191,6 +249,109 @@ function createAccountStore() {
       return 'Erro interno no servidor do backend (HTTP 500).';
     }
     return `${fallback} (Status HTTP ${res.status})`;
+  }
+
+  function setSession(state: AccountState) {
+    saveToStorage(state, rememberMe);
+    set(state);
+  }
+
+  function logout() {
+    sessionVersion++;
+    pendingRefresh = null;
+    clearStorage();
+    set(emptyState);
+  }
+
+  async function runAuth(action: (version: number) => Promise<void>, fallback: string): Promise<boolean> {
+    if (get(store).loading) return false;
+    const version = sessionVersion;
+    update((s) => ({ ...s, loading: true, error: null }));
+    try {
+      await action(version);
+      return version === sessionVersion;
+    } catch (err) {
+      if (version === sessionVersion) {
+        const error = err instanceof TypeError
+          ? 'Não foi possível conectar ao servidor. Tente novamente.'
+          : err instanceof Error ? err.message : fallback;
+        update((s) => ({ ...s, error }));
+      }
+      return false;
+    } finally {
+      if (version === sessionVersion && get(store).loading) {
+        update((s) => ({ ...s, loading: false }));
+      }
+    }
+  }
+
+  function authenticate(path: string, body: object, fallback: string, persist: boolean) {
+    return runAuth(async (version) => {
+      const res = await postJSON(path, body);
+      if (!res.ok) throw new Error(await parseError(res, fallback));
+      const tokens = await readTokens(res);
+      const me = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${tokens.token}`, Accept: 'application/json' }
+      });
+      if (!me.ok) throw new Error(await parseError(me, 'Não foi possível carregar seu perfil.'));
+      const profile: AccountProfile = await me.json();
+      if (version !== sessionVersion) return;
+      pendingRefresh = null;
+      clearStorage();
+      rememberMe = persist;
+      setSession({ ...emptyState, ...profileFields(profile), ...tokens, isLoggedIn: true });
+    }, fallback);
+  }
+
+  function refreshSession(): Promise<string | null> {
+    if (pendingRefresh) return pendingRefresh;
+    const { refreshToken } = get(store);
+    if (!refreshToken) return Promise.resolve(null);
+    const version = sessionVersion;
+    const isCurrent = () => version === sessionVersion && get(store).refreshToken === refreshToken;
+    const request = (async () => {
+      const res = await postJSON('/auth/refresh', { refresh_token: refreshToken });
+      if (!isCurrent()) return null;
+      if (res.status === 401) {
+        logout();
+        return null;
+      }
+      if (!res.ok) throw new Error(await parseError(res, 'Não foi possível renovar a sessão.'));
+      const tokens = await readTokens(res);
+      if (!isCurrent()) return null;
+      setSession({ ...get(store), ...tokens });
+      return tokens.token;
+    })().finally(() => {
+      if (pendingRefresh === request) pendingRefresh = null;
+    });
+    pendingRefresh = request;
+    return request;
+  }
+
+  // Use API-relative paths (e.g. '/auth/me') for shared authenticated requests.
+  async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const { token, expiresAt } = get(store);
+    const headers = new Headers(init.headers);
+    headers.set('Accept', 'application/json');
+
+    const send = (accessToken: string | null) => {
+      if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+      else headers.delete('Authorization');
+      return fetch(`${API_BASE}${path}`, { ...init, headers });
+    };
+
+    if (!token) return send(null);
+    if (expiresAt <= Date.now()) {
+      const renewed = await refreshSession();
+      return renewed ? send(renewed) : new Response(null, { status: 401 });
+    }
+
+    const version = sessionVersion;
+    const res = await send(token);
+    if (res.status !== 401 || version !== sessionVersion) return res;
+    const currentToken = get(store).token;
+    const renewed = currentToken !== token ? currentToken : await refreshSession();
+    return renewed ? send(renewed) : res;
   }
 
   return {
@@ -213,128 +374,58 @@ function createAccountStore() {
     /**
      * Login via /api/auth/login
      */
-    async login({ email, password, name, role }: LoginParams): Promise<boolean> {
-      update((s) => ({ ...s, loading: true, error: null }));
-
-      try {
-        const res = await fetch(`${API_BASE}/auth/login`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({ email: email.trim(), password })
-        });
-
-        if (!res.ok) {
-          const errMsg = await parseError(res, 'Falha ao autenticar.');
-          update((s) => ({ ...s, loading: false, error: errMsg }));
-          return false;
-        }
-
-        const data = await res.json();
-        const accountInfo = data.account || {};
-        const resolvedName = name || accountInfo.name || deriveNameFromEmail(accountInfo.email || email);
-        const resolvedInitials = makeInitials(resolvedName, accountInfo.email || email);
-
-        const nextState: AccountState = {
-          isLoggedIn: true,
-          token: data.token || null,
-          id: accountInfo.id,
-          email: accountInfo.email || email,
-          phone: accountInfo.phone || '',
-          name: resolvedName,
-          role: role || (accountInfo.is_sysadmin ? 'sysadmin' : 'cliente'),
-          initials: resolvedInitials,
-          created_at: accountInfo.created_at,
-          error: null,
-          loading: false
-        };
-
-        saveToStorage(nextState);
-        set(nextState);
-        return true;
-      } catch (err: any) {
-        const isNetworkErr = err instanceof TypeError || String(err).includes('fetch') || String(err).includes('NetworkError');
-        const message = isNetworkErr
-          ? 'Não foi possível conectar ao servidor backend (http://localhost:8080). Verifique se o servidor está ativo.'
-          : (err?.message || 'Erro inesperado na autenticação.');
-        update((s) => ({ ...s, loading: false, error: message }));
-        return false;
-      }
+    login({ email, password, rememberMe = true }: LoginParams): Promise<boolean> {
+      return authenticate('/auth/login', { email: email.trim(), password }, 'Falha ao entrar com e-mail.', rememberMe);
     },
 
     /**
      * Register new global account via /api/auth/register and automatically authenticate
      */
-    async register({ email, password, phone = '', name = '' }: RegisterParams): Promise<boolean> {
-      update((s) => ({ ...s, loading: true, error: null }));
+    register({ email, password, name, cpf, code }: RegisterParams & { code: string }): Promise<boolean> {
+      return authenticate('/auth/register', {
+        email: email.trim(), password, name: name?.trim() || undefined, cpf: cpf?.trim() || undefined, code
+      }, 'Falha ao criar conta.', true);
+    },
 
-      try {
-        const res = await fetch(`${API_BASE}/auth/register`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({ name: name.trim(), email: email.trim(), password, phone: phone.trim() })
-        });
+    requestEmailCode(email: string): Promise<boolean> {
+      const fallback = 'Não foi possível iniciar a confirmação do e-mail.';
+      return runAuth(async () => {
+        const res = await postJSON('/auth/register/email/request-code', { email: email.trim() });
+        if (!res.ok) throw new Error(await parseError(res, fallback));
+      }, fallback);
+    },
 
-        if (!res.ok) {
-          const errMsg = await parseError(res, 'Falha ao criar conta.');
-          update((s) => ({ ...s, loading: false, error: errMsg }));
-          return false;
-        }
+    requestPhoneCode(mode: AuthMode, phone: string): Promise<boolean> {
+      const fallback = 'Não foi possível iniciar a confirmação do telefone.';
+      return runAuth(async () => {
+        const res = await postJSON(`/auth/${mode}/phone/request-code`, { phone: phone.trim() });
+        if (!res.ok) throw new Error(await parseError(res, fallback));
+      }, fallback);
+    },
 
-        // Successfully registered -> automatically log in
-        return await this.login({ email, password, name });
-      } catch (err: any) {
-        const isNetworkErr = err instanceof TypeError || String(err).includes('fetch') || String(err).includes('NetworkError');
-        const message = isNetworkErr
-          ? 'Não foi possível conectar ao servidor backend (http://localhost:8080). Verifique se o servidor está ativo.'
-          : (err?.message || 'Erro inesperado ao realizar cadastro.');
-        update((s) => ({ ...s, loading: false, error: message }));
-        return false;
-      }
+    verifyPhone(mode: AuthMode, { phone, name, cpf, code, rememberMe = true }: {
+      phone: string; name?: string; cpf?: string; code: string; rememberMe?: boolean;
+    }): Promise<boolean> {
+      const body = mode === 'register'
+        ? { phone: phone.trim(), name: name?.trim() || undefined, cpf: cpf?.trim() || undefined, code }
+        : { phone: phone.trim(), code };
+      return authenticate(`/auth/${mode}/phone/verify`, body, 'Falha ao confirmar o telefone.', rememberMe);
     },
 
     /**
      * Fetch authenticated profile via /api/auth/me
      */
     async fetchMe(): Promise<AccountData | null> {
-      const token = getToken();
-      if (!token) return null;
+      if (!get(store).token) return null;
+      const version = sessionVersion;
 
       try {
-        const res = await fetch(`${API_BASE}/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
-          }
-        });
-
-        if (!res.ok) {
-          if (res.status === 401) {
-            this.logout();
-          }
-          return null;
-        }
-
-        const data = await res.json();
-        update((s) => {
-          const resolvedName = s.name || deriveNameFromEmail(data.email);
-          const updated: AccountState = {
-            ...s,
-            id: data.id,
-            email: data.email,
-            phone: data.phone,
-            created_at: data.created_at,
-            initials: makeInitials(resolvedName, data.email)
-          };
-          saveToStorage(updated);
-          return updated;
-        });
-
+        const res = await authenticatedFetch('/auth/me');
+        if (!res.ok) return null;
+        const profile: AccountProfile = await res.json();
+        if (version !== sessionVersion) return null;
+        const data = profileFields(profile);
+        setSession({ ...get(store), ...data });
         return data;
       } catch {
         return null;
@@ -344,30 +435,19 @@ function createAccountStore() {
     /**
      * Terminate user session and clear stored tokens
      */
-    logout(): void {
-      clearStorage();
-      set(emptyState);
-    },
+    logout,
+    authenticatedFetch,
 
     /**
      * Create logical restaurant via POST /api/restaurants
      */
     async createRestaurant({ name, slug, description = '' }: CreateRestaurantParams): Promise<RestaurantResponse | null> {
-      const token = getToken();
       update((s) => ({ ...s, loading: true, error: null }));
 
       try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const res = await fetch(`${API_BASE}/restaurants`, {
+        const res = await authenticatedFetch('/restaurants', {
           method: 'POST',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, slug, description })
         });
 
@@ -391,21 +471,12 @@ function createAccountStore() {
      * Assign a manager to a restaurant via POST /api/restaurants/{slug}/managers
      */
     async assignManager(slug: string, accountId: number): Promise<MembershipResponse | null> {
-      const token = getToken();
       update((s) => ({ ...s, loading: true, error: null }));
 
       try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const res = await fetch(`${API_BASE}/restaurants/${encodeURIComponent(slug)}/managers`, {
+        const res = await authenticatedFetch(`/restaurants/${encodeURIComponent(slug)}/managers`, {
           method: 'POST',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ account_id: accountId })
         });
 
@@ -429,21 +500,12 @@ function createAccountStore() {
      * Assign / promote an owner to a restaurant via POST /api/restaurants/{slug}/owners
      */
     async assignOwner(slug: string, accountId: number): Promise<MembershipResponse | null> {
-      const token = getToken();
       update((s) => ({ ...s, loading: true, error: null }));
 
       try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const res = await fetch(`${API_BASE}/restaurants/${encodeURIComponent(slug)}/owners`, {
+        const res = await authenticatedFetch(`/restaurants/${encodeURIComponent(slug)}/owners`, {
           method: 'POST',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ account_id: accountId })
         });
 

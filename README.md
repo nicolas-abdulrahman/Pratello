@@ -68,11 +68,13 @@ npm run dev
 
 ### 3. Run the João Burger development demo
 
-Point `DATABASE_URL` at a dedicated development PostgreSQL database. Every `npm run server` boot wipes all tables in the active schema, resets the served `media/` directory, and loads the João Burger fixture. Startup prints the demo login and its generated password.
+Point `DATABASE_URL` at a dedicated development PostgreSQL database. Every `npm run server` boot drops and recreates the active schema, resets the served `media/` directory, and loads the João Burger fixture. The database role needs permission to drop and create that schema. Startup prints the demo login and its generated password.
 
 ```bash
 DATABASE_URL='postgres://localhost/pratello_dev?sslmode=disable' npm run server
 ```
+
+`npm run server` reuses a running local Redis or starts the `pratello-dev-redis` container with Docker. It waits for Redis at `redis://localhost:6379/0` and starts the API with `AUTH_FIXED_CODE=1`. Request a code through the app, then enter `123456`; no email or WhatsApp message is sent. To stop the Redis container started by this command, run `docker stop pratello-dev-redis`.
 
 The API serves media from `./media` by default. Set `MEDIA_DIR` to a different directory named `media` to use that location for the demo. For a regular startup, run `go run ./server/cmd/api`.
 

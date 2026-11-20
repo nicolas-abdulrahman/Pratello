@@ -7,8 +7,11 @@
   // Mode: 'login' | 'register'
   let authMode = 'login';
 
-  // Role toggle: 'customer' | 'employee'
-  let loginType = 'customer';
+  let authMethod = 'email';
+  let phoneToConfirm = '';
+  let emailToConfirm = '';
+  let emailCodeResent = false;
+  let code = '';
 
   // Form fields
   let email = '';
@@ -17,6 +20,8 @@
   let phone = '';
   let rememberMe = true;
   let showPassword = false;
+  $: verifyingEmail = authMethod === 'email' && authMode === 'register' && Boolean(emailToConfirm);
+  $: awaitingCode = authMethod === 'phone' ? Boolean(phoneToConfirm) : verifyingEmail;
 
   // Scroll down slightly when the login page loads
   onMount(() => {
@@ -27,35 +32,91 @@
   });
 
   function toggleMode(mode) {
+    if (authMode === mode) return;
     authMode = mode;
+    resetStep();
+  }
+
+  function toggleMethod(method) {
+    if (authMethod === method) return;
+    authMethod = method;
+    resetStep();
+  }
+
+  function resetStep() {
+    phoneToConfirm = '';
+    emailToConfirm = '';
+    emailCodeResent = false;
+    code = '';
+    password = '';
+    showPassword = false;
     account.clearError();
+  }
+
+  function formatPhone(digits) {
+    if (!digits) return '';
+    if (digits.length <= 2) return `(${digits}`;
+
+    const local = digits.slice(2);
+    const prefixLength = local.length >= 9 ? 5 : 4;
+    const suffix = local.slice(prefixLength);
+    return `(${digits.slice(0, 2)}) ${local.slice(0, prefixLength)}${suffix ? `-${suffix}` : ''}`;
+  }
+
+  function handlePhoneInput(event) {
+    const input = event.currentTarget;
+    const digits = input.value.replace(/\D/g, '');
+    // Accept full Brazilian numbers from paste or autofill, too.
+    const hasCountryCode = event.inputType !== 'insertText' && /^55\d{10,11}$/.test(digits);
+    const local = (hasCountryCode ? digits.slice(2) : digits).slice(0, 11);
+    phone = formatPhone(local);
+    if (input.value !== phone) input.value = phone;
+  }
+
+  function backToEmailDetails() {
+    emailToConfirm = '';
+    emailCodeResent = false;
+    code = '';
+    account.clearError();
+  }
+
+  async function resendEmailCode() {
+    emailCodeResent = false;
+    if (await account.requestEmailCode(emailToConfirm)) {
+      code = '';
+      emailCodeResent = true;
+    }
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    account.clearError();
+    if ($account.loading) return;
 
-    if (authMode === 'login') {
-      const ok = await account.login({
-        email,
-        password,
-        name: name.trim() || undefined,
-        role: loginType === 'employee' ? 'funcionario' : 'cliente'
-      });
-      if (ok) {
-        onGoHome();
+    const isRegistering = authMode === 'register';
+    if (authMethod === 'phone') {
+      if (!phoneToConfirm) {
+        const digits = phone.replace(/\D/g, '');
+        if (digits.length !== 10 && digits.length !== 11) {
+          account.setError('Informe um telefone com DDD e 8 ou 9 dígitos.');
+        } else if (await account.requestPhoneCode(authMode, `+55${digits}`)) {
+          phoneToConfirm = digits;
+        }
+        return;
       }
-    } else {
-      const ok = await account.register({
-        email,
-        password,
-        phone: phone.trim() || undefined,
-        name: name.trim() || undefined
-      });
-      if (ok) {
-        onGoHome();
-      }
+      const ok = await account.verifyPhone(authMode, { phone: `+55${phoneToConfirm}`, name, code, rememberMe: isRegistering || rememberMe });
+      if (ok) onGoHome();
+      return;
     }
+
+    if (isRegistering && !emailToConfirm) {
+      const address = email.trim();
+      if (await account.requestEmailCode(address)) { emailToConfirm = address; code = ''; }
+      return;
+    }
+    const ok = isRegistering
+      ? await account.register({ email: emailToConfirm, password, name, code })
+      : await account.login({ email, password, rememberMe });
+    if (ok) onGoHome();
   }
 </script>
 
@@ -91,6 +152,7 @@
   <div class="w-full lg:w-1/2 flex items-center justify-center p-8 sm:p-12 lg:p-24 relative">
     
     <!-- Back to Home Button -->
+    {#if !verifyingEmail}
     <button 
       onclick={onGoHome}
       type="button"
@@ -99,14 +161,15 @@
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       Voltar
     </button>
+    {/if}
 
     <div class="w-full max-w-md space-y-6">
-      
+      {#if !verifyingEmail}
       <!-- Header -->
       <div>
         <span class="text-[#f05a1f] font-bold text-xs tracking-wider uppercase mb-2 block">Bem-vindo ao Pratello</span>
         <h2 class="text-3xl font-bold text-gray-900 mb-2">
-          {authMode === 'login' ? 'Sua próxima refeição começa aqui.' : 'Crie sua conta global no Pratello.'}
+          {authMode === 'login' ? 'Entre na sua conta.' : 'Crie sua conta no Pratello.'}
         </h2>
         <p class="text-gray-500 text-sm">
           {authMode === 'login' 
@@ -120,6 +183,8 @@
         <button 
           type="button"
           onclick={() => toggleMode('login')}
+          disabled={$account.loading}
+          aria-pressed={authMode === 'login'}
           class="flex-1 pb-3 text-sm font-bold text-center border-b-2 transition-all cursor-pointer {authMode === 'login' ? 'border-[#f05a1f] text-[#f05a1f]' : 'border-transparent text-gray-400 hover:text-gray-600'}"
         >
           Entrar
@@ -127,32 +192,36 @@
         <button 
           type="button"
           onclick={() => toggleMode('register')}
+          disabled={$account.loading}
+          aria-pressed={authMode === 'register'}
           class="flex-1 pb-3 text-sm font-bold text-center border-b-2 transition-all cursor-pointer {authMode === 'register' ? 'border-[#f05a1f] text-[#f05a1f]' : 'border-transparent text-gray-400 hover:text-gray-600'}"
         >
           Cadastrar
         </button>
       </div>
 
-      <!-- Login Type Toggle (Customer vs Employee) -->
-      {#if authMode === 'login'}
-        <div class="flex bg-gray-100 p-1 rounded-lg">
+      <div class="flex bg-gray-100 p-1 rounded-lg" role="group" aria-label="Método de autenticação">
           <button 
             type="button"
-            onclick={() => loginType = 'customer'}
-            class="flex-1 py-2 text-sm font-bold rounded-md transition-all cursor-pointer {loginType === 'customer' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
+            onclick={() => toggleMethod('email')}
+            disabled={$account.loading}
+            aria-pressed={authMethod === 'email'}
+            class="flex-1 py-2 text-sm font-bold rounded-md transition-all cursor-pointer {authMethod === 'email' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
           >
-            Cliente
+            E-mail
           </button>
           <button 
             type="button"
-            onclick={() => loginType = 'employee'}
-            class="flex-1 py-2 text-sm font-bold rounded-md transition-all cursor-pointer {loginType === 'employee' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
+            onclick={() => toggleMethod('phone')}
+            disabled={$account.loading}
+            aria-pressed={authMethod === 'phone'}
+            class="flex-1 py-2 text-sm font-bold rounded-md transition-all cursor-pointer {authMethod === 'phone' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
           >
-            Equipe / Gestor
+            Telefone
           </button>
-        </div>
-      {/if}
+      </div>
 
+      {/if}
       <!-- ERROR / WARNING BANNER -->
       {#if $account.error}
         <div 
@@ -183,9 +252,9 @@
       <!-- Form -->
       <form onsubmit={handleSubmit} class="space-y-4">
         
-        {#if authMode === 'register'}
+        {#if authMode === 'register' && !awaitingCode}
           <div>
-            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Nome completo (opcional)</label>
             <input 
               type="text" 
               id="name" 
@@ -197,32 +266,20 @@
           </div>
         {/if}
 
+        {#if authMethod === 'email' && !verifyingEmail}
         <div>
           <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Endereço de Email</label>
           <input 
             type="email" 
             id="email" 
             bind:value={email}
+            readonly={$account.loading}
             autocomplete="email"
             placeholder="voce@exemplo.com"
             class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#f05a1f]/20 focus:border-[#f05a1f] outline-none transition-all"
             required
           />
         </div>
-
-        {#if authMode === 'register'}
-          <div>
-            <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Telefone / WhatsApp</label>
-            <input 
-              type="tel" 
-              id="phone" 
-              bind:value={phone}
-              autocomplete="tel"
-              placeholder="(11) 99999-9999"
-              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#f05a1f]/20 focus:border-[#f05a1f] outline-none transition-all"
-            />
-          </div>
-        {/if}
 
         <div>
           <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Senha</label>
@@ -232,6 +289,7 @@
               id="password" 
               bind:value={password}
               autocomplete={authMode === 'login' ? 'current-password' : 'new-password'}
+              minlength={authMode === 'register' ? 8 : undefined}
               placeholder="Sua senha secreta"
               class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#f05a1f]/20 focus:border-[#f05a1f] outline-none transition-all pr-12"
               required
@@ -251,7 +309,50 @@
               {/if}
             </button>
           </div>
+          {#if authMode === 'register'}
+            <p class="mt-1 text-xs text-gray-500">Use pelo menos 8 caracteres.</p>
+          {/if}
         </div>
+        {:else if authMethod === 'phone' && phoneToConfirm}
+          <div class="space-y-2 rounded-lg bg-gray-50 p-4 text-sm text-gray-700">
+            <p role="status">Confirme o telefone <strong>{formatPhone(phoneToConfirm)}</strong> com o código de seis dígitos.</p>
+            <button type="button" onclick={resetStep} disabled={$account.loading} class="font-bold text-[#f05a1f] hover:text-[#d94e17] cursor-pointer">
+              Alterar telefone
+            </button>
+          </div>
+        {:else if authMethod === 'phone'}
+          <div>
+            <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+            <input
+              type="tel"
+              id="phone"
+              value={phone}
+              oninput={handlePhoneInput}
+              autocomplete="tel-national"
+              placeholder="(81) 90000-0000"
+              readonly={$account.loading}
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#f05a1f]/20 focus:border-[#f05a1f] outline-none transition-all"
+              required
+            />
+            <p class="mt-1 text-xs text-gray-500">Inclua o DDD.{authMode === 'login' ? ' Use um telefone já verificado na sua conta.' : ''}</p>
+          </div>
+        {/if}
+
+        {#if awaitingCode}
+          <label for="verification-code" class="block text-sm font-medium text-gray-700">Código de verificação</label>
+          <input id="verification-code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern={'[0-9]{6}'} maxlength="6" bind:value={code} required class="w-full px-4 py-3 rounded-lg border border-gray-300" />
+          {#if verifyingEmail}
+            <div class="flex items-center justify-between gap-4">
+              <button type="button" onclick={backToEmailDetails} disabled={$account.loading} class="text-sm font-bold text-gray-600 hover:text-gray-900">Voltar</button>
+              <button type="button" onclick={resendEmailCode} disabled={$account.loading} class="text-sm font-bold text-[#f05a1f]">Enviar código novamente</button>
+            </div>
+            {#if emailCodeResent}
+              <p role="status" class="text-sm text-gray-600">Novo código solicitado.</p>
+            {/if}
+          {:else}
+            <button type="button" onclick={() => { phoneToConfirm = ''; code = ''; }} disabled={$account.loading} class="text-sm font-bold text-[#f05a1f]">Solicitar novo código</button>
+          {/if}
+        {/if}
 
         {#if authMode === 'login'}
           <div class="flex items-center justify-between">
@@ -267,6 +368,7 @@
               </label>
             </div>
 
+            {#if authMethod === 'email'}
             <div class="text-sm">
               <button 
                 type="button" 
@@ -276,6 +378,7 @@
                 Esqueceu a senha?
               </button>
             </div>
+            {/if}
           </div>
         {/if}
 
@@ -289,20 +392,22 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <span>{authMode === 'login' ? 'Autenticando...' : 'Criando conta...'}</span>
+            <span>Aguarde...</span>
           {:else}
-            <span>{authMode === 'login' ? 'Entrar' : 'Criar Conta'}</span>
+            <span>{authMethod === 'phone' ? (phoneToConfirm ? 'Confirmar telefone' : 'Continuar') : (authMode === 'login' ? 'Entrar' : (verifyingEmail ? 'Confirmar código' : 'Continuar'))}</span>
           {/if}
         </button>
       </form>
 
       <!-- Toggle mode link -->
+      {#if !verifyingEmail}
       {#if authMode === 'login'}
         <p class="text-center text-sm text-gray-600">
           Novo aqui? 
           <button 
             type="button" 
             onclick={() => toggleMode('register')} 
+            disabled={$account.loading}
             class="font-bold text-[#f05a1f] hover:text-[#d94e17] cursor-pointer ml-1"
           >
             Crie uma conta
@@ -314,6 +419,7 @@
           <button 
             type="button" 
             onclick={() => toggleMode('login')} 
+            disabled={$account.loading}
             class="font-bold text-[#f05a1f] hover:text-[#d94e17] cursor-pointer ml-1"
           >
             Faça login
@@ -324,6 +430,7 @@
       <p class="text-center text-xs text-gray-400">
         Ao continuar, você concorda com nossos <span class="underline hover:text-gray-600 cursor-pointer">Termos de Serviço</span> e <span class="underline hover:text-gray-600 cursor-pointer">Política de Privacidade</span>.
       </p>
+      {/if}
 
     </div>
   </div>

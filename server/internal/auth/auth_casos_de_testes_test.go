@@ -14,7 +14,6 @@ import (
 	"net/http/httptest"
 	"os"
 	db "pratello/server/internal/db"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +24,7 @@ func idpSetup() (*memoryStore, *Service, *http.ServeMux) {
 	store := NewMemoryStore()
 	svc := NewService(store)
 	svc.SetHashCost(bcrypt.MinCost)
+	svc.verification = newTestVerification()
 	mux := http.NewServeMux()
 	NewHandler(svc).Routes(mux)
 	return store, svc, mux
@@ -42,7 +42,8 @@ func idpRequest(mux *http.ServeMux, method, path, body, token string) *httptest.
 
 func TestIDP001RegistrationHashAndTokens(t *testing.T) {
 	store, svc, mux := idpSetup()
-	w := idpRequest(mux, "POST", "/auth/register", `{"email":"user@example.com","password":"password123"}`, "")
+	requestTestEmail(t, mux, "user@example.com")
+	w := idpRequest(mux, "POST", "/auth/register", `{"email":"user@example.com","password":"password123","code":"123456"}`, "")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("registration: %d %s", w.Code, w.Body.String())
 	}
@@ -62,10 +63,102 @@ func TestIDP001RegistrationHashAndTokens(t *testing.T) {
 	}
 }
 
+func TestIDP028RedisVerification(t *testing.T) {
+	url := os.Getenv("AUTH_TEST_REDIS_URL")
+	if url == "" {
+		t.Skip("set AUTH_TEST_REDIS_URL for Redis integration")
+	}
+	store, svc, mux := idpSetup()
+	closeRedis, err := svc.EnableFixedCodeVerification(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closeRedis() })
+	ctx := t.Context()
+	redis := svc.verification.(redisVerification).client
+	email := fmt.Sprintf("verification-%d@example.test", time.Now().UnixNano())
+	key := challengeKey("register-email", 0, 0, email)
+	t.Cleanup(func() { _ = redis.Del(context.Background(), key).Err() })
+	submit := func(code string, want int) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"email": email, "password": "password123", "code": code})
+		w := idpRequest(mux, "POST", "/auth/register", string(body), "")
+		if w.Code != want || (want == 400 && !strings.Contains(w.Body.String(), ErrWrongCode.Error())) {
+			t.Fatalf("registration: %d %s", w.Code, w.Body)
+		}
+	}
+	submit(fixedCode, 400)
+	requestTestEmail(t, mux, email)
+	if v, err := redis.Get(ctx, key).Result(); err != nil || v != fixedCode {
+		t.Fatalf("Redis challenge: %v %v", v, err)
+	}
+	if ttl, err := redis.PTTL(ctx, key).Result(); err != nil || ttl <= 0 || ttl > verificationTTL {
+		t.Fatalf("Redis TTL: %v %v", ttl, err)
+	}
+	submit("000000", 400)
+	if err := svc.verifyCode(ctx, "change-email", 1, 0, email, fixedCode); !errors.Is(err, ErrWrongCode) {
+		t.Fatalf("cross-purpose code accepted: %v", err)
+	}
+	if err := redis.PExpireAt(ctx, key, time.Now().Add(-time.Second)).Err(); err != nil {
+		t.Fatal(err)
+	}
+	submit(fixedCode, 400)
+	if len(store.accounts) != 0 {
+		t.Fatal("invalid code created an account")
+	}
+	requestTestEmail(t, mux, email)
+	submit(fixedCode, 201)
+	if n, err := redis.Exists(ctx, key).Result(); err != nil || n != 0 {
+		t.Fatalf("successful code not consumed: %d %v", n, err)
+	}
+	submit(fixedCode, 400)
+}
+
+func TestIDP029ContactChangesRequireAccountBoundCode(t *testing.T) {
+	_, svc, mux := idpSetup()
+	ctx := t.Context()
+	makeAccount := func(email string) (int, string) {
+		t.Helper()
+		u, err := svc.Register(ctx, RegisterInput{Email: email, Password: "password123"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := svc.IssueTokens(ctx, u.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u.ID, p.AccessToken
+	}
+	id, token := makeAccount("one@example.test")
+	_, other := makeAccount("two@example.test")
+	call := func(method, path, body, bearer string, want int) {
+		t.Helper()
+		w := idpRequest(mux, method, path, body, bearer)
+		if w.Code != want {
+			t.Fatalf("%s: %d %s", path, w.Code, w.Body)
+		}
+	}
+	call("PUT", "/me/email", `{"email":"new@example.test"}`, token, 202)
+	call("POST", "/me/phone/request-code", `{"phone":"+5511999999999"}`, token, 202)
+	call("POST", "/me/email/verify", `{"email":"new@example.test","password":"newpassword","current_password":"password123","code":"654321"}`, token, 400)
+	call("POST", "/me/phone/verify", `{"phone":"+5511999999999","code":"123456"}`, other, 400)
+	a, err := svc.Account(ctx, id)
+	if err != nil || a.Email != "one@example.test" || a.Phone != "" {
+		t.Fatalf("contact changed before verification: %+v %v", a, err)
+	}
+	call("POST", "/me/email/verify", `{"email":"new@example.test","password":"newpassword","current_password":"password123","code":"123456"}`, token, 200)
+	call("POST", "/me/phone/verify", `{"phone":"+5511999999999","code":"123456"}`, token, 200)
+	a, err = svc.Account(ctx, id)
+	if err != nil || a.Email != "new@example.test" || a.Phone != "+5511999999999" || !a.PhoneVerified {
+		t.Fatalf("contacts not updated: %+v %v", a, err)
+	}
+}
+
 func TestIDP002DuplicateEmailCaseInsensitive(t *testing.T) {
 	store, _, mux := idpSetup()
 	for i, email := range []string{"dup@pratello.com", "DUP@PRATELLO.COM"} {
-		body, _ := json.Marshal(map[string]string{"email": email, "password": "validPassword123"})
+		requestTestEmail(t, mux, email)
+		body, _ := json.Marshal(map[string]string{"email": email, "password": "validPassword123", "code": fixedCode})
 		w := idpRequest(mux, "POST", "/auth/register", string(body), "")
 		want := http.StatusCreated
 		if i == 1 {
@@ -159,9 +252,6 @@ func TestIDP021OversizedRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := idpRequest(mux, "POST", "/auth/register", string(body), "")
-	if w.Code == http.StatusCreated && len(store.accounts) == 1 {
-		t.Skip("XFAIL: registration accepts an oversized body")
-	}
 	if w.Code != http.StatusRequestEntityTooLarge || len(store.accounts) != 0 {
 		t.Fatalf("oversized registration: %d accounts=%d", w.Code, len(store.accounts))
 	}
@@ -357,21 +447,16 @@ func TestPostgresCPFClaimPreservesWallet(t *testing.T) {
 	}
 }
 
-type failingNotifier struct{}
-
-func (failingNotifier) SendOTP(string, string) error { return errors.New("unavailable") }
-
-func (failingNotifier) SendEmail(string, string) error { return errors.New("unavailable") }
-
-func TestService_Register_NotificationFailureDoesNotCreateAccount(t *testing.T) {
-	store := NewMemoryStore()
-	svc := NewService(store)
-	svc.SetHashCost(bcrypt.MinCost)
-	svc.SetNotifier(failingNotifier{})
-
-	_, err := svc.Register(context.Background(), RegisterInput{Email: "alice@example.com", Password: "password123"})
-	if err == nil {
-		t.Fatal("expected notification failure")
+func TestIDP022UnavailableVerificationDoesNotCreateAccount(t *testing.T) {
+	store, svc, mux := idpSetup()
+	svc.verification = nil
+	w := idpRequest(mux, "POST", "/auth/register/email/request-code", `{"email":"alice@example.com"}`, "")
+	if w.Code != 503 {
+		t.Fatalf("request: %d %s", w.Code, w.Body)
+	}
+	w = idpRequest(mux, "POST", "/auth/register", `{"email":"alice@example.com","password":"password123","code":"123456"}`, "")
+	if w.Code != 503 {
+		t.Fatalf("registration: %d %s", w.Code, w.Body)
 	}
 	if len(store.accounts) != 0 {
 		t.Fatal("account created after notification failure")
@@ -534,11 +619,19 @@ func TestEmailChangeAndLastMethod(t *testing.T) {
 	}
 }
 
-func TestPhoneRegistrationHTTPWithoutPIN(t *testing.T) {
-	mux := http.NewServeMux()
-	NewHandler(NewService(NewMemoryStore())).Routes(mux)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("POST", "/auth/register/phone/verify", bytes.NewBufferString(`{"phone":"+5511888888888"}`)))
+func TestPhoneRegistrationHTTPRequiresPIN(t *testing.T) {
+	_, _, mux := idpSetup()
+	const phone = `{"phone":"+5511888888888"}`
+	const correct = `{"phone":"+5511888888888","code":"123456"}`
+	w := idpRequest(mux, "POST", "/auth/register/phone/request-code", phone, "")
+	if w.Code != 202 {
+		t.Fatal(w.Code, w.Body)
+	}
+	w = idpRequest(mux, "POST", "/auth/register/phone/verify", phone, "")
+	if w.Code != 400 {
+		t.Fatal(w.Code, w.Body)
+	}
+	w = idpRequest(mux, "POST", "/auth/register/phone/verify", correct, "")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("register phone: %d %s", w.Code, w.Body.String())
 	}
@@ -546,10 +639,20 @@ func TestPhoneRegistrationHTTPWithoutPIN(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &pair); err != nil || pair.RefreshToken == "" {
 		t.Fatalf("invalid response: %s", w.Body.String())
 	}
-	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("POST", "/auth/login/phone/verify", bytes.NewBufferString(`{"phone":"+5511888888888"}`)))
+	w = idpRequest(mux, "POST", "/auth/login/phone/request-code", phone, "")
+	if w.Code != 202 {
+		t.Fatal(w.Code, w.Body)
+	}
+	w = idpRequest(mux, "POST", "/auth/login/phone/verify", `{"phone":"+5511888888888","code":"654321"}`, "")
+	if w.Code != 400 || !strings.Contains(w.Body.String(), ErrWrongCode.Error()) {
+		t.Fatal(w.Code, w.Body)
+	}
+	w = idpRequest(mux, "POST", "/auth/login/phone/verify", correct, "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("phone login: %d %s", w.Code, w.Body.String())
+	}
+	if w = idpRequest(mux, "POST", "/auth/login/phone/verify", correct, ""); w.Code != 400 {
+		t.Fatal(w.Code, w.Body)
 	}
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest("POST", "/auth/login/phone/request-code", bytes.NewBufferString(`{"phone":"+5511777777777"}`)))
@@ -569,14 +672,12 @@ func TestPhoneLoginRequiresVerifiedPhone(t *testing.T) {
 	if _, err := svc.LoginPhone(ctx, a.Phone); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("unverified phone login: %v", err)
 	}
-	n := &recordingNotifier{}
-	svc.SetNotifier(n)
 	updated, err := svc.AddPhone(ctx, a.ID, a.Phone)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !updated.PhoneVerified || n.phone != a.Phone || !regexp.MustCompile(`^[0-9]{6}$`).MatchString(n.code) {
-		t.Fatalf("invalid notification or state: %#v %#v", updated, n)
+	if !updated.PhoneVerified {
+		t.Fatalf("invalid phone state: %#v", updated)
 	}
 	pair, err := svc.LoginPhone(ctx, a.Phone)
 	if err != nil || pair.AccessToken == "" {
@@ -653,10 +754,12 @@ func TestSessionRotationAndRevocation(t *testing.T) {
 func TestHTTPRegistrationAndLogoutAll(t *testing.T) {
 	svc := NewService(NewMemoryStore())
 	svc.SetHashCost(bcrypt.MinCost)
+	svc.verification = newTestVerification()
 	mux := http.NewServeMux()
 	NewHandler(svc).Routes(mux)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("POST", "/auth/register", bytes.NewBufferString(`{"email":"user@example.com","password":"password123"}`)))
+	requestTestEmail(t, mux, "user@example.com")
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/auth/register", bytes.NewBufferString(`{"email":"user@example.com","password":"password123","code":"123456"}`)))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("registration: %d %s", w.Code, w.Body.String())
 	}

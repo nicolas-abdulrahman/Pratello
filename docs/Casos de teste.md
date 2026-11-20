@@ -1,14 +1,14 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.18
+> **Versão:** 0.1.19
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de casos documentados:** 245
+> **Total de casos documentados:** 247
 
 ## Resumo Executivo e Metodologia de Teste
 
 A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path*), Condições de Limite (*Boundary Testing*), Casos Negativos de Erro, Integridade Referencial (*ACID/FK*), Idempotência, Concorrência e Usabilidade Frontend:
 
-1. **Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP)** — Casos `IDP-001` a `IDP-027`: cadastro, contas sombra, CPF, métodos de acesso, sessões e autorização.
+1. **Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP)** — Casos `IDP-001` a `IDP-029`: cadastro, contas sombra, CPF, métodos de acesso, sessões e autorização.
 2. **Módulo 2: Estabelecimentos e Filiais (TEN)** — Casos `TEN-001` a `TEN-019`: organizações, aprovação de filiais, isolamento, vínculos por filial, arquivamento e resiliência operacional.
 3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-055` (55 testes): layout visual, categorias, itens, ingredientes, grupos de opções, combos e promoções. Inclui regressões de isolamento entre restaurantes e filiais, privacidade de custos, validação de personalizações, preços, snapshots e concorrência.
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 casos): rascunhos, autorização por pedido, salão com mesa opcional, entrega, checkout atômico, QR reutilizável, atribuição de conversão e transições operacionais. Integrações futuras estão marcadas no módulo.
@@ -20,14 +20,14 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 
 | Módulo | Casos documentados | PASS com vínculo por caso | XFAIL com vínculo por caso | Planejados | Roteiros manuais WEB | Sem resultado verificado por ID |
 |---|---:|---:|---:|---:|---:|---:|
-| IDP | 27 | 26 | 1 | 0 | 0 | 0 |
+| IDP | 29 | 29 | 0 | 0 | 0 | 0 |
 | TEN | 19 | 19 | 0 | 0 | 0 | 0 |
 | CAT | 55 | 33 | 0 | 0 | 0 | 22 |
 | ORD | 40 | 35 | 0 | 2 | 0 | 3 |
 | FIN | 40 | 32 | 0 | 4 | 0 | 4 |
 | REV | 14 | 14 | 0 | 0 | 0 | 0 |
 | WEB | 50 | 0 | 0 | 0 | 50 | 0 |
-| **Total** | **245** | **159** | **1** | **6** | **50** | **29** |
+| **Total** | **247** | **162** | **0** | **6** | **50** | **29** |
 
 Os números da tabela contam IDs distintos. Os testes Go agrupados de CAT, ORD e FIN passaram com PostgreSQL e o detector de corridas (`go test -race -count=1 -v ./server/internal/menu ./server/internal/order ./server/internal/sales ./server/internal/transaction`). Um grupo aprovado só conta para os IDs com asserções correspondentes. Os roteiros WEB não foram executados.
 
@@ -37,16 +37,16 @@ Os números da tabela contam IDs distintos. Os testes Go agrupados de CAT, ORD e
 | ORD | `ORD-001–002`, `ORD-004–023`, `ORD-027–035`, `ORD-037–040` | Testes HTTP, checkout e concorrência em `server/internal/order`, incluindo `TestORD013ComboPreparationLines`; auditoria de cupom em `TestPostgresCouponRedemption`; avaliações em `TestReviewCasesPostgres` (`REV-001`, `REV-004–005`, `REV-008–009`), também reexecutado com PostgreSQL. |
 | FIN | `FIN-003–004`, `FIN-006`, `FIN-009–011`, `FIN-013–020`, `FIN-022–027`, `FIN-029–040` | `TestPostgresPaymentLifecycle`, `TestPostgresCouponRedemption`, `TestFIN024And030ConcurrentRedemptions`, `TestBestDiscountPerLine`, `TestFIN034ComboCouponsAndExtras`, `TestFIN025Through027CouponEligibility`, PIX em `TestOrderQRCodeCheckoutAndAnalyticsPostgres` e fidelidade por CPF em `TestFIN013014016GuestCPFLoyaltyAndSignup`. |
 
-Para executar a suíte com PostgreSQL, configure `AUTH_TEST_DATABASE_URL` e rode `go test -count=1 -race ./...`. A contagem por ID não equivale ao número de funções Go. O XFAIL `IDP-021` é reportado como `SKIP` pelo Go após reproduzir a falha conhecida.
+Para executar a suíte de integração completa, configure `AUTH_TEST_DATABASE_URL` (PostgreSQL) e `AUTH_TEST_REDIS_URL` (Redis de teste), e rode `go test -count=1 -race ./...`. A contagem por ID não equivale ao número de funções Go.
 
 ---
 
-## Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP-001 a IDP-027)
+## Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP-001 a IDP-029)
 
 Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.go`, `server/internal/user/user_casos_de_testes_test.go` e `server/internal/restaurants/restaurants_casos_de_testes_test.go`. Execute `go test -race ./server/internal/auth ./server/internal/user ./server/internal/restaurants`; os testes PostgreSQL usam `AUTH_TEST_DATABASE_URL` e um esquema temporário. A verificação de e-mail/WhatsApp é simulada. `XFAIL` registra a falha conhecida sem ocultar resultados inesperados.
 
 ### IDP-001: Cadastro, tokens e hash de senha
-- **Pré-condição:** E-mail livre, notificador simulado.
+- **Pré-condição:** E-mail livre, com código de desenvolvimento solicitado.
 - **Passos:** Registrar e examinar a resposta e a conta no armazenamento.
 - **Entradas:** `user@example.com`, senha `password123`.
 - **Esperado:** HTTP 201, par de tokens Bearer e senha bcrypt verificável, sem senha na resposta.
@@ -115,12 +115,12 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Esperado:** Primeiro login rejeitado; após confirmação simulada, login gera tokens; após remoção, é rejeitado.
 - **Teste:** `TestPhoneLoginRequiresVerifiedPhone`.
 
-### IDP-011: Cadastro por telefone simulado
-- **Pré-condição:** Telefone livre; verificação simulada.
-- **Passos:** Concluir cadastro e autenticar pelo telefone sem inserir PIN.
-- **Entradas:** `+5511888888888`.
-- **Esperado:** HTTP 201 e par de tokens; login posterior retorna HTTP 200.
-- **Teste:** `TestPhoneRegistrationHTTPWithoutPIN`.
+### IDP-011: Cadastro e login por telefone exigem código
+- **Pré-condição:** Telefone livre; armazenamento de verificação habilitado.
+- **Passos:** Solicitar código de cadastro, tentar confirmar sem código e depois com o código certo. Solicitar código de login, tentar código errado, confirmar e tentar reutilizá-lo.
+- **Entradas:** `+5511888888888`, `654321` e `123456`.
+- **Esperado:** HTTP 400 sem código, com código errado ou reutilizado. HTTP 201 e par de tokens no cadastro correto; login correto retorna 200.
+- **Teste:** `TestPhoneRegistrationHTTPRequiresPIN`.
 
 ### IDP-012: Telefone duplicado e último método
 - **Pré-condição:** Duas contas; uma possui telefone verificado.
@@ -185,19 +185,19 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Esperado:** HTTP 401 e 403 para as primeiras tentativas; sysadmin não pode conceder Administrador (403), mas pode conceder sysadmin (201). Somente `is_sysadmin` fica ativo no alvo.
 - **Teste:** `TestIDP020SysadminRoleAuthority` em `server/internal/user/user_casos_de_testes_test.go`.
 
-### IDP-021: Limite de tamanho de cadastro (XFAIL)
+### IDP-021: Limite de tamanho de cadastro
 - **Pré-condição:** Limite de corpo esperado de 1 MiB.
 - **Passos:** Enviar nome maior que 1 MiB ao registrar.
 - **Entradas:** JSON com `name` de 1 MiB, e-mail e senha válidos.
-- **Esperado:** HTTP 413 e nenhuma conta criada. **Falha conhecida:** o endpoint aceita o corpo.
+- **Esperado:** HTTP 413 e nenhuma conta criada.
 - **Teste:** `TestIDP021OversizedRegistration`.
 
-### IDP-022: Falha do notificador não cria conta
-- **Pré-condição:** Notificador simulado que retorna erro.
-- **Passos:** Solicitar cadastro por e-mail.
-- **Entradas:** `alice@example.com`, `password123`.
-- **Esperado:** Serviço retorna erro e não grava conta.
-- **Teste:** `TestService_Register_NotificationFailureDoesNotCreateAccount`.
+### IDP-022: Verificação indisponível não cria conta
+- **Pré-condição:** Armazenamento de verificação desabilitado.
+- **Passos:** Solicitar código e tentar concluir cadastro por e-mail.
+- **Entradas:** `alice@example.com`, `password123`, `123456`.
+- **Esperado:** Ambos retornam HTTP 503 e nenhuma conta é criada.
+- **Teste:** `TestIDP022UnavailableVerificationDoesNotCreateAccount`.
 
 ### IDP-023: Gerente não promove proprietário
 - **Pré-condição:** `cafe` tem um proprietário; outra conta é gerente de uma filial sem ser proprietária, e há uma conta alvo.
@@ -233,6 +233,20 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Entradas:** ID do Analista e token da mesma conta antes e depois da revogação.
 - **Esperado:** O vínculo `ANALYST` aparece em `/me/restaurants`; ambas as mutações retornam 403. Após revogação, a listagem não contém mais o vínculo.
 - **Teste:** `TestIDP027AnalystMembershipDoesNotGrantMutation` em `server/internal/user/user_casos_de_testes_test.go`.
+
+### IDP-028: Código de e-mail em Redis com prazo e uso único
+- **Pré-condição:** Redis de integração configurado.
+- **Passos:** Tentar confirmar sem solicitar, solicitar código, conferir valor e prazo no Redis, tentar código errado e reutilizá-lo em outro fluxo, expirar a chave, solicitar de novo e confirmar duas vezes.
+- **Entradas:** `000000` e `123456`.
+- **Esperado:** O Redis guarda `123456` com prazo máximo de cinco minutos. Nenhum cadastro ocorre sem desafio válido; a confirmação correta retorna 201, consome o código e a repetição retorna 400.
+- **Teste:** `TestIDP028RedisVerification`.
+
+### IDP-029: Alterações de contato exigem código da própria conta
+- **Pré-condição:** Duas contas autenticadas.
+- **Passos:** Solicitar alteração de e-mail e telefone; tentar código incorreto e confirmação com token de outra conta; confirmar com código e token corretos.
+- **Entradas:** `new@example.test`, `+5511999999999`, `654321` e `123456`.
+- **Esperado:** A solicitação não altera o perfil. Tentativas inválidas retornam 400; confirmações válidas retornam 200 e atualizam os contatos.
+- **Teste:** `TestIDP029ContactChangesRequireAccountBoundCode`.
 
 ---
 

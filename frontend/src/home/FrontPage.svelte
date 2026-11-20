@@ -18,7 +18,7 @@
         <span class="text-primary font-bold text-lg tracking-wide uppercase">Bem-vindo ao</span>
         <!-- Reduced text size slightly for a tighter fit -->
         <h1 class="text-6xl md:text-8xl font-black text-gray-900 mt-2 mb-6 tracking-tighter relative">
-          João Burger
+          Pratello
           <!-- Decorative underline/swoosh -->
           <svg class="absolute -bottom-4 left-0 w-full h-8 text-primary opacity-80" viewBox="0 0 300 30" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M5 25C50 10 150 5 295 20" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>

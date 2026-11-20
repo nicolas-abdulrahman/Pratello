@@ -8,8 +8,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"testing"
+	"time"
 )
 
 func TestService_Register_ValidationErrors(t *testing.T) {
@@ -64,6 +64,7 @@ func TestHandler_Register_Success(t *testing.T) {
 	mock := NewMemoryStore()
 	svc := NewService(mock)
 	svc.SetHashCost(bcrypt.MinCost)
+	svc.verification = newTestVerification()
 	h := NewHandler(svc)
 
 	mux := http.NewServeMux()
@@ -73,8 +74,10 @@ func TestHandler_Register_Success(t *testing.T) {
 		"name":     "Carlos Teste",
 		"email":    "carlos@pratello.com",
 		"password": "validPassword123",
+		"code":     fixedCode,
 	})
 
+	requestTestEmail(t, mux, "carlos@pratello.com")
 	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -89,6 +92,7 @@ func TestHandler_Register_DuplicateConflict(t *testing.T) {
 	mock := NewMemoryStore()
 	svc := NewService(mock)
 	svc.SetHashCost(bcrypt.MinCost)
+	svc.verification = newTestVerification()
 	h := NewHandler(svc)
 
 	mux := http.NewServeMux()
@@ -97,9 +101,11 @@ func TestHandler_Register_DuplicateConflict(t *testing.T) {
 	payload, _ := json.Marshal(map[string]string{
 		"email":    "dup@pratello.com",
 		"password": "validPassword123",
+		"code":     fixedCode,
 	})
 
 	// First register
+	requestTestEmail(t, mux, "dup@pratello.com")
 	w1 := httptest.NewRecorder()
 	mux.ServeHTTP(w1, httptest.NewRequest("POST", "/api/auth/register", bytes.NewReader(payload)))
 	if w1.Code != http.StatusCreated {
@@ -107,6 +113,7 @@ func TestHandler_Register_DuplicateConflict(t *testing.T) {
 	}
 
 	// Duplicate register -> 409
+	requestTestEmail(t, mux, "dup@pratello.com")
 	w2 := httptest.NewRecorder()
 	mux.ServeHTTP(w2, httptest.NewRequest("POST", "/api/auth/register", bytes.NewReader(payload)))
 	if w2.Code != http.StatusConflict {
@@ -140,35 +147,48 @@ func TestHandler_Login_WrongPassword(t *testing.T) {
 	}
 }
 
-type recordingNotifier struct{ phone, code string }
+type testVerification map[string]string
 
-func (n *recordingNotifier) SendOTP(phone, code string) error {
-	n.phone, n.code = phone, code
+func newTestVerification() testVerification { return make(testVerification) }
+func (m testVerification) put(_ context.Context, k, v string, _ time.Duration) error {
+	m[k] = v
 	return nil
 }
-
-func (*recordingNotifier) SendEmail(string, string) error { return nil }
+func (m testVerification) consume(_ context.Context, k, v string) (bool, error) {
+	if m[k] != v {
+		return false, nil
+	}
+	delete(m, k)
+	return true, nil
+}
+func requestTestEmail(t *testing.T, mux *http.ServeMux, email string) {
+	t.Helper()
+	b, _ := json.Marshal(map[string]string{"email": email})
+	if r := idpRequest(mux, "POST", "/auth/register/email/request-code", string(b), ""); r.Code != 202 {
+		t.Fatalf("request verification: %d %s", r.Code, r.Body)
+	}
+}
 
 func TestPhoneRegistrationIssuesTokensAndRejectsDuplicate(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	svc := NewService(store)
-	n := &recordingNotifier{}
-	svc.SetNotifier(n)
+	const phone = "+5511888888888"
+	svc.verification = newTestVerification()
 	if err := svc.RequestPhoneRegistration(ctx, "+5511888888888"); err != nil {
 		t.Fatal(err)
 	}
-	if n.phone != "+5511888888888" || !regexp.MustCompile(`^[0-9]{6}$`).MatchString(n.code) {
-		t.Fatalf("invalid notification: %#v", n)
+	if err := svc.verifyCode(ctx, "register-phone", 0, 0, phone, fixedCode); err != nil {
+		t.Fatal(err)
 	}
-	pair, err := svc.RegisterPhone(ctx, n.phone, "Customer", "")
+	pair, err := svc.RegisterPhone(ctx, phone, "Customer", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.Authenticate(ctx, pair.AccessToken); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RegisterPhone(ctx, n.phone, "", ""); !errors.Is(err, ErrConflict) {
+	if _, err := svc.RegisterPhone(ctx, phone, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate registration: %v", err)
 	}
 	if _, err := svc.RegisterPhone(ctx, "+5511777777777", "", "invalid"); !errors.Is(err, ErrValidation) {

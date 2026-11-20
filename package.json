@@ -5,7 +5,7 @@
     "frontend"
   ],
   "scripts": {
-    "server": "go run ./server/cmd/api --reset-demo",
+    "server": "node scripts/start-dev-redis.mjs && REDIS_URL=redis://localhost:6379/0 AUTH_FIXED_CODE=1 go run ./server/cmd/api --reset-demo",
     "dev": "npm run dev --workspace=frontend",
     "build": "npm run build --workspace=frontend",
     "preview": "npm run preview --workspace=frontend",

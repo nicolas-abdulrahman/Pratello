@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.9
+  version: 2.2.10
   description: |
     SaaS for restaurants — complete API.
 
@@ -72,13 +72,33 @@ paths:
   # ----------------------------------------------------------
   # Registration — email + password
   # ----------------------------------------------------------
+  /auth/register/email/request-code:
+    post:
+      tags: [Auth]
+      summary: Request an email registration code
+      description: In development fixed-code mode, stores `123456` in Redis for five minutes. No message is sent. A correct code is consumed once.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202': { description: Verification requested; empty response }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '503': { description: Fixed-code verification unavailable }
+
   /auth/register:
     post:
       tags: [Auth]
       summary: Register with email + password (CPF optional)
       description: |
-        Creates a real account. Confirmation is mocked and succeeds immediately;
-        no confirmation token or user action is required.
+        First request a code for this email, then submit it with the registration.
+        An incorrect, missing, expired, or reused code returns `400`.
 
         **CPF handling:**
         - If `cpf` is omitted → no shadow interaction; new account has no CPF.
@@ -138,11 +158,12 @@ paths:
   /auth/register/phone/request-code:
     post:
       tags: [Auth]
-      summary: Start phone-only registration — sends WhatsApp PIN
+      summary: Start phone-only registration — prepare WhatsApp PIN
       description: |
         Always returns `202` (whether or not the phone is eligible) to prevent
         phone-number enumeration. Use `/auth/login/phone/request-code` if the
-        phone already belongs to an account.
+        phone already belongs to an account. Fixed-code mode stores `123456`
+        for five minutes in Redis; no WhatsApp message is sent.
       security: []
       requestBody:
         required: true
@@ -154,7 +175,7 @@ paths:
               properties:
                 phone: { type: string }
       responses:
-        '202': { description: Code sent if number is eligible }
+        '202': { description: Challenge prepared if number is eligible }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /auth/register/phone/verify:
@@ -162,7 +183,7 @@ paths:
       tags: [Auth]
       summary: Complete phone-only registration with six-digit WhatsApp PIN (CPF optional)
       description: |
-        PIN verification is mocked, so the client need not submit a code.
+        Submit the requested six-digit code. Missing, wrong, expired, or reused codes return `400`.
         Same CPF/shadow graduation logic as `POST /auth/register`.
         If `cpf` matches a shadow account, the shadow is graduated in place.
         If it matches a real account, `409 Conflict`.
@@ -173,7 +194,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [phone]
+              required: [phone, code]
               properties:
                 phone: { type: string }
                 code: { type: string, pattern: '^[0-9]{6}$' }
@@ -203,7 +224,7 @@ paths:
       description: |
         Always returns `202` to prevent enumeration. Unverified phones and
         shadow accounts (no phone) are silently ignored.
-        Delivery and PIN verification are currently mocked.
+        Fixed-code mode stores `123456` for five minutes in Redis; no WhatsApp message is sent.
       security: []
       requestBody:
         required: true
@@ -215,7 +236,7 @@ paths:
               properties:
                 phone: { type: string }
       responses:
-        '202': { description: Code sent if phone is verified and belongs to an account }
+        '202': { description: Challenge prepared if phone is verified and belongs to an account }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /auth/login/phone/verify:
@@ -223,8 +244,7 @@ paths:
       tags: [Auth]
       summary: Complete phone login — same JWT as email login
       description: |
-        Verification is mocked: clients do not need to supply a PIN. Only an
-        already verified phone can be used to log in.
+        A valid pending code is required. Only an already verified phone can be used to log in.
       security: []
       requestBody:
         required: true
@@ -232,7 +252,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [phone]
+              required: [phone, code]
               properties:
                 phone: { type: string }
                 code: { type: string, pattern: '^[0-9]{6}$' }
@@ -243,6 +263,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenPair'
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
@@ -422,10 +443,9 @@ paths:
   /me/phone/request-code:
     post:
       tags: [Auth]
-      summary: Add or change phone — sends WhatsApp PIN
+      summary: Request verification to add or change phone
       description: |
-        Verification is mocked, so the phone is attached and marked verified
-        immediately after the notification succeeds.
+        Prepares a Redis challenge without changing the account or sending a message.
       requestBody:
         required: true
         content:
@@ -436,26 +456,20 @@ paths:
               properties:
                 phone: { type: string }
       responses:
-        '202': { description: Code sent }
-        '409':
-          description: Phone already used by another account
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+        '202': { description: Verification requested; empty response }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /me/phone/verify:
     post:
       tags: [Auth]
-      summary: Retrieve the account after mocked phone confirmation
+      summary: Verify and attach the phone to the account
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [phone]
+              required: [phone, code]
               properties:
                 phone: { type: string }
                 code: { type: string, pattern: '^[0-9]{6}$' }
@@ -467,6 +481,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Account'
         '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /me/phone:
     delete:
@@ -488,36 +503,20 @@ paths:
   /me/email:
     put:
       tags: [Auth]
-      summary: Add or change email + password
-      description: |
-        Confirmation is mocked, so the email becomes active immediately.
-        If an email is already set, requires
-        `current_password` to confirm.
+      summary: Request verification to add or change email
+      description: Prepares a Redis challenge without changing the account or sending a message.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [email, password]
+              required: [email]
               properties:
                 email: { type: string, format: email }
-                password: { type: string, format: password, minLength: 8 }
-                current_password: { type: string }
       responses:
-        '202':
-          description: Email set, confirmation email sent
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Account'
+        '202': { description: Verification requested; empty response }
         '400': { $ref: '#/components/responses/BadRequest' }
-        '409':
-          description: Email already in use
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
 
     delete:
       tags: [Auth]
@@ -535,15 +534,20 @@ paths:
   /me/email/verify:
     post:
       tags: [Auth]
-      summary: Retrieve account after mocked email confirmation
+      summary: Verify and activate the email and password
+      description: An existing email credential requires `current_password`. The code must have been requested for this account and email.
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [email, password, code]
               properties:
-                token: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, format: password, minLength: 8 }
+                current_password: { type: string }
+                code: { type: string, pattern: '^[0-9]{6}$' }
       responses:
         '200':
           description: Email verified
@@ -2621,7 +2625,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OrderDetail' }
-        '409': { description: Empty, already submitted, or no longer orderable }
+        '409': { description: 'Empty, already submitted, or no longer orderable' }
 
   /restaurants/{slug}/branches/{branch_id}/delivery-fee:
     put:
@@ -3206,8 +3210,9 @@ components:
     # ---------- Auth ----------
     RegisterRequest:
       type: object
-      required: [email, password]
+      required: [email, password, code]
       properties:
+        code: { type: string, pattern: '^[0-9]{6}$' }
         email: { type: string, format: email }
         password: { type: string, format: password, minLength: 8 }
         phone:
@@ -3577,8 +3582,8 @@ components:
         name: { type: string }
         description: { type: string }
         base_price_cents: { type: integer }
-        effective_price_cents: { type: integer, description: Price after the applicable temporary sale, before options. }
-        base_cost_cents: { type: integer, description: Returned only to Owner, Administrator, or Analyst when recorded. }
+        effective_price_cents: { type: integer, description: 'Price after the applicable temporary sale, before options.' }
+        base_cost_cents: { type: integer, description: 'Returned only to Owner, Administrator, or Analyst when recorded.' }
         allows_review: { type: boolean }
         photo_url: { type: string }
         is_combo: { type: boolean }

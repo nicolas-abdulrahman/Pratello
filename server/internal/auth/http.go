@@ -16,6 +16,7 @@ type registerRequest struct {
 	Password string `json:"password"`
 	Phone    string `json:"phone,omitempty"`
 	CPF      string `json:"cpf,omitempty"`
+	Code     string `json:"code"`
 }
 
 type loginRequest struct {
@@ -36,6 +37,7 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 	for _, p := range prefixes {
 		// Autenticação & Perfil
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/register", p), h.register)
+		mux.HandleFunc(fmt.Sprintf("POST %s/auth/register/email/request-code", p), h.requestRegistrationEmail)
 		mux.HandleFunc(fmt.Sprintf("POST %s/auth/login", p), h.login)
 		mux.HandleFunc(fmt.Sprintf("GET %s/auth/me", p), h.me)
 		mux.HandleFunc(fmt.Sprintf("PUT %s/me/avatar", p), h.setAvatar)
@@ -59,22 +61,56 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 	}
 }
 
+func (h *Handler) requestRegistrationEmail(w http.ResponseWriter, r *http.Request) {
+	h.requestEmail(w, r, "register-email", 0, 0)
+}
+
+func (h *Handler) requestEmail(w http.ResponseWriter, r *http.Request, purpose string, id, version int) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		h.writeError(w, 400, "invalid request")
+		return
+	}
+	if err := h.svc.requestEmailCode(r.Context(), purpose, id, version, req.Email); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err := decoder.Decode(&req); err != nil {
+		var limit *http.MaxBytesError
+		if errors.As(err, &limit) {
+			h.writeError(w, 413, "request body too large")
+			return
+		}
 		h.writeError(w, http.StatusBadRequest, "corpo da requisição inválido (JSON esperado)")
 		return
 	}
 
-	user, err := h.svc.Register(r.Context(), RegisterInput{
+	input := RegisterInput{
 		Name:     req.Name,
 		Email:    req.Email,
 		Password: req.Password,
 		Phone:    req.Phone,
 		CPF:      req.CPF,
-	})
+	}
+	if err := h.svc.ValidateRegisterInput(input); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	if err := h.svc.verifyCode(r.Context(), "register-email", 0, 0, normalizeEmail(input.Email), req.Code); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	user, err := h.svc.Register(r.Context(), input)
 	if err != nil {
 		h.mapServiceError(w, err)
 		return
@@ -234,6 +270,10 @@ func (h *Handler) mapServiceError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrInvalidCredentials):
 		h.writeError(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, ErrWrongCode):
+		h.writeError(w, http.StatusBadRequest, ErrWrongCode.Error())
+	case errors.Is(err, ErrVerificationUnavailable):
+		h.writeError(w, http.StatusServiceUnavailable, ErrVerificationUnavailable.Error())
 	case errors.Is(err, ErrUnauthorized):
 		h.writeError(w, http.StatusUnauthorized, "não autorizado")
 	case errors.Is(err, ErrForbidden):
@@ -287,23 +327,7 @@ func (h *Handler) setEmail(w http.ResponseWriter, r *http.Request) {
 		h.mapServiceError(w, err)
 		return
 	}
-	var req struct {
-		Email           string `json:"email"`
-		Password        string `json:"password"`
-		CurrentPassword string `json:"current_password"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid request")
-		return
-	}
-	a, err := h.svc.SetEmail(r.Context(), claims.AccountID, req.Email, req.Password, req.CurrentPassword)
-	if err != nil {
-		h.mapServiceError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	writeAccount(w, a)
+	h.requestEmail(w, r, "change-email", claims.AccountID, claims.TokenVersion)
 }
 
 func (h *Handler) removeEmail(w http.ResponseWriter, r *http.Request) {
@@ -325,13 +349,23 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		h.mapServiceError(w, err)
 		return
 	}
-	a, err := h.svc.Account(r.Context(), claims.AccountID)
-	if err != nil {
+	var req struct {
+		Email           string `json:"email"`
+		Password        string `json:"password"`
+		CurrentPassword string `json:"current_password"`
+		Code            string `json:"code"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		h.writeError(w, 400, "invalid request")
+		return
+	}
+	if err := h.svc.verifyCode(r.Context(), "change-email", claims.AccountID, claims.TokenVersion, normalizeEmail(req.Email), req.Code); err != nil {
 		h.mapServiceError(w, err)
 		return
 	}
-	if !a.EmailVerified {
-		h.mapServiceError(w, ErrValidation)
+	a, err := h.svc.SetEmail(r.Context(), claims.AccountID, req.Email, req.Password, req.CurrentPassword)
+	if err != nil {
+		h.mapServiceError(w, err)
 		return
 	}
 	writeAccount(w, a)
@@ -339,6 +373,7 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 
 type phoneRequest struct {
 	Phone string `json:"phone"`
+	Code  string `json:"code"`
 }
 
 func (h *Handler) requestPhoneRegistration(w http.ResponseWriter, r *http.Request) {
@@ -359,9 +394,14 @@ func (h *Handler) registerPhone(w http.ResponseWriter, r *http.Request) {
 		Phone string `json:"phone"`
 		Name  string `json:"name"`
 		CPF   string `json:"cpf"`
+		Code  string `json:"code"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Phone == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if err := h.svc.verifyCode(r.Context(), "register-phone", 0, 0, strings.TrimSpace(req.Phone), req.Code); err != nil {
+		h.mapServiceError(w, err)
 		return
 	}
 	pair, err := h.svc.RegisterPhone(r.Context(), req.Phone, req.Name, req.CPF)
@@ -375,11 +415,16 @@ func (h *Handler) registerPhone(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodePhone(w http.ResponseWriter, r *http.Request) (string, bool) {
+	req, ok := decodePhoneRequest(w, r)
+	return req.Phone, ok
+}
+func decodePhoneRequest(w http.ResponseWriter, r *http.Request) (phoneRequest, bool) {
 	var req phoneRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Phone == "" {
-		return "", false
+		return req, false
 	}
-	return req.Phone, true
+	req.Phone = strings.TrimSpace(req.Phone)
+	return req, true
 }
 
 func (h *Handler) requestPhoneLogin(w http.ResponseWriter, r *http.Request) {
@@ -396,12 +441,16 @@ func (h *Handler) requestPhoneLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) verifyPhoneLogin(w http.ResponseWriter, r *http.Request) {
-	phone, ok := decodePhone(w, r)
+	req, ok := decodePhoneRequest(w, r)
 	if !ok {
 		h.writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	pair, err := h.svc.LoginPhone(r.Context(), phone)
+	if err := h.svc.verifyCode(r.Context(), "login-phone", 0, 0, req.Phone, req.Code); err != nil {
+		h.mapServiceError(w, err)
+		return
+	}
+	pair, err := h.svc.LoginPhone(r.Context(), req.Phone)
 	if err != nil {
 		h.mapServiceError(w, err)
 		return
@@ -421,7 +470,11 @@ func (h *Handler) addPhone(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	if _, err := h.svc.AddPhone(r.Context(), claims.AccountID, phone); err != nil {
+	if !validPhone(phone) {
+		h.mapServiceError(w, ErrValidation)
+		return
+	}
+	if err := h.svc.requestVerification(r.Context(), "change-phone", claims.AccountID, claims.TokenVersion, phone); err != nil {
 		h.mapServiceError(w, err)
 		return
 	}
@@ -434,18 +487,18 @@ func (h *Handler) verifyPhone(w http.ResponseWriter, r *http.Request) {
 		h.mapServiceError(w, err)
 		return
 	}
-	phone, ok := decodePhone(w, r)
+	req, ok := decodePhoneRequest(w, r)
 	if !ok {
 		h.writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	a, err := h.svc.Account(r.Context(), claims.AccountID)
-	if err != nil {
+	if err := h.svc.verifyCode(r.Context(), "change-phone", claims.AccountID, claims.TokenVersion, req.Phone, req.Code); err != nil {
 		h.mapServiceError(w, err)
 		return
 	}
-	if a.Phone != phone || !a.PhoneVerified {
-		h.mapServiceError(w, ErrValidation)
+	a, err := h.svc.AddPhone(r.Context(), claims.AccountID, req.Phone)
+	if err != nil {
+		h.mapServiceError(w, err)
 		return
 	}
 	writeAccount(w, a)

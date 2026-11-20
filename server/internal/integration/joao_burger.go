@@ -125,7 +125,10 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 		var tokens struct {
 			Access string `json:"access_token"`
 		}
-		if err := a.request(ctx, "POST", "/api/auth/register", "", map[string]any{"name": p.name, "email": p.account.Email, "password": f.Password}, &tokens, 201); err != nil {
+		if err := a.request(ctx, "POST", "/api/auth/register/email/request-code", "", map[string]any{"email": p.account.Email}, nil, 202); err != nil {
+			return f, err
+		}
+		if err := a.request(ctx, "POST", "/api/auth/register", "", map[string]any{"name": p.name, "email": p.account.Email, "password": f.Password, "code": "123456"}, &tokens, 201); err != nil {
 			return f, err
 		}
 		p.account.AccessToken = tokens.Access
