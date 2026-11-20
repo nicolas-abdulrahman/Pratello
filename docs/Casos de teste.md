@@ -1,8 +1,8 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.12
+> **Versão:** 0.1.13
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de Casos de Teste:** 231 Casos
+> **Total de casos documentados:** 231
 
 ## Resumo Executivo e Metodologia de Teste
 
@@ -13,7 +13,23 @@ A suíte está estruturada em **6 módulos** cobrindo Caminho Feliz (*Happy Path
 3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-055` (55 testes): layout visual, categorias, itens, ingredientes, grupos de opções, combos e promoções. Inclui regressões de isolamento entre restaurantes e filiais, privacidade de custos, validação de personalizações, preços, snapshots e concorrência.
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 casos): rascunhos, autorização por pedido, salão com mesa opcional, entrega, checkout atômico, QR reutilizável, atribuição de conversão e transições operacionais. Integrações futuras estão marcadas no módulo.
 5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-040` (40 casos): pagamento simulado, PIX pendente e confirmação, idempotência, devoluções, cupons e banners, descontos sem acúmulo e resgate concorrente de moedas. Cenários de integração futura estão identificados no módulo.
-6. **Módulo 6: Interface do Usuário, Navegação e Interações do Website (WEB)** — Casos `WEB-001` a `WEB-050` (50 testes): Carrinho flutuante e gaveta de pedidos (`OrderCart` / `OrderSection`), abertura/fechamento de gaveta, incremento/decremento e remoção de itens, navegação e links no navbar, seleção de endereços (`AddressSection`), fluxo de autenticação e inputs de login (`Auth`), filtros do cardápio, modal de itens com adicionais (`ItemModal`) e finalização de checkout.
+6. **Módulo 6: Interface do Usuário, Navegação e Interações do Website (WEB)** — Casos `WEB-001` a `WEB-050` (50 roteiros manuais): Carrinho, navegação, endereços, autenticação, cardápio e checkout.
+
+### Contagem e execução verificadas nesta revisão
+
+| Módulo | Casos documentados | PASS com vínculo por caso | XFAIL com vínculo por caso | Planejados | Roteiros manuais WEB | Sem resultado verificado por ID |
+|---|---:|---:|---:|---:|---:|---:|
+| IDP | 27 | 26 | 1 | 0 | 0 | 0 |
+| TEN | 19 | 19 | 0 | 0 | 0 | 0 |
+| CAT | 55 | 0 | 0 | 0 | 0 | 55 |
+| ORD | 40 | 0 | 0 | 5 | 0 | 35 |
+| FIN | 40 | 0 | 0 | 7 | 0 | 33 |
+| WEB | 50 | 0 | 0 | 0 | 50 | 0 |
+| **Total** | **231** | **45** | **1** | **12** | **50** | **123** |
+
+Os números da tabela contam IDs distintos. CAT, ORD e FIN já possuem testes Go agrupados; seus resultados não foram atribuídos a cada ID individualmente nesta revisão. Os roteiros WEB não foram executados.
+
+Execução com `AUTH_TEST_DATABASE_URL` configurada: `go test -count=1 -race ./...` executou **75 testes Go de nível superior** (74 aprovados, 1 XFAIL e 0 falhas) e reportou **38 subtestes aprovados**. A suíte também inclui testes unitários sem ID, e uma função Go pode verificar mais de um caso documentado. O único XFAIL foi `IDP-021`, reportado como `SKIP` pelo Go após reproduzir a falha conhecida.
 
 ---
 
