@@ -174,7 +174,7 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 		{"POST", root + "/analysts", owner, map[string]int{"account_id": f.Analyst.ID}, 201},
 		{"PUT", fmt.Sprintf("%s/managers/%d", branchPath, f.Manager.ID), owner, nil, 204},
 		{"POST", branchPath + "/employees", f.Manager.AccessToken, map[string]any{"account_id": f.Employee.ID, "position": "WAITER"}, 201},
-		{"PUT", root + "/menu", owner, map[string]string{"name": "João Burger — Cardápio", "accent_color": "#F46B36", "secondary_color": "#FFE135"}, 200},
+		{"PUT", root + "/menu", owner, map[string]any{"name": "João Burger — Cardápio", "accent_color": "#EA580C", "secondary_color": "#FDE68A", "display_config": joaoDisplay}, 200},
 	} {
 		if err := a.request(ctx, r.method, r.path, r.token, r.body, nil, r.status); err != nil {
 			return f, err

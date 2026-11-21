@@ -24,13 +24,14 @@ var (
 )
 
 type layout struct {
-	Slug       string     `json:"restaurant_slug"`
-	Name       *string    `json:"name,omitempty"`
-	Style      string     `json:"template_style"`
-	Accent     *string    `json:"accent_color,omitempty"`
-	Secondary  *string    `json:"secondary_color,omitempty"`
-	Typography *string    `json:"typography,omitempty"`
-	Updated    *time.Time `json:"updated_at,omitempty"`
+	Display    *displayConfig `json:"display_config,omitempty"`
+	Slug       string         `json:"restaurant_slug"`
+	Name       *string        `json:"name,omitempty"`
+	Style      string         `json:"template_style"`
+	Accent     *string        `json:"accent_color,omitempty"`
+	Secondary  *string        `json:"secondary_color,omitempty"`
+	Typography *string        `json:"typography,omitempty"`
+	Updated    *time.Time     `json:"updated_at,omitempty"`
 }
 
 type category struct {
@@ -185,11 +186,12 @@ type nullable[T any] struct {
 }
 
 type layoutInput struct {
-	Name       *string `json:"name"`
-	Style      *string `json:"template_style"`
-	Accent     *string `json:"accent_color"`
-	Secondary  *string `json:"secondary_color"`
-	Typography *string `json:"typography"`
+	Display    nullable[displayConfig] `json:"display_config"`
+	Name       *string                 `json:"name"`
+	Style      *string                 `json:"template_style"`
+	Accent     *string                 `json:"accent_color"`
+	Secondary  *string                 `json:"secondary_color"`
+	Typography *string                 `json:"typography"`
 }
 type categoryInput struct {
 	Image nullable[string] `json:"image_url"`
@@ -374,6 +376,12 @@ func prepare(ctx context.Context, tx session, c catalog, r request) (any, error)
 	switch r.op {
 	case putLayout:
 		v, p := c.Layout, r.body.(*layoutInput)
+		if p.Display.Set {
+			if p.Display.Value != nil && !p.Display.Value.valid() {
+				return nil, ErrInvalid
+			}
+			v.Display = p.Display.Value
+		}
 		for _, entry := range []struct {
 			field **string
 			value *string

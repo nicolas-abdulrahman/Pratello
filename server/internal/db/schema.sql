@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS item_sale (
 );
 CREATE INDEX IF NOT EXISTS idx_item_sale_item_id_is_active ON item_sale(item_id,is_active);
 ALTER TABLE menu ADD COLUMN IF NOT EXISTS secondary_color VARCHAR(7);
+ALTER TABLE menu ADD COLUMN IF NOT EXISTS display_config JSONB CHECK (jsonb_typeof(display_config)='object');
 ALTER TABLE category ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE category ADD COLUMN IF NOT EXISTS image_url TEXT;
 ALTER TABLE category ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;

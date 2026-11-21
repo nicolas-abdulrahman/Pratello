@@ -31,6 +31,20 @@ export type ComboComponent = {
 
 export type ItemType = 'simple' | 'combo';
 
+export async function get_description(
+  slug: string,
+  item: { id: number; is_combo: boolean; description?: string | null },
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  if (!item.is_combo) return item.description ?? undefined;
+
+  const response = await fetch(`/api/restaurants/${encodeURIComponent(slug)}/items/${item.id}`, { signal });
+  if (!response.ok) return item.description ?? undefined;
+  const { combo_items }: { combo_items?: { sub_item_name: string; quantity: number }[] } = await response.json();
+  return combo_items?.map(({ sub_item_name, quantity }) => `${quantity} ${sub_item_name}`).join(', ')
+    || item.description || undefined;
+}
+
 export type Item = {
   id: number;
   name: string;

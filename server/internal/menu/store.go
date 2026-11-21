@@ -112,7 +112,7 @@ const loadSQL = `WITH items AS (
 SELECT jsonb_build_object(
   'Layout',(SELECT row_to_json(m) FROM (
     SELECT $3::text AS restaurant_slug,name,CASE style WHEN 'EXPERIENCIA' THEN 'experience' ELSE 'classic' END AS template_style,
-      accent_color,secondary_color,typography,updated_at FROM menu WHERE restaurant_id=$1
+      accent_color,secondary_color,typography,display_config,updated_at FROM menu WHERE restaurant_id=$1
   ) m),
   'Categories',(SELECT jsonb_agg(c ORDER BY c.display_order,c.id) FROM (
     SELECT id,$3::text AS restaurant_slug,name,display_order,created_at,is_fallback,image_url FROM category WHERE restaurant_id=$1 AND archived_at IS NULL
@@ -205,10 +205,18 @@ func (u sqlSession) mutate(ctx context.Context, r request, data any) (int, error
 	switch r.op {
 	case putLayout:
 		v := data.(layout)
-		return u.returningID(ctx, `INSERT INTO menu(restaurant_id,name,style,accent_color,secondary_color,typography)
-		VALUES($1,$2,CASE $3 WHEN 'experience' THEN 'EXPERIENCIA'::menu_style_enum ELSE 'CLASSICO'::menu_style_enum END,$4,$5,$6)
+		var display any
+		if v.Display != nil {
+			raw, err := json.Marshal(v.Display)
+			if err != nil {
+				return 0, err
+			}
+			display = string(raw)
+		}
+		return u.returningID(ctx, `INSERT INTO menu(restaurant_id,name,style,accent_color,secondary_color,typography,display_config)
+		VALUES($1,$2,CASE $3 WHEN 'experience' THEN 'EXPERIENCIA'::menu_style_enum ELSE 'CLASSICO'::menu_style_enum END,$4,$5,$6,$7)
 		ON CONFLICT(restaurant_id) DO UPDATE SET name=EXCLUDED.name,style=EXCLUDED.style,accent_color=EXCLUDED.accent_color,
-		secondary_color=EXCLUDED.secondary_color,typography=EXCLUDED.typography RETURNING id`, u.org, v.Name, v.Style, v.Accent, v.Secondary, v.Typography)
+		secondary_color=EXCLUDED.secondary_color,typography=EXCLUDED.typography,display_config=EXCLUDED.display_config RETURNING id`, u.org, v.Name, v.Style, v.Accent, v.Secondary, v.Typography, display)
 	case addCategory:
 		v := data.(category)
 		return u.returningID(ctx, `INSERT INTO category(restaurant_id,name,display_order,image_url) VALUES($1,$2,$3,$4) RETURNING id`, u.org, v.Name, v.Order, v.Image)

@@ -1,7 +1,9 @@
 <script>
+  import { get_description } from '../lib/stores/Item';
   import CatalogSection from './CatalogSection.svelte';
   import PromotionSection from './PromotionSection.svelte';
   import ItemModal from '../dish/ItemModal.svelte';
+  import FirstPage from './FirstPage.svelte';
 
   let { slug, name = 'Pratello', logoURL = null } = $props();
   let items = $state([]);
@@ -10,6 +12,9 @@
   let combosFailed = $state(false);
   let reviews = $state({});
   let banner = $state(null);
+  let banners = $state([]);
+  let display = $state(null);
+  let groups = $state([]);
   let loading = $state(true);
   let failed = $state(false);
   let selectedId = $state(null);
@@ -17,7 +22,7 @@
   const withReviews = (item) => ({ ...item, ...reviews[item.id] });
   let reviewedCombos = $derived(combos.map(withReviews));
   let reviewedSales = $derived(sales.map(withReviews));
-  let selected = $derived([...reviewedSales, ...reviewedCombos].find((item) => item.id === selectedId));
+  let selected = $derived(items.map(withReviews).find((item) => item.id === selectedId));
   const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
   $effect(() => {
@@ -30,8 +35,9 @@
       return response.json();
     }
     void get('/menu/banners').then((result) => {
-      if (!signal.aborted) banner = result?.[0] ?? null;
+      if (!signal.aborted) { banners = result ?? []; banner = banners[0] ?? null; }
     }).catch(() => {});
+    void get('/menu').then((result) => { if (!signal.aborted) display = result.display_config ?? null; }).catch(() => {});
     async function loadItems(categoryId) {
         const catalog = [];
         for (let page = 1; ; page++) {
@@ -44,17 +50,22 @@
         return catalog;
     }
 
+    const descriptions = new Map();
     function formatItems(catalog) {
-        return catalog.map((item) => {
+        return Promise.all(catalog.map(async (item) => {
           const effective = item.effective_price_cents ?? item.base_price_cents;
+          if (!descriptions.has(item.id)) {
+            descriptions.set(item.id, get_description(slug, item, signal).catch(() => item.description));
+          }
+          const description = await descriptions.get(item.id);
           return {
-            id: item.id, title: item.name, description: item.description,
+             id: item.id, title: item.name, description, category: item.category_id, tags: item.tags, collections: item.collections,
             image: item.photo_url || '/media/default.png', combo: item.is_combo,
             basePrice: effective / 100, originalPrice: item.base_price_cents / 100,
             newPrice: money.format(effective / 100),
             oldPrice: effective < item.base_price_cents ? money.format(item.base_price_cents / 100) : null
           };
-        });
+        }));
     }
 
     const requestedReviews = new Set();
@@ -72,7 +83,9 @@
       try {
         const catalog = await loadItems();
         if (signal.aborted) return;
-        items = formatItems(catalog.filter((item) => item.is_available && item.effective_price_cents < item.base_price_cents));
+         const formatted = await formatItems(catalog.filter((item) => item.is_available));
+         if (signal.aborted) return;
+         items = formatted;
         loadReviews(items);
       } catch {
         if (!signal.aborted) failed = true;
@@ -82,11 +95,14 @@
     })();
     void (async () => {
       try {
-        const categories = await get('/categories');
+         const categories = await get('/categories');
+         if (!signal.aborted) groups = categories;
         const category = categories.find((entry) => entry.name.trim().toLowerCase() === 'combos');
         const catalog = category ? await loadItems(category.id) : [];
         if (signal.aborted) return;
-        combos = formatItems(catalog.filter((item) => item.is_available && item.is_combo));
+        const formatted = await formatItems(catalog.filter((item) => item.is_available && item.is_combo));
+        if (signal.aborted) return;
+        combos = formatted;
         loadReviews(combos);
       } catch {
         if (!signal.aborted) combosFailed = true;
@@ -98,6 +114,9 @@
   });
 </script>
 
+{#if display}
+  <FirstPage config={display} {items} categories={groups} {banners} onOpenDetails={(id) => { selectedId = id; }} />
+{:else}
 <div data-theme="restaurantTheme" class="min-h-screen bg-background font-sans selection:bg-primary selection:text-white">
 
   <!-- Hero Section (Made Smaller) -->
@@ -208,6 +227,7 @@
   <CatalogSection title="Combos" items={reviewedCombos} loading={combosLoading} failed={combosFailed} onOpenDetails={(id) => { selectedId = id; }} />
 
 </div>
+{/if}
 
 {#if selected}
   <ItemModal isOpen item={selected} onClose={() => { selectedId = null; }} />

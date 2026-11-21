@@ -255,6 +255,7 @@ Table "public"."menu" {
   "name" varchar(255)
   "style" menu_style_enum [not null, default: 'CLASSICO']
   "accent_color" varchar(7)
+  "display_config" jsonb
   "secondary_color" varchar(7)
   "typography" varchar(50)
   "updated_at" timestamptz [not null, default: `now()`]

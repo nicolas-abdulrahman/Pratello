@@ -213,12 +213,19 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		t.Fatalf("invalid favicon: status=%d size=%dx%d err=%v", res.StatusCode, svg.Width, svg.Height, err)
 	}
 	var layout struct {
+		Display struct {
+			FirstPage []struct{ ID string } `json:"first_page"`
+		} `json:"display_config"`
 		Style     string `json:"template_style"`
 		Accent    string `json:"accent_color"`
 		Secondary string `json:"secondary_color"`
 	}
 	get(base+"/menu", "", &layout)
-	if layout.Style != "classic" || layout.Accent != "#F46B36" || layout.Secondary != "#FFE135" {
+	blocks := layout.Display.FirstPage
+	if len(blocks) != 4 || blocks[0].ID != "hero_joao_burger" || blocks[1].ID != "sec_promocoes" || blocks[2].ID != "promo_card_1" || blocks[3].ID != "sec_combos" {
+		t.Fatalf("storefront layout was not returned in display order: %+v", blocks)
+	}
+	if layout.Style != "classic" || layout.Accent != "#EA580C" || layout.Secondary != "#FDE68A" {
 		t.Fatalf("wrong menu layout: %+v", layout)
 	}
 	var assets []string

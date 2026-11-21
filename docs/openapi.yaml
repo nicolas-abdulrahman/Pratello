@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.12
+  version: 2.2.13
   description: |
     SaaS for restaurants — complete API.
 
@@ -3537,6 +3537,7 @@ components:
       type: object
       required: [restaurant_slug]
       properties:
+        display_config: { $ref: '#/components/schemas/DisplayConfig' }
         restaurant_slug: { type: string }
         name: { type: string }
         template_style: { type: string, example: classic }
@@ -3547,12 +3548,79 @@ components:
     UpdateMenuLayoutRequest:
       type: object
       properties:
+        display_config:
+          allOf:
+            - $ref: '#/components/schemas/DisplayConfig'
+          nullable: true
+          description: Replace the entire configuration; omit to preserve it or send null to clear it.
         name: { type: string }
         template_style: { type: string, enum: [classic, experience] }
         accent_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
         secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
         typography: { type: string }
 
+    DisplayConfig:
+      type: object
+      required: [dark, colors, menu, first_page]
+      properties:
+        dark: { type: boolean }
+        colors:
+          type: object
+          additionalProperties: false
+          required: [bg, primary_color, secondary_color, bg_dark, primary_color_dark, secondary_color_dark]
+          properties:
+            bg: &displayHex { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+            primary_color: *displayHex
+            secondary_color: *displayHex
+            bg_dark: *displayHex
+            primary_color_dark: *displayHex
+            secondary_color_dark: *displayHex
+        menu:
+          type: object
+          required: [container]
+          properties:
+            container: &displayContainer { type: string, enum: [grid, horizontal] }
+        first_page:
+          type: array
+          minItems: 1
+          description: Exactly one header1 or header2 at index zero, followed by sections and promotion banners in display order.
+          items:
+            type: object
+            required: [id, type]
+            properties:
+              id: { type: string, description: Unique within the page. }
+              type: { type: string, enum: [header1, header2, section, promotion_banner] }
+              dark: { type: boolean, nullable: true, description: Null or omitted inherits the page setting. }
+              bg: &displayToken { type: string, pattern: '^(text(_muted)?|((lighter|darker)_)?(bg|primary_color|secondary_color)(_dark)?)$' }
+              welcome: { $ref: '#/components/schemas/StyledDisplayText' }
+              title: { $ref: '#/components/schemas/StyledDisplayText' }
+              desc: { $ref: '#/components/schemas/StyledDisplayText' }
+              img: { type: string, description: Required for either header. }
+              border: { type: string, enum: [none, solid, dotted] }
+              container: *displayContainer
+              banner_id: { type: string, description: Promotion banner ID or coupon code. }
+              display_items:
+                type: object
+                required: [by, value]
+                properties:
+                  by: { type: string, enum: [category, tag, collection] }
+                  value: { type: string, description: Category ID or name; sales selects discounted items. }
+    StyledDisplayText:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }
+        color: *displayToken
+        text_white: { type: boolean, nullable: true }
+        gradient:
+          type: object
+          nullable: true
+          required: [type, start_char, first_color, second_color]
+          properties:
+            type: { type: string, enum: [rough, smooth] }
+            start_char: { type: integer, minimum: 0 }
+            first_color: *displayToken
+            second_color: *displayToken
     Category:
       type: object
       required: [id, name, display_order]

@@ -67,13 +67,12 @@
   }
 
   function goToRestaurantes() {
-    if (slug) {
-      currentView = 'delivery';
-      window.history.pushState({}, '', `/r/${slug}/delivery`);
-    } else {
-      currentView = 'restaurantes';
-      window.history.pushState({}, '', '/restaurantes');
-    }
+    const path = slug ? `/r/${slug}/delivery` : '/restaurantes';
+    if (window.location.pathname !== path) window.history.pushState({}, '', path);
+    const route = parseRoute(path);
+    currentView = route.view;
+    slug = route.slug;
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
   function goToLogin() {
@@ -100,7 +99,11 @@
     }
   }
 
-  function goToOrder() {
+  function goToOrder(mode) {
+    if (mode === 'delivery') {
+      goToRestaurantes();
+      return;
+    }
     currentView = 'order';
     window.history.pushState({}, '', '/order');
   }

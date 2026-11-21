@@ -2,8 +2,21 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
+
+var joaoDisplay = json.RawMessage(`{
+  "dark":false,
+  "colors":{"bg":"#FFF9DB","primary_color":"#EA580C","secondary_color":"#FDE68A","bg_dark":"#431407","primary_color_dark":"#FACC15","secondary_color_dark":"#9A3412"},
+  "menu":{"container":"horizontal"},
+  "first_page":[
+    {"id":"hero_joao_burger","type":"header1","dark":null,"bg":"bg","welcome":{"text":"Ola!","color":"primary_color"},"title":{"text":"Joao burger"},"desc":{"text":"temos os melhores amburgueres","color":"text_muted"},"img":"https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1000&q=80"},
+    {"id":"sec_promocoes","type":"section","dark":null,"bg":"bg","border":"dotted","container":"grid","title":{"text":"Promoções","gradient":{"type":"rough","start_char":5,"first_color":"text","second_color":"primary_color"}},"display_items":{"by":"category","value":"sales"}},
+    {"id":"promo_card_1","type":"promotion_banner","banner_id":"DUPLA8","dark":null},
+    {"id":"sec_combos","type":"section","dark":null,"bg":"bg","border":"solid","container":"horizontal","title":{"text":"Combos"},"display_items":{"by":"category","value":"combos"}}
+  ]
+}`)
 
 type featuredDish struct {
 	name, description, photo string

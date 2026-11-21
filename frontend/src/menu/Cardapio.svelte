@@ -1,5 +1,6 @@
 <script>
   import { untrack } from 'svelte';
+  import { get_description } from '../lib/stores/Item';
   import MenuCategoryCard from './MenuCategoryCard.svelte';
   import MenuDishCard from './MenuDishCard.svelte';
   import ItemModal from '../dish/ItemModal.svelte';
@@ -15,6 +16,7 @@
   const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
   const fallbackImage = '/media/default.png';
   let selectedCategory = $derived(categories.find((category) => category.id === openCategory));
+  let container = $state('horizontal');
   let selectedDish = $derived(selectedCategory?.dishes?.find((dish) => dish.id === selectedId));
 
   async function getJSON(url, signal) {
@@ -28,6 +30,9 @@
     if (!root) return;
     const controller = new AbortController();
     const { signal } = controller;
+    void getJSON(`${root}/menu`, signal).then(({ display_config }) => {
+      if (!signal.aborted) container = display_config?.menu.container ?? 'horizontal';
+    }).catch(() => {});
     void getJSON(`${root}/categories`, signal).then((groups) => {
       if (!signal.aborted) categories = groups.map((group) => ({ id: group.id, title: group.name, image: group.image_url }));
     }).catch(() => {
@@ -55,12 +60,12 @@
       }
     }
 
-    void loadItems().then((items) => {
-      const dishes = items.filter((item) => item.is_available).map((item) => ({
-          id: item.id, title: item.name, description: item.description,
+    void loadItems().then(async (items) => {
+      const dishes = await Promise.all(items.filter((item) => item.is_available).map(async (item) => ({
+          id: item.id, title: item.name, description: await get_description(slug, item, signal).catch(() => item.description),
           image: item.photo_url || fallbackImage, combo: item.is_combo,
           price: money.format((item.effective_price_cents ?? item.base_price_cents) / 100)
-      }));
+      })));
       if (!signal.aborted) categories = categories.map((group) => group.id === categoryId ? { ...group, dishes } : group);
     }).catch(() => {
       if (!signal.aborted) categoryFailed = true;
@@ -95,7 +100,7 @@
     {:else if !categories.length}
       <p class="text-center text-text-muted">Nenhum prato disponível no momento.</p>
     {:else}
-      <div class="flex flex-nowrap gap-space-md overflow-x-auto pb-space-xs">
+           <div class={container === 'grid' ? 'grid grid-cols-1 gap-space-md sm:grid-cols-2 lg:grid-cols-3' : 'flex flex-nowrap gap-space-md overflow-x-auto pb-space-xs'}>
         {#each categories as category (category.id)}
           <button type="button" aria-expanded={openCategory === category.id} onclick={() => { selectedId = null; openCategory = openCategory === category.id ? null : category.id; }} class="h-48 w-64 shrink-0 rounded-3xl text-left">
              <MenuCategoryCard title={category.title} image={category.image || category.dishes?.[0]?.image || fallbackImage} description={category.dishes ? `${category.dishes.length} ${category.dishes.length === 1 ? 'prato' : 'pratos'}` : 'Ver pratos'} icon="" />
@@ -118,7 +123,7 @@
           {:else}
           <div class="flex flex-nowrap gap-space-md overflow-x-auto pb-space-xs">
             {#each selectedCategory.dishes as dish (dish.id)}
-              <div class="h-40 w-80 shrink-0">
+               <div class={container === 'grid' ? 'h-40 min-w-0' : 'h-40 w-80 shrink-0'}>
                 <MenuDishCard title={dish.title} description={dish.description} image={dish.image} price={dish.price}
                 rating={reviews[dish.id]?.summary.average_rating ?? null} count={reviews[dish.id]?.summary.review_count ?? null}
                 onopen={() => { selectedId = dish.id; }} />
