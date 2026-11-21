@@ -17,10 +17,11 @@
   type Restaurant = {
     slug: string;
     name: string;
+    description?: string;
     icon_url?: string | null;
-    cover_url?: string | null;
   };
-  let restaurants = $state<(Restaurant & { banners: Banner[] })[]>([]);
+  type MenuItem = { id: number; name: string; photo_url?: string; is_available: boolean };
+  let restaurants = $state<(Restaurant & { banners: Banner[]; menuItems: MenuItem[] })[]>([]);
   let loading = $state(true);
   let loadError = $state(false);
 
@@ -49,24 +50,37 @@
         const response = await fetch('/api/restaurants', { signal });
         if (!response.ok) throw new Error('restaurant list unavailable');
         const { data }: { data: Restaurant[] } = await response.json();
-        restaurants = data.map((r) => ({ ...r, banners: [] }));
+        restaurants = data.map((r) => ({ ...r, banners: [], menuItems: [] }));
         loading = false;
-        await Promise.all(data.map(async (r) => {
+        await Promise.all(data.flatMap((r) => [loadBanners(r), loadMenuItems(r)]));
+        async function loadBanners(r: Restaurant) {
           try {
             const result = await fetch(`/api/restaurants/${encodeURIComponent(r.slug)}/menu/banners`, { signal });
             if (!result.ok) return;
             const offers: { id: number; title?: string; code: string; description?: string; background_image_url?: string }[] = await result.json();
-            if (!signal.aborted) restaurants = restaurants.map((item) => item.slug !== r.slug ? item : {
+            if (!signal.aborted && Array.isArray(offers)) restaurants = restaurants.map((item) => item.slug !== r.slug ? item : {
               ...item,
               banners: offers.map((offer) => ({
                 id: String(offer.id), title: offer.title || offer.code, subtitle: offer.description,
-                imageSrc: offer.background_image_url,
+                imageSrc: offer.background_image_url, cta: offer.code,
               })),
             });
           } catch {
             // A restaurant card is still useful when its banners are unavailable.
           }
-        }));
+        }
+        async function loadMenuItems(r: Restaurant) {
+          try {
+            const result = await fetch(`/api/restaurants/${encodeURIComponent(r.slug)}/items`, { signal });
+            if (!result.ok) return;
+            const { data: items }: { data: MenuItem[] } = await result.json();
+            if (!signal.aborted) restaurants = restaurants.map((item) => item.slug !== r.slug ? item : {
+              ...item, menuItems: items.filter((entry) => entry.is_available)
+            });
+          } catch {
+            // Leave the item carousel empty if this menu is unavailable.
+          }
+        }
       } catch {
         if (!signal.aborted) { loadError = true; loading = false; }
       }
@@ -197,12 +211,13 @@
       {#each restaurants as r (r.slug)}
         <RestaurantsSection
           cardProps={{
-            name: r.name,
+             name: r.name,
+            description: r.description,
             rating: 0,
             deliveryTime: '—',
             logoSrc: r.icon_url ?? undefined,
-            logoAlt: `${r.name} logo`,
-            images: r.cover_url ? [{ src: r.cover_url, alt: `${r.name} capa` }] : [],
+            logoAlt: `Logo de ${r.name}`,
+            images: r.menuItems.map((item) => ({ src: item.photo_url, alt: item.name })),
             onmenu: () => navigateTo(`/r/${encodeURIComponent(r.slug)}`)
           }}
           banners={r.banners}

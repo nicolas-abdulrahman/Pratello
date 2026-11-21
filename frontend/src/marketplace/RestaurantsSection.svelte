@@ -37,21 +37,8 @@
       </svg>`
     );
 
-  const defaultBanners: Banner[] = [
-    {
-      id: 'burger-50',
-      eyebrow: 'Oferta da semana',
-      title: 'Promoções em hambúrgueres',
-      subtitle: 'Economize 50% em todos os burgers artesanais',
-      cta: 'Pedir agora'
-    },
-    { id: 'frete', title: 'Frete grátis acima de R$ 50', subtitle: 'Para pedidos selecionados' },
-    { id: 'combo', title: 'Combo família com desconto', subtitle: 'Monte o seu e economize' },
-    { id: 'sobremesas', title: 'Novidade: sobremesas da casa', subtitle: 'Experimente antes que acabe' }
-  ];
-
   let {
-    banners = defaultBanners,
+    banners = [],
     cardProps = {},
     interval = 5000,
     transitionMs = 600,
@@ -70,7 +57,7 @@
   const slots = $derived(
     count === 0
       ? []
-      : [-2, -1, 0, 1, 2].map((d) => {
+      : (count === 1 ? [0] : count === 2 ? [0, 1] : [-2, -1, 0, 1, 2]).map((d) => {
           const k = step + d;
           return { k, d, banner: banners[((k % count) + count) % count] };
         })
@@ -111,6 +98,7 @@
     <RestaurantCard {...cardProps} />
   </div>
 
+  {#if count > 0}
   <div class="carousel-slot">
     <div
       class="relative min-w-0 flex-1 overflow-hidden rounded-3xl"
@@ -128,7 +116,7 @@
         {@const hasImage = !!s.banner.imageSrc}
         <button
           type="button"
-          disabled={faded}
+          disabled={faded || (main && !onselect)}
           aria-current={main ? 'true' : undefined}
           aria-label={s.banner.title}
           onclick={() => (main ? onselect?.(s.banner) : go(s.d))}
@@ -171,6 +159,7 @@
       {/each}
     </div>
   </div>
+  {/if}
 </section>
 
 <style>

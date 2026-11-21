@@ -30,6 +30,10 @@
   --color-text:          #111827;
   --color-text-muted:    #6b7280;
   --color-border:        #e5e7eb;
+  --color-brand-accent:  #a83a13;
+  --color-brand-accent-hover: #863010;
+  --color-brand-on-accent: #fff9ef;
+  --color-error:         #9f2525;
 
   /* ── Navbar colors (theme-aware) ───────────────── */
   --color-navbar-bg:     #FAF4EA;

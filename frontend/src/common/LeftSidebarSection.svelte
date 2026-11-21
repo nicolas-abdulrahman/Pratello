@@ -1,11 +1,13 @@
 <script lang="ts">
   import { account } from '../lib/stores/account';
+  import AccountAvatar from './AccountAvatar.svelte';
 
   let {
     open = false,
     onClose = () => {},
     onGoLogin = () => {},
-    onGoHome = () => {}
+    onGoHome = () => {},
+    onGoAccount = undefined as (() => void) | undefined
   } = $props();
 
   const close = () => onClose();
@@ -72,17 +74,23 @@
 
     {#if $account.isLoggedIn}
       <!-- ===== Logged in: user card ===== -->
-      <div class="flex items-center gap-3 pb-4 border-b border-stone-200">
-        <div
-          class="w-12 h-12 rounded-2xl bg-amber-500 text-white font-bold flex items-center justify-center shadow-sm"
-        >
-          {$account.initials || 'G'}
-        </div>
+      <a
+        href="/account"
+        onclick={(event) => {
+          if (!onGoAccount || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          close();
+          onGoAccount();
+        }}
+        class="flex items-center gap-3 rounded-xl border border-border p-space-xs hover:bg-surface-hover"
+        aria-label="Minha conta"
+      >
+        <AccountAvatar class="size-12 rounded-2xl shadow-sm" />
         <div class="min-w-0">
           <p class="text-sm font-bold text-stone-900 leading-tight truncate">{$account.name}</p>
           <p class="text-[11px] text-stone-400 truncate">{$account.email}</p>
         </div>
-      </div>
+      </a>
 
       <!-- ===== Logged in: nav links ===== -->
       <nav class="space-y-1.5 font-medium text-stone-600 text-sm">

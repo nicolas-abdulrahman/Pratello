@@ -9,6 +9,9 @@ export interface AccountData {
   email: string;
   name?: string;
   phone?: string;
+  avatar_url?: string;
+  email_verified?: boolean;
+  phone_verified?: boolean;
   created_at?: string;
   initials?: string;
 }
@@ -48,6 +51,9 @@ interface AccountProfile {
   email: string | null;
   phone: string | null;
   name: string | null;
+  avatar_url?: string;
+  email_verified?: boolean;
+  phone_verified?: boolean;
   created_at?: string;
 }
 
@@ -141,6 +147,9 @@ function loadFromStorage(): AccountState {
         name: parsed.name,
         email: parsed.email ?? '',
         phone: parsed.phone,
+        avatar_url: parsed.avatar_url,
+        email_verified: parsed.email_verified,
+        phone_verified: parsed.phone_verified,
         initials: parsed.initials,
         created_at: parsed.created_at
       };
@@ -162,6 +171,9 @@ function saveToStorage(state: AccountState, rememberMe: boolean): void {
     name: state.name,
     email: state.email,
     phone: state.phone,
+    avatar_url: state.avatar_url,
+    email_verified: state.email_verified,
+    phone_verified: state.phone_verified,
     initials: state.initials,
     created_at: state.created_at
   };
@@ -210,6 +222,9 @@ function profileFields(profile: AccountProfile): AccountData {
     email,
     name,
     phone: profile.phone ?? '',
+    avatar_url: profile.avatar_url,
+    email_verified: profile.email_verified,
+    phone_verified: profile.phone_verified,
     created_at: profile.created_at,
     initials: makeInitials(name, email)
   };
@@ -329,7 +344,7 @@ function createAccountStore() {
   }
 
   // Use API-relative paths (e.g. '/auth/me') for shared authenticated requests.
-  async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  async function authenticatedFetch(path: string, init: RequestInit = {}, retryUnauthorized = true): Promise<Response> {
     const { token, expiresAt } = get(store);
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/json');
@@ -348,14 +363,67 @@ function createAccountStore() {
 
     const version = sessionVersion;
     const res = await send(token);
-    if (res.status !== 401 || version !== sessionVersion) return res;
+    if (!retryUnauthorized || res.status !== 401 || version !== sessionVersion) return res;
     const currentToken = get(store).token;
     const renewed = currentToken !== token ? currentToken : await refreshSession();
     return renewed ? send(renewed) : res;
   }
 
+  async function profileRequest(path: string, method: 'POST' | 'PUT', body: object, returnsProfile: boolean) {
+    const version = sessionVersion;
+    const res = await authenticatedFetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }, path !== '/me/email/verify');
+    if (version !== sessionVersion) return;
+    if (res.status === 401 && path === '/me/email/verify') {
+      throw new Error('Não foi possível confirmar a senha atual. Confira a senha e solicite um novo código.');
+    }
+    if (!res.ok) throw new Error(await parseError(res, 'Não foi possível atualizar seu perfil.'));
+    if (returnsProfile) {
+      const profile: AccountProfile = await res.json();
+      if (version === sessionVersion) setSession({ ...get(store), ...profileFields(profile) });
+    }
+  }
+
   return {
     subscribe,
+
+    async setAvatar(avatarUrl: string) {
+      const version = sessionVersion;
+      const avatar_url = avatarUrl.trim();
+      const res = await authenticatedFetch('/me/avatar', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar_url })
+      });
+      if (!res.ok) throw new Error(await parseError(res, 'Não foi possível salvar a foto.'));
+
+      // Use the saved URL from the server (which may normalize media paths).
+      const profile: AccountProfile = await res.json();
+      const current = get(store);
+      const savedUrl = profile?.avatar_url;
+      if (version !== sessionVersion || !current.isLoggedIn || profile?.id !== current.id) {
+        throw new Error('Não foi possível confirmar a foto para esta sessão.');
+      }
+      if (avatar_url ? typeof savedUrl !== 'string' || !savedUrl.trim() : Boolean(savedUrl)) {
+        throw new Error('O servidor não confirmou a alteração da foto.');
+      }
+      setSession({ ...current, avatar_url: savedUrl || undefined });
+    },
+    requestProfileEmailCode(email: string) {
+      return profileRequest('/me/email', 'PUT', { email }, false);
+    },
+    verifyProfileEmail(body: { email: string; current_password: string; password: string; code: string }) {
+      return profileRequest('/me/email/verify', 'POST', body, true);
+    },
+    requestProfilePhoneCode(phone: string) {
+      return profileRequest('/me/phone/request-code', 'POST', { phone }, false);
+    },
+    verifyProfilePhone(phone: string, code: string) {
+      return profileRequest('/me/phone/verify', 'POST', { phone, code }, true);
+    },
 
     /**
      * Clear active warning/error message

@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.10
+  version: 2.2.11
   description: |
     SaaS for restaurants — complete API.
 
@@ -3315,6 +3315,7 @@ components:
         name: { type: string }
         description: { type: string }
         icon_url: { type: string, nullable: true }
+        favicon_url: { type: string, nullable: true, description: Browser tab icon. A 48×48 SVG is recommended. }
         cover_url: { type: string, nullable: true }
         archived_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
@@ -3329,6 +3330,7 @@ components:
           description: Immutable after creation. Auto-generated if omitted.
         description: { type: string }
         icon_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. }
+        favicon_url: { type: string, maxLength: 2048, description: HTTP(S) or a local media path for the browser tab icon. }
         cover_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. }
     UpdateRestaurantRequest:
       type: object
@@ -3337,6 +3339,7 @@ components:
         name: { type: string }
         description: { type: string }
         icon_url: { type: string, maxLength: 2048, description: Omit to keep the current URL; send an empty string to clear it. }
+        favicon_url: { type: string, maxLength: 2048, description: Omit to keep the current favicon; send an empty string to clear it. }
         cover_url: { type: string, maxLength: 2048, description: Omit to keep the current URL; send an empty string to clear it. }
     MyRestaurant:
       type: object

@@ -185,6 +185,7 @@ Table "public"."restaurant" {
   "name" varchar(255) [not null]
   "description" text
   "icon_url" text
+  "favicon_url" text
   "cover_url" text
   "loyalty_earn_rate" numeric(5,2) [not null, default: 1, note: 'coins per R$ 1 spent']
   "archived_at" timestamptz

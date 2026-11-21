@@ -149,7 +149,7 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 			return f, err
 		}
 	}
-	if err := post("/api/restaurants", owner, map[string]any{"name": "João Burger", "slug": JoaoBurgerSlug, "description": "Smash burgers, fritas crocantes e combos para dividir.", "icon_url": restaurantMedia + "brand/icon.png", "cover_url": restaurantMedia + "brand/cover.png"}, nil); err != nil {
+	if err := post("/api/restaurants", owner, map[string]any{"name": "João Burger", "slug": JoaoBurgerSlug, "description": "Smash burgers, fritas crocantes e combos para dividir.", "icon_url": restaurantMedia + "brand/icon.png", "cover_url": restaurantMedia + "brand/cover.png", "favicon_url": restaurantMedia + "brand/favicon.svg"}, nil); err != nil {
 		return f, err
 	}
 	root := "/api/restaurants/" + JoaoBurgerSlug

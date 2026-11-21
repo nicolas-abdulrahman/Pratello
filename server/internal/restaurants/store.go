@@ -72,7 +72,7 @@ func (u sqlUnit) scope(ctx context.Context, r request, lock bool) (access, error
 	return a, nil
 }
 
-const orgFields = `r.name_slug AS slug, r.name, COALESCE(r.description,'') AS description, r.icon_url, r.cover_url, r.archived_at, r.created_at, r.updated_at`
+const orgFields = `r.name_slug AS slug, r.name, COALESCE(r.description,'') AS description, r.icon_url, r.cover_url, r.favicon_url, r.archived_at, r.created_at, r.updated_at`
 
 const addressFields = `jsonb_strip_nulls(jsonb_build_object('cep',ad."CEP",'street',ad.street,'number',ad.number,'apt',ad.apt,'complement',ad.complementary,'city',ad.city,'state',ad.state))`
 
@@ -154,7 +154,7 @@ func (u sqlUnit) execute(ctx context.Context, r request, a access) (any, error) 
 	case createOrg:
 		b := r.body.(*newOrg)
 		var id int
-		if err := u.tx.QueryRowContext(ctx, `INSERT INTO restaurant(name_slug,name,description,icon_url,cover_url) VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,'')) RETURNING id`, b.Slug, b.Name, b.Description, b.Icon, b.Cover).Scan(&id); err != nil {
+		if err := u.tx.QueryRowContext(ctx, `INSERT INTO restaurant(name_slug,name,description,icon_url,cover_url,favicon_url) VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,''),NULLIF($6,'')) RETURNING id`, b.Slug, b.Name, b.Description, b.Icon, b.Cover, b.Favicon).Scan(&id); err != nil {
 			return nil, databaseError(err)
 		}
 		if err := u.changed(ctx, `INSERT INTO account_restaurant(account_id,restaurant_id,account_type) VALUES($1,$2,'OWNER')`, r.actor, id); err != nil {
@@ -163,7 +163,7 @@ func (u sqlUnit) execute(ctx context.Context, r request, a access) (any, error) 
 		return u.organization(ctx, id)
 	case updateOrg:
 		b := r.body.(*details)
-		if err := u.changed(ctx, `UPDATE restaurant SET name=$2,description=$3,icon_url=CASE WHEN $4::text IS NULL THEN icon_url ELSE NULLIF($4,'') END,cover_url=CASE WHEN $5::text IS NULL THEN cover_url ELSE NULLIF($5,'') END WHERE id=$1`, a.orgID, b.Name, b.Description, b.Icon, b.Cover); err != nil {
+		if err := u.changed(ctx, `UPDATE restaurant SET name=$2,description=$3,icon_url=CASE WHEN $4::text IS NULL THEN icon_url ELSE NULLIF($4,'') END,cover_url=CASE WHEN $5::text IS NULL THEN cover_url ELSE NULLIF($5,'') END,favicon_url=CASE WHEN $6::text IS NULL THEN favicon_url ELSE NULLIF($6,'') END WHERE id=$1`, a.orgID, b.Name, b.Description, b.Icon, b.Cover, b.Favicon); err != nil {
 			return nil, err
 		}
 		return u.organization(ctx, a.orgID)

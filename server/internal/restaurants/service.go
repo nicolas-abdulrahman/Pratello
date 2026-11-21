@@ -60,6 +60,7 @@ type details struct {
 	Name        string  `json:"name"`
 	Description string  `json:"description,omitempty"`
 	Icon        *string `json:"icon_url"`
+	Favicon     *string `json:"favicon_url"`
 	Cover       *string `json:"cover_url"`
 }
 
@@ -214,7 +215,7 @@ func validate(r *request) error {
 		b.Name = strings.TrimSpace(b.Name)
 		valid = text(b.Name, 255, true) && text(b.Description, 10000, false)
 		if r.op == updateBranch {
-			valid = valid && b.Icon == nil && b.Cover == nil
+			valid = valid && b.Icon == nil && b.Cover == nil && b.Favicon == nil
 		} else {
 			valid = valid && validBrand(*b)
 		}
@@ -261,7 +262,7 @@ func validate(r *request) error {
 }
 
 func validBrand(v details) bool {
-	for _, u := range []*string{v.Icon, v.Cover} {
+	for _, u := range []*string{v.Icon, v.Cover, v.Favicon} {
 		if u != nil && *u != "" {
 			value, err := common.ImageURL(*u)
 			if err != nil {

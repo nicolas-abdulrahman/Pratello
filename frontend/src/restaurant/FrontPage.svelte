@@ -1,6 +1,7 @@
 <script>
   import CombosSection from './CombosSection.svelte';
   import MelhoresPratosSection from './PromotionSection.svelte';
+  let { name = 'Pratello', logoURL = null } = $props();
 </script>
 
 <div data-theme="restaurantTheme" class="min-h-screen bg-background font-sans selection:bg-primary selection:text-white">
@@ -15,10 +16,13 @@
 
       <!-- Text Content -->
       <div class="lg:w-1/2 z-10 text-center lg:text-left">
+        {#if logoURL}
+          <img src={logoURL} alt="" class="mx-auto mb-4 h-20 w-auto max-w-full object-contain lg:mx-0" />
+        {/if}
         <span class="text-primary font-bold text-lg tracking-wide uppercase">Bem-vindo ao</span>
         <!-- Reduced text size slightly for a tighter fit -->
         <h1 class="text-6xl md:text-8xl font-black text-gray-900 mt-2 mb-6 tracking-tighter relative">
-          Pratello
+          {name}
           <!-- Decorative underline/swoosh -->
           <svg class="absolute -bottom-4 left-0 w-full h-8 text-primary opacity-80" viewBox="0 0 300 30" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M5 25C50 10 150 5 295 20" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>

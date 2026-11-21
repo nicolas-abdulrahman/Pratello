@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-
   type TagIcon = 'chef' | 'pin' | 'leaf';
   type Tag = { icon: TagIcon; label?: string };
-  type GalleryImage = { src: string; alt: string };
+  type GalleryImage = { src?: string; alt: string };
 
   type Props = {
     name?: string;
+    description?: string;
     rating?: number;
     deliveryTime?: string;
     logoSrc?: string;
@@ -31,14 +30,6 @@
       </svg>`
     );
 
-  const defaultImages: GalleryImage[] = [
-    { src: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Cheeseburger' },
-    { src: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Bacon burger' },
-    { src: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Batatas fritas' },
-    { src: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Combo' },
-    { src: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=240&h=240&fit=crop&auto=format&q=80', alt: 'Milkshake' }
-  ];
-
   const defaultTags: Tag[] = [
     { icon: 'chef' },
     { icon: 'pin', label: 'local' },
@@ -47,11 +38,12 @@
 
   let {
     name = 'Restaurant Name',
+    description,
     rating = 4.8,
     deliveryTime = '30-45 min',
     logoSrc = placeholderLogo,
     logoAlt = 'Restaurant logo',
-    images = defaultImages,
+    images = [],
     tags = defaultTags,
     ctaLabel = 'Ver Cardápio',
     onmenu,
@@ -59,12 +51,13 @@
   }: Props = $props();
 
   let track = $state<HTMLDivElement>();
+  let failedLogo = $state<string>();
   let rafId: number | undefined;
   let offset = 0;
   let lastTime = 0;
   let oneSetWidth = 0;
 
-  const loopedImages = $derived([...images, ...images, ...images]);
+  const loopedImages = $derived(images.length > 1 ? [...images, ...images, ...images] : images);
 
   function measure() {
     if (!track) return;
@@ -83,7 +76,10 @@
     rafId = requestAnimationFrame(tick);
   }
 
-  onMount(() => {
+  $effect(() => {
+    if (!track || images.length < 2) return;
+    offset = 0;
+    lastTime = 0;
     measure();
     rafId = requestAnimationFrame(tick);
 
@@ -101,13 +97,23 @@
   <!-- Logo panel -->
   <div class="logo-frame">
     <div class="logo-inner">
-      <img src={logoSrc} alt={logoAlt} class="logo-img" />
+      {#key logoSrc}
+        {@const source = logoSrc}
+        <img
+          src={source === failedLogo ? placeholderLogo : source}
+          alt={logoAlt}
+          class="logo-img"
+          loading="lazy"
+          onerror={() => { failedLogo = source; }}
+        />
+      {/key}
       <div class="logo-inner-rule"></div>
     </div>
   </div>
 
   <div class="p-card">
     <h2 class="restaurant-name">{name}</h2>
+    {#if description}<p class="text-sm text-text-muted">{description}</p>{/if}
 
     <!-- Meta row -->
     <div class="restaurant-meta">
@@ -127,16 +133,18 @@
       </span>
     </div>
 
-    <!-- Carousel — always scrolling, never pauses -->
+    {#if images.length}
     <div class="carousel-mask -mx-5 mt-5">
       <div bind:this={track} class="carousel-track">
         {#each loopedImages as img, i (i)}
-          <div class="carousel-item">
-            <img src={img.src} alt={img.alt} loading="lazy" class="h-full w-full object-cover" />
+          <div class="carousel-item relative bg-surface" aria-hidden={i >= images.length ? 'true' : undefined}>
+            {#if img.src}<img src={img.src} alt="" loading="lazy" class="h-full w-full object-cover" />{/if}
+            <span class="absolute inset-x-0 bottom-0 truncate bg-surface/90 px-space-2xs py-space-3xs text-xs font-semibold text-text" title={img.alt}>{img.alt}</span>
           </div>
         {/each}
       </div>
     </div>
+    {/if}
 
     <!-- Tags -->
     <ul class="mt-4 flex items-center justify-center gap-2.5">
@@ -196,7 +204,7 @@
     background-color: var(--rc-cream);
   }
   .logo-img {
-    @apply h-full w-full object-cover;
+    @apply h-full w-full object-contain p-space-md;
     object-position: center;
   }
   .logo-inner-rule {

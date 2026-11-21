@@ -1,6 +1,6 @@
-<script>
-  import Footer from './common/footer.svelte';
-  import Navbar from './common/navbar.svelte';
+<script lang="ts">
+  import Footer from './common/Footer.svelte';
+  import Navbar from './common/Navbar.svelte';
   import OrderCart from './order/OrderCart.svelte';
   import OrderSection from './order/OrderSection.svelte';
   import CheckoutSection from './payment/CheckoutSection.svelte';
@@ -8,11 +8,12 @@
   import { cart, cart_count, cart_total } from './lib/stores/Cart';
   import { account } from './lib/stores/account';
 
-  import Restaurant from './home/FrontPage.svelte';
+  import Restaurant from './restaurant/FrontPage.svelte';
   import MenuPage from './menu/Cardapio.svelte';
   import Login from './auth/Auth.svelte';
-  import RestaurantsPage from './restaurants/RestaurantsPage.svelte';
+  import RestaurantsPage from './marketplace/RestaurantsPage.svelte';
   import DeliverySection from './delivery/DeliverySection.svelte';
+  import ProfilePage from './user/ProfilePage.svelte';
 
   // --- CART (derived store from cart.ts) ---
   // $cart_count already sums `quantity` across lines.
@@ -21,6 +22,7 @@
   // --- ROUTE PARSER ---
   function parseRoute(path) {
     if (path === '/login') return { view: 'login', slug: '' };
+    if (path === '/account' || path === '/account/') return { view: 'account', slug: '' };
     if (path === '/order') return { view: 'order', slug: '' };
     if (path === '/checkout') return { view: 'checkout', slug: '' };
     if (path === '/restaurantes') return { view: 'restaurantes', slug: '' };
@@ -79,6 +81,25 @@
     window.history.pushState({}, '', '/login');
   }
 
+  function goToAccountLogin() {
+    currentView = 'login';
+    window.history.pushState({}, '', '/login?next=/account');
+  }
+
+  function goToAccount() {
+    window.history.pushState({ fromAccountLink: true }, '', '/account');
+    slug = '';
+    currentView = 'account';
+  }
+
+  function goBackFromAccount() {
+    if (window.history.state?.fromAccountLink) {
+      window.history.back();
+    } else {
+      goToHome();
+    }
+  }
+
   function goToOrder() {
     currentView = 'order';
     window.history.pushState({}, '', '/order');
@@ -105,19 +126,54 @@
 
   let showOrderCart = $derived(showNavLinks);
 
+  type RestaurantBrand = { name: string; icon_url?: string | null; favicon_url?: string | null };
+  let restaurantBrand = $state<RestaurantBrand | null>(null);
+
+  $effect(() => {
+    restaurantBrand = null;
+    if (!showNavLinks) return;
+    const controller = new AbortController();
+    const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    const original = favicon?.getAttribute('href');
+    const originalType = favicon?.getAttribute('type');
+    void fetch(`/api/restaurants/${encodeURIComponent(slug)}`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<RestaurantBrand> : null)
+      .then((brand) => {
+        if (!brand || controller.signal.aborted) return;
+        restaurantBrand = brand;
+        if (favicon && brand.favicon_url) {
+          favicon.href = brand.favicon_url;
+          favicon.removeAttribute('type');
+        }
+      })
+      .catch(() => {});
+    return () => {
+      controller.abort();
+      if (favicon && original) favicon.setAttribute('href', original);
+      if (favicon && originalType) favicon.setAttribute('type', originalType);
+    };
+  });
+
   let currentTheme = $derived(showNavLinks ? 'restaurantTheme' : 'brand');
   let brandTheme = $derived(currentTheme === 'brand');
 
   let hideGlobalUI = $derived(
     currentView === 'login' ||
+    currentView === 'account' ||
     currentView === 'order' ||
     currentView === 'checkout'
   );
 
-  // Redirect to home if the user lands on /login while already authenticated.
+  // Return to the profile after signing in from /account.
   $effect(() => {
     if (currentView === 'login' && $account.isLoggedIn) {
-      goToHome();
+      if (new URLSearchParams(window.location.search).get('next') === '/account') {
+        slug = '';
+        currentView = 'account';
+        window.history.replaceState({}, '', '/account');
+      } else {
+        goToHome();
+      }
     }
   });
 </script>
@@ -130,6 +186,7 @@
       onOpenMenu={goToCardapio}
       onGoHome={goToHome}
       onGoLogin={goToLogin}
+      onGoAccount={goToAccount}
       onGoRestaurantes={goToRestaurantes}
       {showNavLinks}
       brand={brandTheme}
@@ -148,7 +205,7 @@
         {:else if currentView === 'restaurantes'}
           <RestaurantsPage />
         {:else if currentView === 'restaurant'}
-          <Restaurant />
+          <Restaurant name={restaurantBrand?.name} logoURL={restaurantBrand?.icon_url} />
         {:else if currentView === 'cardapio'}
           <MenuPage />
         {:else if currentView === 'delivery'}
@@ -158,7 +215,9 @@
         {:else if currentView === 'checkout'}
           <CheckoutSection onCancel={goToOrder} total={$cart_total} />
         {:else if currentView === 'login'}
-          <Login />
+          <Login onGoHome={() => { if (!$account.isLoggedIn) goToHome(); }} />
+        {:else if currentView === 'account'}
+          <ProfilePage onBack={goBackFromAccount} onGoLogin={goToAccountLogin} />
         {/if}
       </div>
     {/key}

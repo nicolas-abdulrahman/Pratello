@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"io/fs"
@@ -118,13 +119,31 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	var org struct {
-		Name  string
-		Icon  string `json:"icon_url"`
-		Cover string `json:"cover_url"`
+		Name    string
+		Icon    string `json:"icon_url"`
+		Cover   string `json:"cover_url"`
+		Favicon string `json:"favicon_url"`
 	}
 	get(base, "", &org)
 	if org.Name != "João Burger" || org.Icon != restaurantMedia+"brand/icon.png" || org.Cover != restaurantMedia+"brand/cover.png" {
 		t.Fatalf("wrong branding: %+v", org)
+	}
+	if org.Favicon != restaurantMedia+"brand/favicon.svg" {
+		t.Fatalf("wrong favicon: %q", org.Favicon)
+	}
+	res, err := srv.Client().Get(srv.URL + org.Favicon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var svg struct {
+		XMLName xml.Name `xml:"http://www.w3.org/2000/svg svg"`
+		Width   int      `xml:"width,attr"`
+		Height  int      `xml:"height,attr"`
+	}
+	err = xml.NewDecoder(res.Body).Decode(&svg)
+	_ = res.Body.Close()
+	if res.StatusCode != 200 || res.Header.Get("Content-Type") != "image/svg+xml" || err != nil || svg.Width != 48 || svg.Height != 48 {
+		t.Fatalf("invalid favicon: status=%d size=%dx%d err=%v", res.StatusCode, svg.Width, svg.Height, err)
 	}
 	var layout struct {
 		Style     string `json:"template_style"`
