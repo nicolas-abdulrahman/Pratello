@@ -129,7 +129,7 @@
 
   let showOrderCart = $derived(showNavLinks);
 
-  type RestaurantBrand = { name: string; icon_url?: string | null; favicon_url?: string | null };
+  type RestaurantBrand = { name: string; icon_url?: string | null; favicon_url?: string | null; cover_url?: string | null; description?: string | null };
   let restaurantBrand = $state<RestaurantBrand | null>(null);
 
   $effect(() => {
@@ -211,7 +211,7 @@
         {:else if currentView === 'restaurantes'}
           <RestaurantsPage />
         {:else if currentView === 'restaurant'}
-          <Restaurant {slug} name={restaurantBrand?.name} logoURL={restaurantBrand?.icon_url} />
+          <Restaurant {slug} name={restaurantBrand?.name} coverURL={restaurantBrand?.cover_url} description={restaurantBrand?.description} />
         {:else if currentView === 'cardapio'}
           <MenuPage {slug} />
         {:else if currentView === 'delivery'}

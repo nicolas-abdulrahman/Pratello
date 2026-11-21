@@ -1,20 +1,23 @@
 <script>
+  import Header1 from './hero/header1.svelte';
+  import { setRestaurantDisplayConfig } from '../lib/stores/restaurant_style';
   import { get_description } from '../lib/stores/Item';
   import CatalogSection from './CatalogSection.svelte';
   import PromotionSection from './PromotionSection.svelte';
   import ItemModal from '../dish/ItemModal.svelte';
-  import FirstPage from './FirstPage.svelte';
 
-  let { slug, name = 'Pratello', logoURL = null } = $props();
+  let { slug, name = 'Pratello', coverURL = null, description = null } = $props();
   let items = $state([]);
   let combos = $state([]);
   let combosLoading = $state(true);
   let combosFailed = $state(false);
   let reviews = $state({});
   let banner = $state(null);
-  let banners = $state([]);
   let display = $state(null);
-  let groups = $state([]);
+  $effect(() => {
+    setRestaurantDisplayConfig(display);
+    return () => setRestaurantDisplayConfig(null);
+  });
   let loading = $state(true);
   let failed = $state(false);
   let selectedId = $state(null);
@@ -35,7 +38,7 @@
       return response.json();
     }
     void get('/menu/banners').then((result) => {
-      if (!signal.aborted) { banners = result ?? []; banner = banners[0] ?? null; }
+      if (!signal.aborted) banner = result?.[0] ?? null;
     }).catch(() => {});
     void get('/menu').then((result) => { if (!signal.aborted) display = result.display_config ?? null; }).catch(() => {});
     async function loadItems(categoryId) {
@@ -96,7 +99,6 @@
     void (async () => {
       try {
          const categories = await get('/categories');
-         if (!signal.aborted) groups = categories;
         const category = categories.find((entry) => entry.name.trim().toLowerCase() === 'combos');
         const catalog = category ? await loadItems(category.id) : [];
         if (signal.aborted) return;
@@ -114,83 +116,9 @@
   });
 </script>
 
-{#if display}
-  <FirstPage config={display} {items} categories={groups} {banners} onOpenDetails={(id) => { selectedId = id; }} />
-{:else}
 <div data-theme="restaurantTheme" class="min-h-screen bg-background font-sans selection:bg-primary selection:text-white">
 
-  <!-- Hero Section (Made Smaller) -->
-  <section class="relative pt-20 pb-10 px-page-x overflow-hidden">
-    <!-- Background Decorative Shapes -->
-    <div class="absolute top-0 right-0 w-[600px] h-[600px] bg-primary rounded-full blur-[150px] opacity-10 -z-10 translate-x-1/3 -translate-y-1/4"></div>
-    <div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-primary rounded-full blur-[100px] opacity-10 -z-10 -translate-x-1/2 translate-y-1/4"></div>
-
-    <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-8">
-
-      <!-- Text Content -->
-      <div class="lg:w-1/2 z-10 text-center lg:text-left">
-        {#if logoURL}
-          <img src={logoURL} alt="" class="mx-auto mb-4 h-20 w-auto max-w-full object-contain lg:mx-0" />
-        {/if}
-        <span class="text-primary font-bold text-lg tracking-wide uppercase">Bem-vindo ao</span>
-        <!-- Reduced text size slightly for a tighter fit -->
-        <h1 class="text-6xl md:text-8xl font-black text-gray-900 mt-2 mb-6 tracking-tighter relative">
-          {name}
-          <!-- Decorative underline/swoosh -->
-          <svg class="absolute -bottom-4 left-0 w-full h-8 text-primary opacity-80" viewBox="0 0 300 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M5 25C50 10 150 5 295 20" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-          </svg>
-        </h1>
-        <p class="text-lg md:text-xl text-muted mb-8 max-w-lg mx-auto lg:mx-0">
-          Sabor e qualidade em cada detalhe!
-        </p>
-
-        <!-- New Dual Action Buttons -->
-        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-center lg:justify-start gap-4 sm:gap-5 mt-2">
-
-          <!-- Order in Restaurant -->
-          <button class="w-full sm:w-auto min-w-[220px] bg-primary text-white px-8 py-4 rounded-full font-bold text-base flex items-center justify-center gap-2.5 hover:bg-primary-hover transition-all hover:scale-[1.03] shadow-xl shadow-orange-500/30">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>
-            Pedir no Restaurante
-          </button>
-
-          <!-- Order Delivery -->
-          <button class="w-full sm:w-auto min-w-[220px] bg-white text-primary border-2 border-primary px-8 py-4 rounded-full font-bold text-base flex items-center justify-center gap-2.5 hover:bg-primary-soft transition-all hover:scale-[1.03] shadow-lg">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11"/><path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M9 18h6"/></svg>
-            Delivery
-          </button>
-
-        </div>
-      </div>
-
-      <!-- Hero Image (Made slightly smaller) -->
-      <div class="lg:w-1/2 relative flex justify-center">
-        <!-- Floating text element -->
-        <div class="absolute top-0 right-0 md:-right-8 z-20 transform rotate-6 bg-white px-4 py-2 rounded-xl shadow-lg border border-orange-100">
-           <p class="text-primary font-bold italic font-serif text-base leading-tight">Peça agora<br/>e aproveite!</p>
-        </div>
-
-        <!-- Main Burger Image with organic masking -->
-        <div class="relative w-[300px] h-[300px] md:w-[450px] md:h-[450px] rounded-full overflow-hidden shadow-2xl border-8 border-white z-10">
-           <img
-            src="https://images.unsplash.com/photo-1568901346375-23c9450c58cd?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"
-            alt="Delicious Burger"
-            class="w-full h-full object-cover scale-110"
-          />
-        </div>
-
-        <!-- Decorative dashes behind burger -->
-        <div class="absolute -top-4 -left-4 text-primary">
-          <svg width="60" height="60" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round">
-            <line x1="20" y1="20" x2="40" y2="10"/>
-            <line x1="10" y1="40" x2="30" y2="30"/>
-            <line x1="20" y1="60" x2="40" y2="50"/>
-          </svg>
-        </div>
-      </div>
-
-    </div>
-  </section>
+  <Header1 {slug} fallbackName={name} fallbackDescription={description} fallbackImage={coverURL} />
 
   <PromotionSection items={reviewedSales} {loading} {failed} onOpenDetails={(id) => { selectedId = id; }} />
 
@@ -227,7 +155,6 @@
   <CatalogSection title="Combos" items={reviewedCombos} loading={combosLoading} failed={combosFailed} onOpenDetails={(id) => { selectedId = id; }} />
 
 </div>
-{/if}
 
 {#if selected}
   <ItemModal isOpen item={selected} onClose={() => { selectedId = null; }} />
