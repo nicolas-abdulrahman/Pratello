@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/xml"
 	"fmt"
+	"image/png"
 	"io"
 	"io/fs"
 	"net/http"
@@ -20,8 +21,11 @@ import (
 	"pratello/server/internal/common"
 	"pratello/server/internal/db"
 	"pratello/server/internal/menu"
+	"pratello/server/internal/order"
 	"pratello/server/internal/restaurants"
+	"pratello/server/internal/review"
 	"pratello/server/internal/sales"
+	"pratello/server/internal/transaction"
 	"pratello/server/internal/user"
 )
 
@@ -82,6 +86,9 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	restaurants.NewHandler(c, identity).Routes(mux)
 	menu.NewHandler(menu.NewService(c), identity.Identify).Routes(mux)
 	sales.NewHandler(sales.NewService(c), identity.Identify).Routes(mux)
+	order.NewHandler(order.NewService(c), identity.Identify, "").Routes(mux)
+	review.NewHandler(review.NewService(c), identity.Identify).Routes(mux)
+	transaction.NewHandler(transaction.NewService(c, transaction.MockProvider{}), identity.Identify).Routes(mux)
 	srv := httptest.NewServer(common.ImageFS(Media()).Wrap(mux))
 	defer srv.Close()
 	api := fixtureAPI{srv.Client(), srv.URL}
@@ -110,6 +117,50 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		}
 	}
 	const base = "/api/restaurants/" + JoaoBurgerSlug
+	type reviewPage struct {
+		Summary struct {
+			Count int `json:"review_count"`
+		} `json:"summary"`
+		Data []struct {
+			Rating  int    `json:"rating"`
+			Comment string `json:"comment"`
+		} `json:"data"`
+	}
+	var orgReviews reviewPage
+	get(base+"/reviews", "", &orgReviews)
+	if orgReviews.Summary.Count != 6 || len(orgReviews.Data) != 6 {
+		t.Fatalf("wrong restaurant reviews: %+v", orgReviews)
+	}
+	stars := map[int]int{}
+	for _, r := range orgReviews.Data {
+		if r.Comment == "" {
+			t.Fatal("missing demo restaurant comment")
+		}
+		stars[r.Rating]++
+	}
+	if stars[5] != 4 || stars[4] != 2 {
+		t.Fatalf("wrong demo star distribution: %v", stars)
+	}
+	var smashReviews reviewPage
+	get(fmt.Sprintf("%s/items/%d/reviews", base, f.ItemIDs["smash-classico"]), "", &smashReviews)
+	faces := map[int]int{}
+	for _, r := range smashReviews.Data {
+		faces[r.Rating]++
+	}
+	if smashReviews.Summary.Count != 2 || faces[2] != 1 || faces[3] != 1 {
+		t.Fatalf("incorrect standalone item reviews: %+v", smashReviews)
+	}
+	var paidReviews, itemReviews int
+	err = c.QueryRowContext(ctx, `SELECT
+		(SELECT count(*) FROM restaurant_review r JOIN "order" o ON o.id=r.order_id AND o.account_id=r.account_id
+		 WHERE o.physical_restaurant_id=$1 AND o.status='delivered' AND EXISTS
+		 (SELECT 1 FROM transaction t WHERE t.order_id=o.id AND t.status='paid' AND t.amount_cents=o.total_cents)),
+		(SELECT count(*) FROM item_review r JOIN order_item i ON i.id=r.order_item_id
+		 JOIN "order" o ON o.id=i.order_id AND o.account_id=r.account_id
+		 WHERE o.physical_restaurant_id=$1 AND o.status='delivered' AND i.parent_order_item_id IS NULL)`, f.BranchID).Scan(&paidReviews, &itemReviews)
+	if err != nil || paidReviews != 6 || itemReviews != 13 {
+		t.Fatalf("fixture review purchases: restaurant=%d items=%d err=%v", paidReviews, itemReviews, err)
+	}
 	if err := api.request(ctx, "PUT", "/api/me/avatar", f.Employee.AccessToken,
 		map[string]string{"avatar_url": "/account/bob.png"}, nil, 200); err != nil {
 		t.Fatal(err)
@@ -156,7 +207,7 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	}
 	var assets []string
 	assets = append(assets, org.Icon, org.Cover)
-	for _, a := range []FixtureAccount{f.Owner, f.Administrator, f.Analyst, f.Manager, f.Employee} {
+	for _, a := range []FixtureAccount{f.Owner, f.Administrator, f.Analyst, f.Manager, f.Employee, f.Rogerio} {
 		var account struct {
 			ID     int
 			Name   string
@@ -200,10 +251,6 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	for _, b := range banners {
 		assets = append(assets, b.Image)
 	}
-	defaultPNG, err := fs.ReadFile(Media(), "default.png")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, asset := range assets {
 		if !strings.HasPrefix(asset, "/media/") {
 			t.Fatalf("unexpected asset URL: %q", asset)
@@ -214,8 +261,25 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		}
 		actual, err := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		if err != nil || resp.StatusCode != 200 || !bytes.Equal(actual, defaultPNG) {
+		want, readErr := fs.ReadFile(Media(), strings.TrimPrefix(asset, "/media/"))
+		if err != nil || readErr != nil || resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "image/png" || !bytes.Equal(actual, want) {
 			t.Fatalf("invalid image %s: HTTP %d (%v)", asset, resp.StatusCode, err)
+		}
+		img, err := png.Decode(bytes.NewReader(actual))
+		if err != nil {
+			t.Fatalf("invalid PNG %s: %v", asset, err)
+		}
+		bounds := img.Bounds()
+		transparent, visible := false, false
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				_, _, _, alpha := img.At(x, y).RGBA()
+				transparent = transparent || alpha == 0
+				visible = visible || alpha > 0
+			}
+		}
+		if !transparent || !visible {
+			t.Fatalf("expected visible artwork on a transparent background: %s", asset)
 		}
 	}
 }

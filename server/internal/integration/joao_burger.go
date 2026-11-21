@@ -4,9 +4,7 @@ package integration
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,9 +35,10 @@ type FixtureAccount struct {
 
 type JoaoBurger struct {
 	Owner, Administrator, Analyst, Manager, Employee FixtureAccount
+	Rogerio                                          FixtureAccount
 	BranchID                                         int
 	ItemIDs                                          map[string]int
-	Password                                         string // Shared, randomly generated fixture password.
+	Password                                         string // Shared demo password.
 }
 
 type fixtureAPI struct {
@@ -48,6 +47,10 @@ type fixtureAPI struct {
 }
 
 func (a fixtureAPI) request(ctx context.Context, method, path, token string, body, result any, want int) error {
+	return a.requestWithKey(ctx, method, path, token, "", body, result, want)
+}
+
+func (a fixtureAPI) requestWithKey(ctx context.Context, method, path, token, key string, body, result any, want int) error {
 	var input io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -65,6 +68,9 @@ func (a fixtureAPI) request(ctx context.Context, method, path, token string, bod
 	}
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	if key != "" {
+		r.Header.Set("Idempotency-Key", key)
 	}
 	w, err := a.client.Do(r)
 	if err != nil {
@@ -109,17 +115,14 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 		client = http.DefaultClient
 	}
 	a := fixtureAPI{client, strings.TrimRight(baseURL, "/")}
-	var secret [16]byte
-	if _, err := rand.Read(secret[:]); err != nil {
-		return JoaoBurger{}, err
-	}
-	f := JoaoBurger{ItemIDs: map[string]int{}, Password: hex.EncodeToString(secret[:])}
+	f := JoaoBurger{ItemIDs: map[string]int{}, Password: "password"}
 	for _, p := range []struct {
 		account   *FixtureAccount
 		name, key string
 	}{
 		{&f.Owner, "Geraldo do Rio", "geraldo-do-rio"}, {&f.Administrator, "Mr Puzzles", "mr-puzzles"},
 		{&f.Analyst, "Meg from Splatoon", "meg-from-splatoon"}, {&f.Manager, "Petros Barreto", "petros-barreto"}, {&f.Employee, "Bob", "bob"},
+		{&f.Rogerio, "Rogério", "rogerio"},
 	} {
 		p.account.Name, p.account.Email, p.account.AvatarURL = p.name, p.key+"@joao-burger.test", "/media/account/"+p.key+".png"
 		var tokens struct {
@@ -148,6 +151,9 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 		if err := post("/api/administrators", bootstrapToken, map[string]int{"account_id": f.Administrator.ID}, nil); err != nil {
 			return f, err
 		}
+	}
+	if err := post("/api/administrators", f.Administrator.AccessToken, map[string]int{"account_id": f.Rogerio.ID}, nil); err != nil {
+		return f, err
 	}
 	if err := post("/api/restaurants", owner, map[string]any{"name": "João Burger", "slug": JoaoBurgerSlug, "description": "Smash burgers, fritas crocantes e combos para dividir.", "icon_url": restaurantMedia + "brand/icon.png", "cover_url": restaurantMedia + "brand/cover.png", "favicon_url": restaurantMedia + "brand/favicon.svg"}, nil); err != nil {
 		return f, err
@@ -221,7 +227,92 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 			return f, err
 		}
 	}
-	return f, nil
+	return f, a.seedJoaoPurchases(ctx, branchPath, f)
+}
+
+type itemFeedback struct {
+	key     string
+	rating  int
+	comment string
+}
+
+type purchaseFeedback struct {
+	buyer   FixtureAccount
+	stars   int
+	comment string
+	items   []itemFeedback
+}
+
+func (a fixtureAPI) seedJoaoPurchases(ctx context.Context, branchPath string, f JoaoBurger) error {
+	for _, v := range []purchaseFeedback{
+		{f.Rogerio, 5, "Atendimento excelente e tudo chegou quentinho. Voltarei com certeza!", []itemFeedback{{"smash-classico", 3, "Carne suculenta, bordas crocantes e molho na medida."}, {"fritas", 3, "Sequinhas e bem crocantes."}, {"brownie", 3, "Chocolate intenso e miolo macio."}}},
+		{f.Owner, 5, "O pedido saiu rápido e veio bem montado.", []itemFeedback{{"combo-classico", 3, "Porção na medida e hambúrguer no ponto."}, {"limonada", 2, "Refrescante, mas eu prefiro com menos açúcar."}}},
+		{f.Administrator, 4, "Comida muito boa. No horário de pico, a espera foi um pouco maior.", []itemFeedback{{"bacon-bbq", 3, "Bacon crocante e barbecue equilibrado."}, {"aneis-de-cebola", 2, "Gostosos, mas poderiam estar mais crocantes."}}},
+		{f.Analyst, 5, "Adorei encontrar uma opção vegetariana no cardápio.", []itemFeedback{{"combo-veggie", 3, "O hambúrguer de grão-de-bico ficou bem temperado."}, {"cha-pessego", 3, "Leve e não muito doce."}}},
+		{f.Manager, 4, "O pessoal foi atencioso e conferiu o pedido antes de servir.", []itemFeedback{{"duplo-da-chapa", 3, "Dois smashes bem feitos, com bastante queijo."}, {"fritas", 2, "O sabor estava bom, mas chegaram mornas."}}},
+		{f.Employee, 5, "Tudo certinho com o pedido. Gostei bastante do frango!", []itemFeedback{{"frango-crocante", 3, "Empanado crocante e frango macio por dentro."}, {"smash-classico", 2, "Estava gostoso, mas prefiro um pouco mais de molho."}}},
+	} {
+		if err := a.seedJoaoPurchase(ctx, branchPath, f, v); err != nil {
+			return fmt.Errorf("demo purchase for %s: %w", v.buyer.Name, err)
+		}
+	}
+	return nil
+}
+
+func (a fixtureAPI) seedJoaoPurchase(ctx context.Context, branchPath string, f JoaoBurger, v purchaseFeedback) error {
+	bought := make([]map[string]int, 0, len(v.items))
+	for _, item := range v.items {
+		id := f.ItemIDs[item.key]
+		if id == 0 {
+			return fmt.Errorf("unknown fixture item %q", item.key)
+		}
+		bought = append(bought, map[string]int{"item_id": id, "quantity": 1})
+	}
+	var order struct {
+		ID    int
+		Total int64 `json:"total_cents"`
+		Items []struct {
+			ID     int
+			ItemID int  `json:"item_id"`
+			Parent *int `json:"parent_order_item_id"`
+		}
+	}
+	token := v.buyer.AccessToken
+	if err := a.request(ctx, "POST", branchPath+"/orders/local", token, map[string]any{"items": bought}, &order, 201); err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/orders/%d", order.ID)
+	var payment struct{ Status string }
+	if err := a.requestWithKey(ctx, "POST", path+"/transactions", token, "joao-burger-demo-purchase", map[string]any{"payment_method": "credit_card", "amount_cents": order.Total}, &payment, 201); err != nil {
+		return err
+	}
+	if payment.Status != "paid" {
+		return fmt.Errorf("mock payment has status %q", payment.Status)
+	}
+	for _, status := range []string{"preparing", "ready", "delivered"} {
+		if err := a.request(ctx, "PATCH", path+"/status", f.Owner.AccessToken, map[string]string{"status": status}, nil, 200); err != nil {
+			return err
+		}
+	}
+	if err := a.request(ctx, "POST", path+"/review", token, map[string]any{"rating": v.stars, "comment": v.comment}, nil, 200); err != nil {
+		return err
+	}
+	lines := map[int]int{}
+	for _, line := range order.Items {
+		if line.Parent == nil {
+			lines[line.ItemID] = line.ID
+		}
+	}
+	for _, item := range v.items {
+		id := lines[f.ItemIDs[item.key]]
+		if id == 0 {
+			return fmt.Errorf("missing purchased line for %q", item.key)
+		}
+		if err := a.request(ctx, "POST", fmt.Sprintf("%s/items/%d/review", path, id), token, map[string]any{"rating": item.rating, "comment": item.comment}, nil, 200); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type itemSeed struct {

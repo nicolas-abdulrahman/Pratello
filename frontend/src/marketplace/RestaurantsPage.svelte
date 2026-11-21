@@ -1,6 +1,9 @@
 <script lang="ts">
   import RestaurantsSection from './RestaurantsSection.svelte';
+  import RestaurantProp from './RestaurantProp.svelte';
   import { onMount } from 'svelte';
+  import { address } from '../lib/stores/address.js';
+  import { deliveryEstimate, geocodeBrazil, type Coordinates } from './location';
 
   const heroImage =
     'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&h=900&fit=crop&auto=format&q=80';
@@ -21,13 +24,29 @@
     icon_url?: string | null;
   };
   type MenuItem = { id: number; name: string; photo_url?: string; is_available: boolean };
-  let restaurants = $state<(Restaurant & { banners: Banner[]; menuItems: MenuItem[] })[]>([]);
+  type Review = { id: number; rating: number; comment?: string; created_at: string };
+  type ReviewPage = { data: Review[]; summary: { average_rating: number | null; review_count: number } };
+  type Branch = { name: string; address: { street: string; number: string; cep: string; city?: string; state?: string } };
+  let restaurants = $state<(Restaurant & { banners: Banner[]; menuItems: MenuItem[]; reviews?: ReviewPage; branch?: Branch; position?: Coordinates })[]>([]);
+  let customerPosition = $state<Coordinates | null>(null);
+  let selectedSlug = $state<string | null>(null);
+  let selectedRestaurant = $derived(restaurants.find((r) => r.slug === selectedSlug));
+  $effect(() => {
+    const { city, state, stateName } = $address;
+    let current = true;
+    customerPosition = null;
+    if (city && state) void geocodeBrazil(`${city}, ${stateName || state}`).then((point) => {
+      if (current) customerPosition = point;
+    });
+    return () => { current = false; };
+  });
   let loading = $state(true);
   let loadError = $state(false);
 
-  /** Works in plain Svelte/Vite. Swap for `goto(path)` from `$app/navigation` on SvelteKit. */
-  function navigateTo(path: string) {
-    window.location.assign(path);
+  function formatBranchAddress(branch?: Branch) {
+    if (!branch) return undefined;
+    const { street, number, city, state, cep } = branch.address;
+    return [street, number, [city, state].filter(Boolean).join(' – '), cep].filter(Boolean).join(', ');
   }
 
   const categories = [
@@ -52,7 +71,34 @@
         const { data }: { data: Restaurant[] } = await response.json();
         restaurants = data.map((r) => ({ ...r, banners: [], menuItems: [] }));
         loading = false;
-        await Promise.all(data.flatMap((r) => [loadBanners(r), loadMenuItems(r)]));
+        await Promise.all(data.flatMap((r) => [loadBanners(r), loadMenuItems(r), loadReviews(r), loadBranch(r)]));
+        async function loadBranch(r: Restaurant) {
+          try {
+            const result = await fetch(`/api/restaurants/${encodeURIComponent(r.slug)}/branches?page_size=1`, { signal });
+            if (!result.ok) return;
+            const { data: [branch] }: { data: Branch[] } = await result.json();
+            if (!branch || signal.aborted) return;
+            restaurants = restaurants.map((item) => item.slug === r.slug ? { ...item, branch } : item);
+            const { street, number, cep, city, state } = branch.address;
+            const locality = [city, state].filter(Boolean).join(', ');
+            const streetAddress = [street, number].filter(Boolean).join(', ');
+            const point = await geocodeBrazil([streetAddress, locality, cep].filter(Boolean).join(', ')) ??
+              (!signal.aborted && locality ? await geocodeBrazil([street, locality].filter(Boolean).join(', ')) : null);
+            if (point && !signal.aborted) restaurants = restaurants.map((item) => item.slug === r.slug ? { ...item, position: point } : item);
+          } catch {
+            // No location estimate when branch information is unavailable.
+          }
+        }
+        async function loadReviews(r: Restaurant) {
+          try {
+            const result = await fetch(`/api/restaurants/${encodeURIComponent(r.slug)}/reviews?page_size=10`, { signal });
+            if (!result.ok) return;
+            const reviews: ReviewPage = await result.json();
+            if (!signal.aborted) restaurants = restaurants.map((item) => item.slug === r.slug ? { ...item, reviews } : item);
+          } catch {
+            // Unavailable ratings should not hide the restaurant.
+          }
+        }
         async function loadBanners(r: Restaurant) {
           try {
             const result = await fetch(`/api/restaurants/${encodeURIComponent(r.slug)}/menu/banners`, { signal });
@@ -213,12 +259,13 @@
           cardProps={{
              name: r.name,
             description: r.description,
-            rating: 0,
-            deliveryTime: '—',
+            rating: r.reviews?.summary.average_rating ?? undefined,
+            deliveryTime: r.position && customerPosition ? deliveryEstimate(customerPosition, r.position) : undefined,
             logoSrc: r.icon_url ?? undefined,
             logoAlt: `Logo de ${r.name}`,
             images: r.menuItems.map((item) => ({ src: item.photo_url, alt: item.name })),
-            onmenu: () => navigateTo(`/r/${encodeURIComponent(r.slug)}`)
+            onmenu: () => { selectedSlug = r.slug; },
+            ctaLabel: 'Ver restaurante'
           }}
           banners={r.banners}
         />
@@ -227,6 +274,19 @@
       {/each}
     </div>
   </section>
+  {#if selectedRestaurant}
+    <RestaurantProp
+      name={selectedRestaurant.name}
+      description={selectedRestaurant.description}
+      rating={selectedRestaurant.reviews?.summary.average_rating}
+      reviewCount={selectedRestaurant.reviews?.summary.review_count}
+      reviews={selectedRestaurant.reviews?.data}
+      address={formatBranchAddress(selectedRestaurant.branch)}
+      position={selectedRestaurant.position}
+      menuHref={`/r/${encodeURIComponent(selectedRestaurant.slug)}/cardapio`}
+      onclose={() => { selectedSlug = null; }}
+    />
+  {/if}
 </main>
 
 <style>

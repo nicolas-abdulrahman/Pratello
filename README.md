@@ -68,7 +68,7 @@ npm run dev
 
 ### 3. Run the João Burger development demo
 
-Point `DATABASE_URL` at a dedicated development PostgreSQL database. Every `npm run server` boot drops and recreates the active schema, resets the served `media/` directory, and loads the João Burger fixture. The database role needs permission to drop and create that schema. Startup prints the demo login and its generated password.
+Point `DATABASE_URL` at a dedicated development PostgreSQL database. Every `npm run server` boot drops and recreates the active schema, resets the served `media/` directory, and loads the João Burger fixture. The database role needs permission to drop and create that schema. All demo accounts use the password `password`.
 
 ```bash
 DATABASE_URL='postgres://localhost/pratello_dev?sslmode=disable' npm run server

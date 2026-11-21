@@ -39,8 +39,8 @@
   let {
     name = 'Restaurant Name',
     description,
-    rating = 4.8,
-    deliveryTime = '30-45 min',
+    rating,
+    deliveryTime,
     logoSrc = placeholderLogo,
     logoAlt = 'Restaurant logo',
     images = [],
@@ -93,7 +93,7 @@
   });
 </script>
 
-<article class="restaurant-card">
+<article class="restaurant-card relative">
   <!-- Logo panel -->
   <div class="logo-frame">
     <div class="logo-inner">
@@ -121,15 +121,15 @@
         <svg viewBox="0 0 24 24" class="star-icon h-5 w-5" aria-hidden="true">
           <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
         </svg>
-        <span class="text-base font-medium">{rating.toFixed(1)}</span>
+        <span class="text-base font-medium">{rating == null ? '—' : rating.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
       </span>
       <span class="meta-divider"></span>
-      <span class="clock-icon flex items-center gap-1.5">
+      <span class="clock-icon flex items-center gap-1.5" title="Tempo aproximado em linha reta, com base na cidade selecionada">
         <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
         </svg>
-        <span class="text-base font-medium text-inherit">{deliveryTime}</span>
+        <span class="text-base font-medium text-inherit">{deliveryTime ?? '—'}</span>
       </span>
     </div>
 
@@ -167,7 +167,7 @@
       {/each}
     </ul>
 
-    <button type="button" onclick={() => onmenu?.()} class="cta-menu">
+    <button type="button" onclick={() => onmenu?.()} class="cta-menu after:absolute after:inset-0" aria-label={`${ctaLabel}: ${name}`}>
       {ctaLabel}
     </button>
   </div>
