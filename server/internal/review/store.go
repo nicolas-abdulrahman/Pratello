@@ -85,20 +85,22 @@ func scan(row interface{ Scan(...any) error }) (Review, error) {
 	return v, dbError(err)
 }
 func (u session) list(ctx context.Context, item bool, id, limit int, offset int64) ([]Review, error) {
-	q := `SELECT ` + reviewFields + ` FROM restaurant_review WHERE restaurant_id=$1`
+	q := `SELECT r.id,r.rating,r.comment,r.created_at,COALESCE(a.name,''),COALESCE(a.avatar_url,'')
+		FROM restaurant_review r LEFT JOIN account a ON a.id=r.account_id WHERE r.restaurant_id=$1`
 	if item {
-		q = `SELECT ` + reviewFields + ` FROM item_review WHERE item_id=$1`
+		q = `SELECT r.id,r.rating,r.comment,r.created_at,COALESCE(a.name,''),COALESCE(a.avatar_url,'')
+			FROM item_review r LEFT JOIN account a ON a.id=r.account_id WHERE r.item_id=$1`
 	}
-	rows, err := u.tx.QueryContext(ctx, q+` ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`, id, limit, offset)
+	rows, err := u.tx.QueryContext(ctx, q+` ORDER BY r.created_at DESC,r.id DESC LIMIT $2 OFFSET $3`, id, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []Review{}
 	for rows.Next() {
-		v, err := scan(rows)
-		if err != nil {
-			return nil, err
+		var v Review
+		if err := rows.Scan(&v.ID, &v.Rating, &v.Comment, &v.Created, &v.AuthorName, &v.AuthorAvatarURL); err != nil {
+			return nil, dbError(err)
 		}
 		out = append(out, v)
 	}

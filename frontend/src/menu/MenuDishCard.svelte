@@ -1,5 +1,5 @@
 <script>
-  import ReviewProp from '../review/ReviewProp.svelte';
+  import ReviewElement from '../review/ReviewElement.svelte';
   import { add_item} from '../lib/stores/Cart';
 
   let { 
@@ -8,7 +8,8 @@
     description, 
     price, 
     rating = null, 
-    count = null 
+    count = null,
+    onopen
   } = $props();
 
   let isAdding = $state(false);
@@ -27,27 +28,35 @@
   }
 </script>
 
-<div class="bg-white rounded-2xl p-3 flex flex-col sm:flex-row gap-4 shadow-sm border border-gray-100 hover:shadow-md transition-shadow group relative">
+<div class="bg-white rounded-2xl p-3 flex h-full gap-3 shadow-sm border border-gray-100 hover:shadow-md transition-shadow group relative">
   
   <!-- Image -->
-  <div class="w-full sm:w-32 h-32 shrink-0 rounded-xl overflow-hidden bg-gray-100">
+  <div class="w-24 shrink-0 self-stretch rounded-xl overflow-hidden bg-gray-100">
     <img src={image} alt={title} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
   </div>
 
   <!-- Content -->
   <div class="flex flex-col flex-1 min-w-0 py-1">
-    <h3 class="text-base font-extrabold text-[#a82b00] leading-tight mb-1 truncate">{title}</h3>
-    <p class="text-xs text-gray-500 leading-snug line-clamp-2 mb-2 flex-1">{description}</p>
+    <h3 class="text-base font-extrabold text-[#a82b00] leading-tight mb-1 truncate">
+      {#if onopen}
+        <button type="button" onclick={onopen} class="text-left after:absolute after:inset-0 after:z-10">{title}</button>
+      {:else}
+        {title}
+      {/if}
+    </h3>
+    {#if description}
+      <p class="text-xs text-gray-500 leading-snug line-clamp-2 mb-2 flex-1">{description}</p>
+    {/if}
     
     <div class="flex items-end justify-between mt-auto">
       <div class="flex flex-col gap-1">
-        <ReviewProp {rating} {count} />
+        <ReviewElement {rating} {count} />
         <span class="text-xl font-black text-[#ff5722] leading-none">{price}</span>
       </div>
       
       <button 
         onclick={handleAdd}
-        class="bg-[#ff5722]/10 hover:bg-[#ff5722] text-[#ff5722] hover:text-white p-2 rounded-full flex items-center justify-center transition-all duration-300 shrink-0
+        class="relative z-20 bg-[#ff5722]/10 hover:bg-[#ff5722] text-[#ff5722] hover:text-white p-2 rounded-full flex items-center justify-center transition-all duration-300 shrink-0
         {isAdding ? 'bg-emerald-500 text-white scale-95' : ''}"
       >
         {#if isAdding}

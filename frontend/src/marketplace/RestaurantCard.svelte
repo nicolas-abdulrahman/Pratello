@@ -9,11 +9,13 @@
     rating?: number;
     deliveryTime?: string;
     logoSrc?: string;
+    faviconSrc?: string;
     logoAlt?: string;
     images?: GalleryImage[];
     tags?: Tag[];
     ctaLabel?: string;
     onmenu?: () => void;
+    restaurantHref?: string;
     scrollSpeed?: number; // px per second
   };
 
@@ -42,11 +44,13 @@
     rating,
     deliveryTime,
     logoSrc = placeholderLogo,
+    faviconSrc,
     logoAlt = 'Restaurant logo',
     images = [],
     tags = defaultTags,
     ctaLabel = 'Ver Cardápio',
     onmenu,
+    restaurantHref,
     scrollSpeed = 20
   }: Props = $props();
 
@@ -94,6 +98,9 @@
 </script>
 
 <article class="restaurant-card relative">
+  {#if restaurantHref && onmenu}
+    <button type="button" class="absolute inset-0 z-10 cursor-pointer" onclick={onmenu} aria-label={`Prévia de ${name}`}></button>
+  {/if}
   <!-- Logo panel -->
   <div class="logo-frame">
     <div class="logo-inner">
@@ -112,7 +119,10 @@
   </div>
 
   <div class="p-card">
-    <h2 class="restaurant-name">{name}</h2>
+    <h2 class="restaurant-name flex items-center justify-center gap-space-2xs">
+      {#if faviconSrc}<img src={faviconSrc} alt="" class="size-7 shrink-0 object-contain" />{/if}
+      <span class="min-w-0 wrap-break-word">{name}</span>
+    </h2>
     {#if description}<p class="text-sm text-text-muted">{description}</p>{/if}
 
     <!-- Meta row -->
@@ -167,9 +177,11 @@
       {/each}
     </ul>
 
-    <button type="button" onclick={() => onmenu?.()} class="cta-menu after:absolute after:inset-0" aria-label={`${ctaLabel}: ${name}`}>
-      {ctaLabel}
-    </button>
+    {#if restaurantHref}
+      <a href={restaurantHref} class="cta-menu relative z-20 block text-center" aria-label={`${ctaLabel}: ${name}`}>{ctaLabel}</a>
+    {:else}
+      <button type="button" onclick={onmenu} class="cta-menu" aria-label={`${ctaLabel}: ${name}`}>{ctaLabel}</button>
+    {/if}
   </div>
 </article>
 
@@ -247,7 +259,6 @@
     background-color: var(--rc-orange);
     color: #fdf6ea;
   }
-  .cta-menu:hover         { background-color: var(--rc-orange-dark); }
-  .cta-menu:active        { transform: scale(0.99); }
+  .cta-menu:hover, .cta-menu:active { background-color: var(--rc-orange-dark); }
   .cta-menu:focus-visible { outline: 2px solid var(--rc-orange); outline-offset: 2px; }
 </style>

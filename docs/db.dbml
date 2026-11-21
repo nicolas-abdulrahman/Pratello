@@ -315,6 +315,7 @@ Table "public"."category" {
   "name" varchar(100) [not null]
   "display_order" int [not null, default: 0]
   "is_fallback" boolean [not null, default: false, note: 'Unique per restaurant where true']
+  "image_url" text
   "archived_at" timestamptz
   "created_at" timestamptz [not null, default: `now()`]
 }

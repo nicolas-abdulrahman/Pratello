@@ -115,7 +115,7 @@ SELECT jsonb_build_object(
       accent_color,secondary_color,typography,updated_at FROM menu WHERE restaurant_id=$1
   ) m),
   'Categories',(SELECT jsonb_agg(c ORDER BY c.display_order,c.id) FROM (
-    SELECT id,$3::text AS restaurant_slug,name,display_order,created_at,is_fallback FROM category WHERE restaurant_id=$1 AND archived_at IS NULL
+    SELECT id,$3::text AS restaurant_slug,name,display_order,created_at,is_fallback,image_url FROM category WHERE restaurant_id=$1 AND archived_at IS NULL
   ) c),
   'Items',(SELECT jsonb_agg(i ORDER BY i.id) FROM items i),
   'Ingredients',(SELECT jsonb_agg(g ORDER BY g.id) FROM (
@@ -211,10 +211,10 @@ func (u sqlSession) mutate(ctx context.Context, r request, data any) (int, error
 		secondary_color=EXCLUDED.secondary_color,typography=EXCLUDED.typography RETURNING id`, u.org, v.Name, v.Style, v.Accent, v.Secondary, v.Typography)
 	case addCategory:
 		v := data.(category)
-		return u.returningID(ctx, `INSERT INTO category(restaurant_id,name,display_order) VALUES($1,$2,$3) RETURNING id`, u.org, v.Name, v.Order)
+		return u.returningID(ctx, `INSERT INTO category(restaurant_id,name,display_order,image_url) VALUES($1,$2,$3,$4) RETURNING id`, u.org, v.Name, v.Order, v.Image)
 	case putCategory:
 		v := data.(category)
-		return u.returningID(ctx, `UPDATE category SET name=$1,display_order=$2 WHERE id=$3 AND restaurant_id=$4 RETURNING id`, v.Name, v.Order, r.id, u.org)
+		return u.returningID(ctx, `UPDATE category SET name=$1,display_order=$2,image_url=$5 WHERE id=$3 AND restaurant_id=$4 RETURNING id`, v.Name, v.Order, r.id, u.org, v.Image)
 	case dropCategory:
 		if data.(bool) {
 			fallback, err := u.returningID(ctx, `INSERT INTO category(restaurant_id,name,display_order,is_fallback) VALUES($1,'Uncategorized',2147483647,TRUE)

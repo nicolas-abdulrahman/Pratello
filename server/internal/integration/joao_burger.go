@@ -121,7 +121,7 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 		name, key string
 	}{
 		{&f.Owner, "Geraldo do Rio", "geraldo-do-rio"}, {&f.Administrator, "Mr Puzzles", "mr-puzzles"},
-		{&f.Analyst, "Meg from Splatoon", "meg-from-splatoon"}, {&f.Manager, "Petros Barreto", "petros-barreto"}, {&f.Employee, "Bob", "bob"},
+		{&f.Analyst, "Meg", "meg-from-splatoon"}, {&f.Manager, "Petros", "petros-barreto"}, {&f.Employee, "Bob", "bob"},
 		{&f.Rogerio, "Rogério", "rogerio"},
 	} {
 		p.account.Name, p.account.Email, p.account.AvatarURL = p.name, p.key+"@joao-burger.test", "/media/account/"+p.key+".png"
@@ -181,16 +181,29 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 		}
 	}
 	categories := map[string]int{}
-	for n, name := range []string{"Burgers", "Acompanhamentos", "Bebidas", "Sobremesas", "Combos"} {
+	categoryPhotos := map[string]string{
+		"Burgers": joaoFeatured["smash-classico"].photo, "Acompanhamentos": joaoFeatured["fritas"].photo,
+		"Bebidas": joaoCatalogPhotos["suco-laranja"], "Sobremesas": joaoFeatured["brownie"].photo,
+		"Combos": joaoFeatured["combo-pra-dois"].photo, "Pizzas": joaoCatalogPhotos["pizza-margherita"],
+	}
+	for n, name := range []string{"Burgers", "Acompanhamentos", "Bebidas", "Sobremesas", "Combos", "Pizzas"} {
 		var v struct{ ID int }
-		if err := post(root+"/categories", owner, map[string]any{"name": name, "display_order": n}, &v); err != nil {
+		if err := post(root+"/categories", owner, map[string]any{"name": name, "display_order": n, "image_url": categoryPhotos[name]}, &v); err != nil {
 			return f, err
 		}
 		categories[name] = v.ID
 	}
 	add := func(v itemSeed, combo bool) error {
 		var result struct{ ID int }
-		if err := post(root+"/items", owner, map[string]any{"category_id": categories[v.category], "name": v.name, "description": v.description, "base_price_cents": v.price, "is_combo": combo, "photo_url": restaurantMedia + "menu/" + v.key + ".png"}, &result); err != nil {
+		photo := joaoCatalogPhotos[v.key]
+		if featured, ok := joaoFeatured[v.key]; ok {
+			v.name, v.description, v.price, photo = featured.name, featured.description, featured.original, featured.photo
+		}
+		body := map[string]any{"category_id": categories[v.category], "name": v.name, "base_price_cents": v.price, "is_combo": combo, "photo_url": photo}
+		if !combo && v.description != "" {
+			body["description"] = v.description
+		}
+		if err := post(root+"/items", owner, body, &result); err != nil {
 			return err
 		}
 		f.ItemIDs[v.key] = result.ID
@@ -210,13 +223,21 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 				return f, err
 			}
 		}
+		if sale := joaoComboSales[v.key]; sale > 0 {
+			if err := post(fmt.Sprintf("%s/items/%d/sales", root, f.ItemIDs[v.key]), owner, map[string]any{"discount_type": "fixed_cents", "discount_value": v.price - sale, "starts_at": "2020-01-01T00:00:00Z", "ends_at": "2100-01-01T00:00:00Z"}, nil); err != nil {
+				return f, err
+			}
+		}
+	}
+	if err := a.seedJoaoFeatured(ctx, root, owner, f.ItemIDs); err != nil {
+		return f, err
 	}
 	for _, v := range []struct {
 		code, title, description, scope, target, kind string
 		value, minimum                                int
 	}{
-		{"SMASH15", "DIA DO SMASH", "15% de desconto no Smash Clássico.", "item", "smash-classico", "percent", 15, 0},
-		{"DUPLA8", "BORA DIVIDIR?", "R$ 8,00 de desconto no Combo Pra Dois.", "combo", "combo-pra-dois", "fixed_cents", 800, 0},
+		{"SMASH15", "DIA DO SMASH", "15% de desconto no Hambúrguer Duplo Especial.", "item", "smash-classico", "percent", 15, 0},
+		{"DUPLA8", "BORA DIVIDIR?", "R$ 8,00 de desconto no Combo Casal.", "combo", "combo-pra-dois", "fixed_cents", 800, 0},
 		{"CHAPA10", "PEDIDO GRANDE, DESCONTO JUNTO", "R$ 10,00 de desconto a partir de R$ 80,00.", "order", "", "fixed_cents", 1000, 8000},
 	} {
 		body := map[string]any{"code": v.code, "name": v.title, "title": v.title, "description": v.description, "target_scope": v.scope, "discount_type": v.kind, "discount_value": v.value, "min_order_cents": v.minimum, "is_banner": true, "background_image_url": restaurantMedia + "sales/" + strings.ToLower(v.code) + ".png"}
@@ -227,7 +248,10 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 			return f, err
 		}
 	}
-	return f, a.seedJoaoPurchases(ctx, branchPath, f)
+	if err := a.seedJoaoPurchases(ctx, branchPath, f); err != nil {
+		return f, err
+	}
+	return f, a.seedTanoshii(ctx, f.Administrator.AccessToken, f.Password)
 }
 
 type itemFeedback struct {
@@ -246,11 +270,11 @@ type purchaseFeedback struct {
 func (a fixtureAPI) seedJoaoPurchases(ctx context.Context, branchPath string, f JoaoBurger) error {
 	for _, v := range []purchaseFeedback{
 		{f.Rogerio, 5, "Atendimento excelente e tudo chegou quentinho. Voltarei com certeza!", []itemFeedback{{"smash-classico", 3, "Carne suculenta, bordas crocantes e molho na medida."}, {"fritas", 3, "Sequinhas e bem crocantes."}, {"brownie", 3, "Chocolate intenso e miolo macio."}}},
-		{f.Owner, 5, "O pedido saiu rápido e veio bem montado.", []itemFeedback{{"combo-classico", 3, "Porção na medida e hambúrguer no ponto."}, {"limonada", 2, "Refrescante, mas eu prefiro com menos açúcar."}}},
+		{f.Owner, 5, "O pedido saiu rápido e veio bem montado.", []itemFeedback{{"combo-pra-dois", 3, "Porção na medida e hambúrguer no ponto."}, {"suco-laranja", 2, "Refrescante, mas prefiro com mais gelo."}}},
 		{f.Administrator, 4, "Comida muito boa. No horário de pico, a espera foi um pouco maior.", []itemFeedback{{"bacon-bbq", 3, "Bacon crocante e barbecue equilibrado."}, {"aneis-de-cebola", 2, "Gostosos, mas poderiam estar mais crocantes."}}},
-		{f.Analyst, 5, "Adorei encontrar uma opção vegetariana no cardápio.", []itemFeedback{{"combo-veggie", 3, "O hambúrguer de grão-de-bico ficou bem temperado."}, {"cha-pessego", 3, "Leve e não muito doce."}}},
+		{f.Analyst, 5, "O pedido chegou bem embalado e quentinho.", []itemFeedback{{"combo-pra-dois", 3, "Porção generosa para dividir."}, {"pizza-pepperoni", 3, "Massa leve e pepperoni bem temperado."}}},
 		{f.Manager, 4, "O pessoal foi atencioso e conferiu o pedido antes de servir.", []itemFeedback{{"duplo-da-chapa", 3, "Dois smashes bem feitos, com bastante queijo."}, {"fritas", 2, "O sabor estava bom, mas chegaram mornas."}}},
-		{f.Employee, 5, "Tudo certinho com o pedido. Gostei bastante do frango!", []itemFeedback{{"frango-crocante", 3, "Empanado crocante e frango macio por dentro."}, {"smash-classico", 2, "Estava gostoso, mas prefiro um pouco mais de molho."}}},
+		{f.Employee, 5, "Tudo certinho com o pedido. Gostei bastante do frango!", []itemFeedback{{"frango-crocante", 3, "Frango grelhado bem temperado e suculento."}, {"smash-classico", 2, "Estava gostoso, mas prefiro um pouco mais de molho."}}},
 	} {
 		if err := a.seedJoaoPurchase(ctx, branchPath, f, v); err != nil {
 			return fmt.Errorf("demo purchase for %s: %w", v.buyer.Name, err)
@@ -266,7 +290,16 @@ func (a fixtureAPI) seedJoaoPurchase(ctx context.Context, branchPath string, f J
 		if id == 0 {
 			return fmt.Errorf("unknown fixture item %q", item.key)
 		}
-		bought = append(bought, map[string]int{"item_id": id, "quantity": 1})
+		quantity := 1
+		switch item.key {
+		case "smash-classico":
+			quantity = 14
+		case "fritas":
+			quantity = 10
+		case "combo-pra-dois":
+			quantity = 7
+		}
+		bought = append(bought, map[string]int{"item_id": id, "quantity": quantity})
 	}
 	var order struct {
 		ID    int
@@ -330,32 +363,71 @@ type comboSeed struct {
 }
 
 var joaoItems = []itemSeed{
+	{"cola-2l", "Coca-Cola 2L", "Bebidas", "", 1390},
+	{"agua", "Água Mineral", "Bebidas", "Garrafa de 500 ml.", 450},
+	{"salada-caesar", "Salada Caesar", "Acompanhamentos", "Alface, croutons, parmesão e molho Caesar.", 1590},
+	{"frango-teriyaki", "Sanduíche de Frango Teriyaki", "Burgers", "Frango grelhado com molho teriyaki.", 2490},
+	{"batata-rustica", "Batata Rústica", "Acompanhamentos", "Batatas rústicas douradas.", 1390},
+	{"hamburguer-kids", "Hambúrguer Pequeno", "Burgers", "Hambúrguer com queijo em pão pequeno.", 1590},
+	{"fritas-pequenas", "Batata Frita Pequena", "Acompanhamentos", "Porção pequena de batatas crocantes.", 890},
+	{"fritas-medias", "Batata Frita Média", "Acompanhamentos", "Porção média de batatas crocantes.", 1190},
 	{"smash-classico", "Smash Clássico", "Burgers", "Smash de 90 g, cheddar e molho da casa no brioche.", 2490},
-	{"duplo-da-chapa", "Duplo da Chapa", "Burgers", "Dois smashes de 90 g, cheddar duplo e picles.", 3490},
-	{"bacon-bbq", "Bacon BBQ", "Burgers", "Smash, cheddar, bacon crocante e barbecue.", 3190},
-	{"smash-apimentado", "Smash Apimentado", "Burgers", "Smash, cheddar, jalapeño e maionese picante.", 2990},
+	{"duplo-da-chapa", "Cheese Burger", "Burgers", "Pão brioche, carne 180g, queijo cheddar e molho especial.", 2490},
+	{"bacon-bbq", "Bacon Burger", "Burgers", "Carne 180g, muito bacon crocante e queijo prato.", 2990},
 	{"frango-crocante", "Frango Crocante", "Burgers", "Frango empanado, alface, picles e maionese de limão.", 2790},
-	{"veggie-da-casa", "Veggie da Casa", "Burgers", "Hambúrguer de grão-de-bico, alface, tomate e molho verde.", 2890},
+	{"veggie-da-casa", "Veggie Burger", "Burgers", "Hambúrguer de grão de bico, alface e tomate.", 2290},
 	{"fritas", "Fritas da Chapa", "Acompanhamentos", "Batatas finas com sal da casa, 150 g.", 1200},
-	{"fritas-cheddar-bacon", "Fritas Cheddar & Bacon", "Acompanhamentos", "Batatas com creme de cheddar e bacon, 200 g.", 1790},
 	{"aneis-de-cebola", "Anéis de Cebola", "Acompanhamentos", "Oito anéis empanados com molho da casa.", 1400},
-	{"tiras-de-frango", "Tiras de Frango", "Acompanhamentos", "Quatro tiras crocantes com barbecue.", 1890},
-	{"cola", "Cola", "Bebidas", "Lata de 350 ml.", 750},
-	{"cha-pessego", "Chá Gelado de Pêssego", "Bebidas", "Chá preto com pêssego, 350 ml.", 850},
-	{"limonada", "Limonada da Casa", "Bebidas", "Limão fresco com hortelã, 400 ml.", 990},
+	{"cola", "Coca-Cola Lata", "Bebidas", "", 600},
+	{"suco-laranja", "Suco de Laranja", "Bebidas", "Suco de laranja espremido na hora.", 990},
 	{"brownie", "Brownie da Chapa", "Sobremesas", "Brownie com chocolate meio amargo.", 1190},
-	{"milkshake-baunilha", "Milkshake de Baunilha", "Sobremesas", "Batido com sorvete de baunilha, 350 ml.", 1590},
+	{"pizza-pepperoni", "Pizza Pepperoni", "Pizzas", "Massa artesanal, molho de tomate e pepperoni selecionado.", 3990},
+	{"pizza-margherita", "Pizza Margherita", "Pizzas", "Molho de tomate, muçarela e manjericão.", 4500},
 }
 
 var joaoCombos = []comboSeed{
-	{"combo-classico", "Combo Clássico", "Smash Clássico, fritas e cola.", 3890, []portion{{"smash-classico", 1}, {"fritas", 1}, {"cola", 1}}},
-	{"combo-duplo", "Combo Duplo", "Duplo da Chapa, fritas e cola.", 4790, []portion{{"duplo-da-chapa", 1}, {"fritas", 1}, {"cola", 1}}},
-	{"combo-bbq", "Combo BBQ", "Bacon BBQ, anéis de cebola e chá gelado.", 4690, []portion{{"bacon-bbq", 1}, {"aneis-de-cebola", 1}, {"cha-pessego", 1}}},
-	{"combo-fogo", "Combo Fogo", "Smash apimentado, fritas cheddar e bacon, e cola.", 4790, []portion{{"smash-apimentado", 1}, {"fritas-cheddar-bacon", 1}, {"cola", 1}}},
-	{"combo-crocante", "Combo Crocante", "Frango crocante, tiras de frango e limonada.", 4890, []portion{{"frango-crocante", 1}, {"tiras-de-frango", 1}, {"limonada", 1}}},
-	{"combo-veggie", "Combo Veggie", "Veggie da Casa, fritas e limonada.", 4390, []portion{{"veggie-da-casa", 1}, {"fritas", 1}, {"limonada", 1}}},
-	{"combo-pra-dois", "Combo Pra Dois", "Dois smashes, fritas e duas colas.", 6590, []portion{{"smash-classico", 2}, {"fritas", 1}, {"cola", 2}}},
-	{"combo-dupla-bruta", "Combo Dupla Bruta", "Dois duplos, fritas cheddar e bacon, e duas colas.", 8990, []portion{{"duplo-da-chapa", 2}, {"fritas-cheddar-bacon", 1}, {"cola", 2}}},
-	{"combo-smash-brownie", "Combo Smash & Brownie", "Smash Clássico, brownie e chá gelado.", 3990, []portion{{"smash-classico", 1}, {"brownie", 1}, {"cha-pessego", 1}}},
-	{"combo-frango-shake", "Combo Frango & Shake", "Frango crocante, fritas e milkshake.", 4790, []portion{{"frango-crocante", 1}, {"fritas", 1}, {"milkshake-baunilha", 1}}},
+	{"combo-pra-dois", "Combo Casal", "", 7500, []portion{{"smash-classico", 2}, {"fritas", 1}, {"cola", 2}}},
+	{"combo-solo", "Combo Solo", "", 4200, []portion{{"duplo-da-chapa", 1}, {"fritas-medias", 1}, {"cola", 1}}},
+	{"combo-familia", "Combo Família", "", 13500, []portion{{"duplo-da-chapa", 4}, {"fritas", 2}, {"cola-2l", 1}}},
+	{"combo-veggie", "Combo Veggie", "", 3890, []portion{{"veggie-da-casa", 1}, {"fritas", 1}, {"suco-laranja", 1}}},
+	{"combo-kids", "Combo Kids", "", 2590, []portion{{"hamburguer-kids", 1}, {"fritas-pequenas", 1}, {"suco-laranja", 1}}},
+	{"combo-fitness", "Combo Fitness", "", 2990, []portion{{"frango-crocante", 1}, {"salada-caesar", 1}, {"agua", 1}}},
+	{"combo-duplo", "Combo Duplo", "", 5800, []portion{{"duplo-da-chapa", 2}, {"fritas-medias", 1}, {"cola", 1}}},
+	{"combo-bacon", "Combo Bacon Lover", "", 5200, []portion{{"bacon-bbq", 1}, {"fritas", 1}, {"cola", 1}}},
+	{"combo-doce", "Combo Doce Final", "", 3690, []portion{{"duplo-da-chapa", 1}, {"brownie", 1}, {"cola", 1}}},
+	{"combo-asiatico", "Combo Asiático", "", 4000, []portion{{"frango-teriyaki", 1}, {"batata-rustica", 1}}},
+	{"combo-executivo", "Combo Executivo", "", 3390, []portion{{"duplo-da-chapa", 1}, {"salada-caesar", 1}, {"suco-laranja", 1}}},
+	{"combo-master", "Combo Master", "", 11000, []portion{{"duplo-da-chapa", 3}, {"fritas", 2}, {"cola", 3}}},
+}
+
+var joaoComboSales = map[string]int{"combo-solo": 3290, "combo-familia": 9990, "combo-duplo": 4590, "combo-bacon": 4190, "combo-asiatico": 3490, "combo-master": 8590}
+
+const comboPhotoQuery = "?auto=format&fit=crop&q=80&w=400&h=300"
+
+var joaoCatalogPhotos = map[string]string{
+	"combo-solo":       "https://images.unsplash.com/photo-1561758033-d89a9ad46330" + comboPhotoQuery,
+	"combo-familia":    "https://images.unsplash.com/photo-1550547660-d9450f859349" + comboPhotoQuery,
+	"combo-veggie":     "https://images.unsplash.com/photo-1520072959219-c595dc870360" + comboPhotoQuery,
+	"combo-kids":       "https://images.unsplash.com/photo-1568901346375-23c9450c58cd" + comboPhotoQuery,
+	"combo-fitness":    "https://images.unsplash.com/photo-1521390188846-e2a3a97453a0" + comboPhotoQuery,
+	"combo-duplo":      "https://images.unsplash.com/photo-1568901346375-23c9450c58cd" + comboPhotoQuery,
+	"combo-bacon":      "https://images.unsplash.com/photo-1553979459-d2229ba7433b" + comboPhotoQuery,
+	"combo-doce":       "https://images.unsplash.com/photo-1568901346375-23c9450c58cd" + comboPhotoQuery,
+	"combo-asiatico":   "https://images.unsplash.com/photo-1521390188846-e2a3a97453a0" + comboPhotoQuery,
+	"combo-executivo":  "https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5" + comboPhotoQuery,
+	"combo-master":     "https://images.unsplash.com/photo-1550547660-d9450f859349" + comboPhotoQuery,
+	"cola-2l":          "https://images.unsplash.com/photo-1622483767028-3f66f32aef97" + photoQuery,
+	"agua":             "https://images.unsplash.com/photo-1548839140-29a749e1cf4d" + photoQuery,
+	"salada-caesar":    "https://images.unsplash.com/photo-1540420773420-3366772f4999" + photoQuery,
+	"frango-teriyaki":  "https://images.unsplash.com/photo-1521390188846-e2a3a97453a0" + photoQuery,
+	"batata-rustica":   "https://images.unsplash.com/photo-1573080496219-bb080dd4f877" + photoQuery,
+	"fritas-pequenas":  "https://images.unsplash.com/photo-1573080496219-bb080dd4f877" + photoQuery,
+	"fritas-medias":    "https://images.unsplash.com/photo-1573080496219-bb080dd4f877" + photoQuery,
+	"hamburguer-kids":  "https://images.unsplash.com/photo-1568901346375-23c9450c58cd" + photoQuery,
+	"duplo-da-chapa":   "https://images.unsplash.com/photo-1568901346375-23c9450c58cd" + photoQuery,
+	"bacon-bbq":        "https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5" + photoQuery,
+	"veggie-da-casa":   "https://images.unsplash.com/photo-1520072959219-c595dc870360" + photoQuery,
+	"pizza-margherita": "https://images.unsplash.com/photo-1574071318508-1cdbab80d002" + photoQuery,
+	"cola":             "https://images.unsplash.com/photo-1622483767028-3f66f32aef97" + photoQuery,
+	"suco-laranja":     "https://images.unsplash.com/photo-1613478223719-2ab802602423" + photoQuery,
 }

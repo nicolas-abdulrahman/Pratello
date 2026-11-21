@@ -8,10 +8,7 @@
     item = {}
   } = $props();
 
-  const mockReviews = [
-    { name: "Gregory the III", text: "Best dish I ever eaten." },
-    { name: "Mr Puzzles", text: "It shatters your mind." }
-  ];
+  let comments = $derived((item.reviews ?? []).filter((review) => review.comment?.trim()));
 
   let isAdding = $state(false);
 
@@ -29,11 +26,7 @@
 
   function teleport(node) {
     document.body.appendChild(node);
-    return {
-      destroy() {
-        node.remove();
-      }
-    };
+    return () => node.remove();
   }
 
   function parsePrice(value) {
@@ -136,34 +129,36 @@
                 <p class="text-gray-600 leading-relaxed">{item.description}</p>
               </div>
               
+              {#if item.ingredients}
               <div>
                 <h2 class="text-lg font-bold text-gray-900 mb-2">Ingredientes</h2>
                 <p class="text-gray-500 text-sm leading-relaxed">
-                  {item.ingredients || "Ingredientes selecionados com cuidado para garantir o melhor sabor. Contém glúten e lactose. Pode conter traços de oleaginosas. Preparado em ambiente que manipula diversos tipos de alimentos."}
+                  {item.ingredients}
                 </p>
               </div>
+              {/if}
             </div>
 
             <!-- Right: Reviews -->
             <div class="flex-1">
               <h2 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                 Avaliações
-                {#if item.rating}
-                  <span class="bg-orange-100 text-[#ff5722] text-xs px-2 py-0.5 rounded-full">{mockReviews.length}</span>
+                {#if item.count != null}
+                  <span class="bg-orange-100 text-[#ff5722] text-xs px-2 py-0.5 rounded-full">{item.count}</span>
                 {/if}
               </h2>
 
-              {#if item.rating}
+              {#if comments.length}
                 <div class="space-y-4">
-                  {#each mockReviews as review}
+                  {#each comments as review (review.id)}
                     <div class="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                       <div class="flex items-center gap-2 mb-1">
                         <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                         </div>
-                        <span class="font-bold text-sm text-gray-800">{review.name}</span>
+                        <span class="font-bold text-sm text-gray-800">{review.author_name?.trim() || 'Cliente anônimo'}</span>
                       </div>
-                      <p class="text-gray-600 text-sm">"{review.text}"</p>
+                      <p class="text-gray-600 text-sm">{review.comment}</p>
                     </div>
                   {/each}
                 </div>
@@ -172,7 +167,7 @@
                   <div class="text-gray-300 mb-2 flex justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                   </div>
-                  <p class="text-gray-500 text-sm font-medium">Nenhuma avaliação ainda.</p>
+                  <p class="text-gray-500 text-sm font-medium">{item.count === 0 ? 'Nenhuma avaliação ainda.' : item.reviews ? 'Nenhum comentário recente.' : 'Comentários indisponíveis no momento.'}</p>
                 </div>
               {/if}
             </div>

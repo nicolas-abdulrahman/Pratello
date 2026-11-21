@@ -1,9 +1,9 @@
 <script lang="ts">
   import RestaurantsSection from './RestaurantsSection.svelte';
-  import RestaurantProp from './RestaurantProp.svelte';
+  import RestaurantProp, { type RestaurantReview } from './RestaurantProp.svelte';
   import { onMount } from 'svelte';
   import { address } from '../lib/stores/address.js';
-  import { deliveryEstimate, geocodeBrazil, type Coordinates } from './location';
+  import { deliveryEstimate, geocodeBrazil, type Coordinates } from '../lib/stores/location';
 
   const heroImage =
     'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&h=900&fit=crop&auto=format&q=80';
@@ -22,10 +22,10 @@
     name: string;
     description?: string;
     icon_url?: string | null;
+    favicon_url?: string | null;
   };
   type MenuItem = { id: number; name: string; photo_url?: string; is_available: boolean };
-  type Review = { id: number; rating: number; comment?: string; created_at: string };
-  type ReviewPage = { data: Review[]; summary: { average_rating: number | null; review_count: number } };
+  type ReviewPage = { data: RestaurantReview[]; summary: { average_rating: number | null; review_count: number } };
   type Branch = { name: string; address: { street: string; number: string; cep: string; city?: string; state?: string } };
   let restaurants = $state<(Restaurant & { banners: Banner[]; menuItems: MenuItem[]; reviews?: ReviewPage; branch?: Branch; position?: Coordinates })[]>([]);
   let customerPosition = $state<Coordinates | null>(null);
@@ -262,9 +262,11 @@
             rating: r.reviews?.summary.average_rating ?? undefined,
             deliveryTime: r.position && customerPosition ? deliveryEstimate(customerPosition, r.position) : undefined,
             logoSrc: r.icon_url ?? undefined,
+            faviconSrc: r.favicon_url ?? undefined,
             logoAlt: `Logo de ${r.name}`,
             images: r.menuItems.map((item) => ({ src: item.photo_url, alt: item.name })),
             onmenu: () => { selectedSlug = r.slug; },
+            restaurantHref: `/r/${encodeURIComponent(r.slug)}`,
             ctaLabel: 'Ver restaurante'
           }}
           banners={r.banners}
@@ -277,12 +279,14 @@
   {#if selectedRestaurant}
     <RestaurantProp
       name={selectedRestaurant.name}
+      faviconSrc={selectedRestaurant.favicon_url ?? undefined}
       description={selectedRestaurant.description}
       rating={selectedRestaurant.reviews?.summary.average_rating}
       reviewCount={selectedRestaurant.reviews?.summary.review_count}
       reviews={selectedRestaurant.reviews?.data}
       address={formatBranchAddress(selectedRestaurant.branch)}
       position={selectedRestaurant.position}
+      {customerPosition}
       menuHref={`/r/${encodeURIComponent(selectedRestaurant.slug)}/cardapio`}
       onclose={() => { selectedSlug = null; }}
     />

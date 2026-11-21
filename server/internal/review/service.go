@@ -19,10 +19,12 @@ var (
 )
 
 type Review struct {
-	ID      int64     `json:"id"`
-	Rating  int       `json:"rating"`
-	Comment *string   `json:"comment,omitempty"`
-	Created time.Time `json:"created_at"`
+	ID              int64     `json:"id"`
+	Rating          int       `json:"rating"`
+	Comment         *string   `json:"comment,omitempty"`
+	Created         time.Time `json:"created_at"`
+	AuthorName      string    `json:"author_name,omitempty"`
+	AuthorAvatarURL string    `json:"author_avatar_url,omitempty"`
 }
 
 type totals struct {

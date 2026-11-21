@@ -1,7 +1,101 @@
 <script>
-  import CombosSection from './CombosSection.svelte';
-  import MelhoresPratosSection from './PromotionSection.svelte';
-  let { name = 'Pratello', logoURL = null } = $props();
+  import CatalogSection from './CatalogSection.svelte';
+  import PromotionSection from './PromotionSection.svelte';
+  import ItemModal from '../dish/ItemModal.svelte';
+
+  let { slug, name = 'Pratello', logoURL = null } = $props();
+  let items = $state([]);
+  let combos = $state([]);
+  let combosLoading = $state(true);
+  let combosFailed = $state(false);
+  let reviews = $state({});
+  let banner = $state(null);
+  let loading = $state(true);
+  let failed = $state(false);
+  let selectedId = $state(null);
+  let sales = $derived(items.filter((item) => item.oldPrice != null));
+  const withReviews = (item) => ({ ...item, ...reviews[item.id] });
+  let reviewedCombos = $derived(combos.map(withReviews));
+  let reviewedSales = $derived(sales.map(withReviews));
+  let selected = $derived([...reviewedSales, ...reviewedCombos].find((item) => item.id === selectedId));
+  const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  $effect(() => {
+    const root = `/api/restaurants/${encodeURIComponent(slug)}`;
+    const controller = new AbortController();
+    const { signal } = controller;
+    async function get(path) {
+      const response = await fetch(root + path, { signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }
+    void get('/menu/banners').then((result) => {
+      if (!signal.aborted) banner = result?.[0] ?? null;
+    }).catch(() => {});
+    async function loadItems(categoryId) {
+        const catalog = [];
+        for (let page = 1; ; page++) {
+          const category = categoryId == null ? '' : `category_id=${encodeURIComponent(categoryId)}&`;
+          const result = await get(`/items?${category}page=${page}&page_size=100`);
+          const entries = result.data ?? [];
+          catalog.push(...entries);
+          if (!entries.length || catalog.length >= result.total) break;
+        }
+        return catalog;
+    }
+
+    function formatItems(catalog) {
+        return catalog.map((item) => {
+          const effective = item.effective_price_cents ?? item.base_price_cents;
+          return {
+            id: item.id, title: item.name, description: item.description,
+            image: item.photo_url || '/media/default.png', combo: item.is_combo,
+            basePrice: effective / 100, originalPrice: item.base_price_cents / 100,
+            newPrice: money.format(effective / 100),
+            oldPrice: effective < item.base_price_cents ? money.format(item.base_price_cents / 100) : null
+          };
+        });
+    }
+
+    const requestedReviews = new Set();
+    function loadReviews(entries) {
+        for (const item of entries) {
+          if (requestedReviews.has(item.id)) continue;
+          requestedReviews.add(item.id);
+          void get(`/items/${item.id}/reviews?page_size=5`).then(({ summary, data }) => {
+            if (!signal.aborted) reviews[item.id] = { rating: summary.average_rating, count: summary.review_count, reviews: data };
+          }).catch(() => {});
+        }
+    }
+
+    void (async () => {
+      try {
+        const catalog = await loadItems();
+        if (signal.aborted) return;
+        items = formatItems(catalog.filter((item) => item.is_available && item.effective_price_cents < item.base_price_cents));
+        loadReviews(items);
+      } catch {
+        if (!signal.aborted) failed = true;
+      } finally {
+        if (!signal.aborted) loading = false;
+      }
+    })();
+    void (async () => {
+      try {
+        const categories = await get('/categories');
+        const category = categories.find((entry) => entry.name.trim().toLowerCase() === 'combos');
+        const catalog = category ? await loadItems(category.id) : [];
+        if (signal.aborted) return;
+        combos = formatItems(catalog.filter((item) => item.is_available && item.is_combo));
+        loadReviews(combos);
+      } catch {
+        if (!signal.aborted) combosFailed = true;
+      } finally {
+        if (!signal.aborted) combosLoading = false;
+      }
+    })();
+    return () => controller.abort();
+  });
 </script>
 
 <div data-theme="restaurantTheme" class="min-h-screen bg-background font-sans selection:bg-primary selection:text-white">
@@ -79,17 +173,18 @@
     </div>
   </section>
 
-  <MelhoresPratosSection />
+  <PromotionSection items={reviewedSales} {loading} {failed} onOpenDetails={(id) => { selectedId = id; }} />
 
   <!-- ========================================== -->
   <!-- PROMOTIONAL BANNER                         -->
   <!-- ========================================== -->
+  {#if banner}
   <section class="py-8 px-page-x w-full max-w-7xl mx-auto">
     <div class="relative rounded-3xl overflow-hidden shadow-2xl group">
       <!-- Background Image -->
       <img
-        src="https://images.unsplash.com/photo-1550547660-d9450f859349?ixlib=rb-4.0.3&auto=format&fit=crop&w=1600&q=80"
-        alt="Promo Banner"
+        src={banner.background_image_url}
+        alt=""
         class="w-full h-[300px] md:h-[400px] object-cover group-hover:scale-105 transition-transform duration-700"
       />
       <!-- Dark Gradient Overlay for text readability -->
@@ -99,20 +194,21 @@
       <div class="absolute inset-0 flex flex-col justify-center p-8 md:p-16 max-w-2xl">
         <span class="text-primary font-bold text-lg md:text-xl uppercase tracking-wider mb-2">Oferta Especial</span>
         <h2 class="text-3xl md:text-5xl font-black text-white leading-tight mb-4">
-          Sexta do Hambúrguer: <br/>
-          <span class="text-primary">20% OFF</span> em qualquer combo!
+           {banner.title || banner.code}
         </h2>
         <p class="text-gray-200 text-sm md:text-base mb-8 max-w-md">
-          Válido todas as sextas-feiras no delivery. Aproveite a combinação perfeita de sabor e economia.
+           {banner.description || ''}
         </p>
-        <button class="bg-primary hover:bg-primary-hover text-white font-bold py-4 px-8 rounded-full w-max transition-colors shadow-lg shadow-orange-500/30 flex items-center gap-2">
-          Aproveitar Oferta
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-        </button>
+         <p class="font-bold text-white">Cupom: {banner.code}</p>
       </div>
     </div>
   </section>
+  {/if}
 
-  <CombosSection />
+  <CatalogSection title="Combos" items={reviewedCombos} loading={combosLoading} failed={combosFailed} onOpenDetails={(id) => { selectedId = id; }} />
 
 </div>
+
+{#if selected}
+  <ItemModal isOpen item={selected} onClose={() => { selectedId = null; }} />
+{/if}

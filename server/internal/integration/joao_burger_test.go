@@ -117,6 +117,22 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		}
 	}
 	const base = "/api/restaurants/" + JoaoBurgerSlug
+	var sushi struct{ Name string }
+	get("/api/restaurants/"+tanoshiiSlug, "", &sushi)
+	if sushi.Name != "Tanoshii Sushi 楽しい" {
+		t.Fatalf("wrong sushi restaurant name: %q", sushi.Name)
+	}
+	var featured struct {
+		Name        string
+		Price       int `json:"effective_price_cents"`
+		Ingredients []struct {
+			Removable bool `json:"is_removable"`
+		}
+	}
+	get(fmt.Sprintf("%s/items/%d", base, f.ItemIDs["smash-classico"]), "", &featured)
+	if featured.Name != "Hambúrguer Duplo Especial" || featured.Price != 2290 || len(featured.Ingredients) != 8 || featured.Ingredients[0].Removable || !featured.Ingredients[7].Removable {
+		t.Fatalf("wrong featured burger: %+v", featured)
+	}
 	type reviewPage struct {
 		Summary struct {
 			Count int `json:"review_count"`
@@ -227,9 +243,12 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 			Available bool   `json:"is_available"`
 		}
 	}
-	get(base+"/items?page_size=30", "", &items)
+	get(base+"/items?page_size=100", "", &items)
 	combos := 0
 	for _, item := range items.Data {
+		if !strings.HasPrefix(item.Photo, "https://images.unsplash.com/") {
+			t.Fatalf("João Burger item %d has no external photo: %q", item.ID, item.Photo)
+		}
 		assets = append(assets, item.Photo)
 		if item.Combo {
 			combos++
@@ -238,7 +257,7 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 			}
 		}
 	}
-	if len(items.Data) != 25 || combos != 10 {
+	if len(items.Data) != 32 || combos != 12 {
 		t.Fatalf("got %d products and %d combos", len(items.Data), combos)
 	}
 	var banners []struct {
@@ -252,6 +271,9 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		assets = append(assets, b.Image)
 	}
 	for _, asset := range assets {
+		if strings.HasPrefix(asset, "https://images.unsplash.com/") {
+			continue
+		}
 		if !strings.HasPrefix(asset, "/media/") {
 			t.Fatalf("unexpected asset URL: %q", asset)
 		}

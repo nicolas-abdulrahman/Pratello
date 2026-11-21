@@ -28,13 +28,13 @@ export function geocodeBrazil(query: string): Promise<Coordinates | null> {
   return pending;
 }
 
-export function deliveryEstimate(from: Coordinates, to: Coordinates): string {
+export function deliveryEstimate(from: Coordinates, to: Coordinates, mode: 'motorcycle' | 'walking' = 'motorcycle'): string {
   const radians = Math.PI / 180;
   const latitudeDelta = (to.latitude - from.latitude) * radians;
   const longitudeDelta = (to.longitude - from.longitude) * radians;
   const a = Math.sin(latitudeDelta / 2) ** 2 +
     Math.cos(from.latitude * radians) * Math.cos(to.latitude * radians) * Math.sin(longitudeDelta / 2) ** 2;
   const meters = 2 * 6_371_000 * Math.asin(Math.sqrt(Math.min(1, a)));
-  const seconds = Math.round(meters);
+  const seconds = Math.round(meters / (mode === 'walking' ? 1 : 13));
   return seconds < 60 ? `~${Math.max(1, seconds)} s` : `~${Math.ceil(seconds / 60)} min`;
 }

@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS item_sale (
 CREATE INDEX IF NOT EXISTS idx_item_sale_item_id_is_active ON item_sale(item_id,is_active);
 ALTER TABLE menu ADD COLUMN IF NOT EXISTS secondary_color VARCHAR(7);
 ALTER TABLE category ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE category ADD COLUMN IF NOT EXISTS image_url TEXT;
 ALTER TABLE category ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS category_one_fallback ON category(restaurant_id) WHERE is_fallback;
 ALTER TABLE combo_item ADD COLUMN IF NOT EXISTS id SERIAL;

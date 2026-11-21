@@ -133,6 +133,7 @@
     restaurantBrand = null;
     if (!showNavLinks) return;
     const controller = new AbortController();
+    const originalTitle = document.title;
     const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     const original = favicon?.getAttribute('href');
     const originalType = favicon?.getAttribute('type');
@@ -141,6 +142,7 @@
       .then((brand) => {
         if (!brand || controller.signal.aborted) return;
         restaurantBrand = brand;
+        document.title = brand.name;
         if (favicon && brand.favicon_url) {
           favicon.href = brand.favicon_url;
           favicon.removeAttribute('type');
@@ -149,6 +151,7 @@
       .catch(() => {});
     return () => {
       controller.abort();
+      document.title = originalTitle;
       if (favicon && original) favicon.setAttribute('href', original);
       if (favicon && originalType) favicon.setAttribute('type', originalType);
     };
@@ -205,9 +208,9 @@
         {:else if currentView === 'restaurantes'}
           <RestaurantsPage />
         {:else if currentView === 'restaurant'}
-          <Restaurant name={restaurantBrand?.name} logoURL={restaurantBrand?.icon_url} />
+          <Restaurant {slug} name={restaurantBrand?.name} logoURL={restaurantBrand?.icon_url} />
         {:else if currentView === 'cardapio'}
-          <MenuPage />
+          <MenuPage {slug} />
         {:else if currentView === 'delivery'}
           <DeliverySection />
         {:else if currentView === 'order'}

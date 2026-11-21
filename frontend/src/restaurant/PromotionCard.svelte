@@ -6,6 +6,8 @@
   type PromotionItem = Item & {
     originalPrice?: number;
     isPopular?: boolean;
+    rating?: number | null;
+    reviewCount?: number | null;
   };
 
   let {
@@ -24,8 +26,8 @@
     typeof item.originalPrice === 'number' ? formatBRL(item.originalPrice) : null,
   );
 
-  const rating = $derived(item.review?.rating ?? null);
-  const reviewCount = $derived<number | null>(null);
+  const rating = $derived(item.rating ?? item.review?.rating ?? null);
+  const reviewCount = $derived(item.reviewCount ?? null);
   const isPopular = $derived(!!item.isPopular);
   const isCombo = $derived(item.type === 'combo');
 

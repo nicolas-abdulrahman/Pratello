@@ -34,6 +34,7 @@ type layout struct {
 }
 
 type category struct {
+	Image    *string   `json:"image_url,omitempty"`
 	ID       int       `json:"id"`
 	Slug     string    `json:"restaurant_slug"`
 	Name     string    `json:"name"`
@@ -191,8 +192,9 @@ type layoutInput struct {
 	Typography *string `json:"typography"`
 }
 type categoryInput struct {
-	Name  string `json:"name"`
-	Order *int32 `json:"display_order"`
+	Image nullable[string] `json:"image_url"`
+	Name  string           `json:"name"`
+	Order *int32           `json:"display_order"`
 }
 type itemInput struct {
 	Category    *int             `json:"category_id"`
@@ -418,6 +420,16 @@ func prepare(ctx context.Context, tx session, c catalog, r request) (any, error)
 			return nil, ErrConflict
 		}
 		v.Name = n
+		if p.Image.Set {
+			v.Image = nil
+			if p.Image.Value != nil && *p.Image.Value != "" {
+				image, err := common.ImageURL(*p.Image.Value)
+				if err != nil {
+					return nil, ErrInvalid
+				}
+				v.Image = &image
+			}
+		}
 		if p.Order != nil {
 			v.Order = int(*p.Order)
 		}
