@@ -1,6 +1,7 @@
 <script>
   import { add_item} from '../lib/stores/Cart';
   import ReviewProp from '../review/ReviewProp.svelte';
+  import { sectionText } from './section/section';
 
   let {
     image,
@@ -11,6 +12,7 @@
     combo = null,
     rating = null,
     count = null,
+    colors,
     onOpenDetails = () => {}
   } = $props();
 
@@ -45,7 +47,8 @@
 <button 
   type="button"
   onclick={onOpenDetails}
-  class="text-left bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-xl transition-all duration-300 group flex flex-col w-[300px] min-w-[300px] snap-start h-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#ff5722]
+  style:background-color={colors.background}
+  class="text-left rounded-2xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-xl transition-all duration-300 group flex flex-col w-[300px] min-w-[300px] snap-start h-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#ff5722]
   {isPopping ? 'animate-card-pop' : ''}"
 >
   <div class="relative h-48 overflow-hidden shrink-0 w-full">
@@ -53,8 +56,8 @@
   </div>
 
   <div class="p-5 flex flex-col flex-1 w-full">
-    <h3 class="text-lg font-extrabold text-gray-900 mb-1">{title}</h3>
-    <p class="text-sm text-gray-500 leading-snug mb-4 flex-1 line-clamp-2">{desc}</p>
+    <h3 class="text-lg font-extrabold mb-1" style:color={colors.title}>{sectionText(title)}</h3>
+    <p class="text-sm leading-snug mb-4 flex-1 line-clamp-2" style:color={colors.description}>{sectionText(desc)}</p>
     
     <div class="flex items-end justify-between mt-auto pt-4 border-t border-gray-50 w-full">
       <div class="flex flex-col gap-1 items-start">
@@ -63,7 +66,7 @@
         {#if originalPrice}
           <span class="text-xs text-gray-400 line-through font-medium leading-none mb-1">{originalPrice}</span>
         {/if}
-        <span class="text-xl font-black text-[#ff5722] leading-none">{price}</span>
+        <span class="text-xl font-black leading-none" style:color={colors.price}>{sectionText(price)}</span>
       </div>
       
       <!-- Inner Add Button: Using a div with role=button because you can't nest buttons -->
@@ -72,8 +75,10 @@
         tabindex="0"
         onclick={handleAdd}
         onkeydown={(e) => { if(e.key === 'Enter') handleAdd(e); }}
+        style:background-color={justAdded ? undefined : colors.addBackground}
+        style:color={justAdded ? undefined : colors.addForeground}
         class="font-bold py-2 px-4 rounded-full text-sm transition-all shadow-md flex items-center gap-2
-        {justAdded ? 'bg-emerald-500 text-white scale-95' : 'bg-[#ff5722] hover:bg-[#e64a19] text-white'}"
+        {justAdded ? 'bg-emerald-500 text-white scale-95' : 'hover:brightness-95'}"
       >
         {#if justAdded}
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>

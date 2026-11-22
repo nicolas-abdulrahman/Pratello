@@ -1,7 +1,10 @@
 <script>
   import CombosCard from './CombosCard.svelte';
+  import SectionTitle from './section/SectionTitle.svelte';
+  import { resolveItemColors, resolveSection } from './section/section';
 
-  let { title, items, loading, failed, onOpenDetails } = $props();
+  let { items, loading, failed, onOpenDetails, block, dark = false, palette = '' } = $props();
+  let styles = $derived(resolveSection(block ?? {}, { dark }));
   let track = $state();
   let trackWidth = $state(0);
   let canGoLeft = $state(false);
@@ -26,8 +29,8 @@
   }
 </script>
 
-<section class="mx-auto max-w-7xl space-y-space-sm px-page-x py-space-lg">
-  <h2 class="text-2xl font-black text-text md:text-3xl">{title}</h2>
+<section class="mx-auto max-w-7xl space-y-space-sm px-page-x py-space-lg" style={palette} style:background-color={styles.background} style:border-bottom-style={styles.border} style:border-bottom-color={styles.borderColor} style:border-bottom-width={styles.border === 'none' ? '0' : '2px'}>
+  <h2 class="text-2xl font-black md:text-3xl"><SectionTitle title={styles.title} /></h2>
   {#if loading}
     <p role="status" class="text-text-muted">Carregando itens…</p>
   {:else if failed}
@@ -40,6 +43,7 @@
       {#each items as item (item.id)}
         <div class="shrink-0 snap-start">
           <CombosCard image={item.image} title={item.title} desc={item.description} price={item.newPrice}
+            colors={resolveItemColors({ ...block?.item_style, ...item.style, dark: item.style?.dark ?? block?.item_style?.dark }, styles.isDark, block?.bg ?? 'bg')}
             originalPrice={item.oldPrice} combo={item.combo} rating={item.rating} count={item.count}
             onOpenDetails={() => onOpenDetails(item.id)} />
         </div>

@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.13
+  version: 2.2.14
   description: |
     SaaS for restaurants — complete API.
 
@@ -3597,6 +3597,10 @@ components:
               desc: { $ref: '#/components/schemas/StyledDisplayText' }
               img: { type: string, description: Required for either header. }
               border: { type: string, enum: [none, solid, dotted] }
+              border_color: *displayToken
+              item_style: { $ref: '#/components/schemas/ItemDisplayStyle' }
+              button1: { $ref: '#/components/schemas/HeroDisplayButton' }
+              button2: { $ref: '#/components/schemas/HeroDisplayButton' }
               container: *displayContainer
               banner_id: { type: string, description: Promotion banner ID or coupon code. }
               display_items:
@@ -3611,16 +3615,35 @@ components:
       properties:
         text: { type: string }
         color: *displayToken
-        text_white: { type: boolean, nullable: true }
+        dark: &nestedDark { type: boolean, nullable: true, description: Omit or send null to inherit from the parent. Explicit false selects light mode. }
         gradient:
           type: object
           nullable: true
           required: [type, start_char, first_color, second_color]
           properties:
             type: { type: string, enum: [rough, smooth] }
+            dark: *nestedDark
             start_char: { type: integer, minimum: 0 }
             first_color: *displayToken
             second_color: *displayToken
+    HeroDisplayButton:
+      type: object
+      properties:
+        dark: *nestedDark
+        bg: *displayToken
+        href: { type: string }
+        text:
+          type: object
+          properties:
+            dark: *nestedDark
+    ItemDisplayStyle:
+      type: object
+      nullable: true
+      properties:
+        dark: *nestedDark
+        bg: &itemStyleToken { type: string, enum: [bg, primary_color, secondary_color, bg_dark, primary_color_dark, secondary_color_dark, text, text_muted] }
+        title_color: *itemStyleToken
+        price_color: *itemStyleToken
     Category:
       type: object
       required: [id, name, display_order]
@@ -3651,6 +3674,7 @@ components:
       type: object
       required: [id, category_id, name, base_price_cents, is_combo, is_available]
       properties:
+        display_style: { $ref: '#/components/schemas/ItemDisplayStyle' }
         id: { type: integer }
         category_id: { type: integer }
         name: { type: string }
@@ -3669,6 +3693,7 @@ components:
       type: object
       required: [category_id, name, base_price_cents]
       properties:
+        display_style: { $ref: '#/components/schemas/ItemDisplayStyle' }
         category_id: { type: integer }
         name: { type: string }
         description: { type: string }
@@ -3682,6 +3707,7 @@ components:
       type: object
       required: [category_id, name, base_price_cents, is_combo, is_available]
       properties:
+        display_style: { $ref: '#/components/schemas/ItemDisplayStyle' }
         category_id: { type: integer }
         name: { type: string }
         description: { type: string }
@@ -3694,6 +3720,7 @@ components:
     PatchItemRequest:
       type: object
       properties:
+        display_style: { $ref: '#/components/schemas/ItemDisplayStyle' }
         category_id: { type: integer }
         name: { type: string }
         description: { type: string, nullable: true }

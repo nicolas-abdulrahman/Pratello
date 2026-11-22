@@ -214,7 +214,11 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	}
 	var layout struct {
 		Display struct {
-			FirstPage []struct{ ID string } `json:"first_page"`
+			FirstPage []struct {
+				ID          string
+				Border      string `json:"border"`
+				BorderColor string `json:"border_color"`
+			} `json:"first_page"`
 		} `json:"display_config"`
 		Style     string `json:"template_style"`
 		Accent    string `json:"accent_color"`
@@ -224,6 +228,9 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	blocks := layout.Display.FirstPage
 	if len(blocks) != 4 || blocks[0].ID != "hero_joao_burger" || blocks[1].ID != "sec_promocoes" || blocks[2].ID != "promo_card_1" || blocks[3].ID != "sec_combos" {
 		t.Fatalf("storefront layout was not returned in display order: %+v", blocks)
+	}
+	if blocks[1].Border != "dotted" || blocks[1].BorderColor != "primary_color" {
+		t.Fatalf("wrong promotions border: %+v", blocks[1])
 	}
 	if layout.Style != "classic" || layout.Accent != "#EA580C" || layout.Secondary != "#FDE68A" {
 		t.Fatalf("wrong menu layout: %+v", layout)

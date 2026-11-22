@@ -45,18 +45,19 @@ type category struct {
 }
 
 type item struct {
-	ID          int       `json:"id"`
-	Category    int       `json:"category_id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description,omitempty"`
-	Base        int64     `json:"base_price_cents"`
-	Cost        *int64    `json:"base_cost_cents,omitempty"`
-	Photo       *string   `json:"photo_url,omitempty"`
-	Combo       bool      `json:"is_combo"`
-	Available   bool      `json:"is_available"`
-	Reviews     bool      `json:"allows_review"`
-	Created     time.Time `json:"created_at"`
-	Updated     time.Time `json:"updated_at"`
+	DisplayStyle *itemStyle `json:"display_style,omitempty"`
+	ID           int        `json:"id"`
+	Category     int        `json:"category_id"`
+	Name         string     `json:"name"`
+	Description  *string    `json:"description,omitempty"`
+	Base         int64      `json:"base_price_cents"`
+	Cost         *int64     `json:"base_cost_cents,omitempty"`
+	Photo        *string    `json:"photo_url,omitempty"`
+	Combo        bool       `json:"is_combo"`
+	Available    bool       `json:"is_available"`
+	Reviews      bool       `json:"allows_review"`
+	Created      time.Time  `json:"created_at"`
+	Updated      time.Time  `json:"updated_at"`
 }
 
 type itemView struct {
@@ -199,15 +200,16 @@ type categoryInput struct {
 	Order *int32           `json:"display_order"`
 }
 type itemInput struct {
-	Category    *int             `json:"category_id"`
-	Name        *string          `json:"name"`
-	Description nullable[string] `json:"description"`
-	Base        *int64           `json:"base_price_cents"`
-	Cost        nullable[int64]  `json:"base_cost_cents"`
-	Photo       nullable[string] `json:"photo_url"`
-	Combo       *bool            `json:"is_combo"`
-	Available   *bool            `json:"is_available"`
-	Reviews     *bool            `json:"allows_review"`
+	DisplayStyle nullable[itemStyle] `json:"display_style"`
+	Category     *int                `json:"category_id"`
+	Name         *string             `json:"name"`
+	Description  nullable[string]    `json:"description"`
+	Base         *int64              `json:"base_price_cents"`
+	Cost         nullable[int64]     `json:"base_cost_cents"`
+	Photo        nullable[string]    `json:"photo_url"`
+	Combo        *bool               `json:"is_combo"`
+	Available    *bool               `json:"is_available"`
+	Reviews      *bool               `json:"allows_review"`
 }
 type ingredientInput struct {
 	Name string  `json:"name"`
@@ -636,6 +638,12 @@ func prepare(ctx context.Context, tx session, c catalog, r request) (any, error)
 
 func prepareItem(c catalog, r request, p *itemInput) (item, error) {
 	v := c.Items[r.item]
+	if p.DisplayStyle.Set {
+		if !p.DisplayStyle.Value.valid() {
+			return v, ErrInvalid
+		}
+		v.DisplayStyle = p.DisplayStyle.Value
+	}
 	if r.op == addItem {
 		v.Available, v.Reviews = true, true
 	}

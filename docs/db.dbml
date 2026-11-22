@@ -238,6 +238,7 @@ Table "public"."menu_item" {
   "description" text
   "base_price_cents" bigint [not null, note: 'money in BRL cents']
   "base_cost_cents" bigint [note: 'optional recipe/production cost; null or 0 if undisclosed']
+  "display_style" jsonb
   "image_url" text
   "is_available" boolean [not null, default: true]
   "is_combo" boolean [not null, default: false]

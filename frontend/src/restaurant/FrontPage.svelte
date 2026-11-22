@@ -1,6 +1,7 @@
 <script>
   import Header1 from './hero/header1.svelte';
-  import { setRestaurantDisplayConfig } from '../lib/stores/restaurant_style';
+  import { restaurantCssVars, restaurantPageBackground, setRestaurantDisplayConfig } from '../lib/stores/restaurant_style';
+  import { findSection } from './section/section';
   import { get_description } from '../lib/stores/Item';
   import CatalogSection from './CatalogSection.svelte';
   import PromotionSection from './PromotionSection.svelte';
@@ -12,8 +13,14 @@
   let combosLoading = $state(true);
   let combosFailed = $state(false);
   let reviews = $state({});
-  let banner = $state(null);
+  let banners = $state([]);
   let display = $state(null);
+  let banner = $derived.by(() => {
+    const block = display?.first_page?.find((entry) => entry.type === 'promotion_banner');
+    if (!block?.banner_id) return null;
+    const key = String(block.banner_id).trim().toLowerCase();
+    return banners.find((entry) => String(entry.id) === key || entry.code?.toLowerCase() === key) ?? null;
+  });
   $effect(() => {
     setRestaurantDisplayConfig(display);
     return () => setRestaurantDisplayConfig(null);
@@ -38,7 +45,7 @@
       return response.json();
     }
     void get('/menu/banners').then((result) => {
-      if (!signal.aborted) banner = result?.[0] ?? null;
+      if (!signal.aborted) banners = result ?? [];
     }).catch(() => {});
     void get('/menu').then((result) => { if (!signal.aborted) display = result.display_config ?? null; }).catch(() => {});
     async function loadItems(categoryId) {
@@ -62,7 +69,7 @@
           }
           const description = await descriptions.get(item.id);
           return {
-             id: item.id, title: item.name, description, category: item.category_id, tags: item.tags, collections: item.collections,
+             id: item.id, title: item.name, description, category: item.category_id, tags: item.tags, collections: item.collections, style: item.display_style,
             image: item.photo_url || '/media/default.png', combo: item.is_combo,
             basePrice: effective / 100, originalPrice: item.base_price_cents / 100,
             newPrice: money.format(effective / 100),
@@ -116,11 +123,11 @@
   });
 </script>
 
-<div data-theme="restaurantTheme" class="min-h-screen bg-background font-sans selection:bg-primary selection:text-white">
+<div data-theme="restaurantTheme" class="min-h-screen font-sans selection:bg-primary selection:text-white" style={$restaurantCssVars} style:background-color={$restaurantPageBackground}>
 
   <Header1 {slug} fallbackName={name} fallbackDescription={description} fallbackImage={coverURL} />
 
-  <PromotionSection items={reviewedSales} {loading} {failed} onOpenDetails={(id) => { selectedId = id; }} />
+  <PromotionSection items={reviewedSales} {loading} {failed} block={findSection(display, 'sales')} dark={display?.dark ?? false} palette={$restaurantCssVars} onOpenDetails={(id) => { selectedId = id; }} />
 
   <!-- ========================================== -->
   <!-- PROMOTIONAL BANNER                         -->
@@ -152,7 +159,7 @@
   </section>
   {/if}
 
-  <CatalogSection title="Combos" items={reviewedCombos} loading={combosLoading} failed={combosFailed} onOpenDetails={(id) => { selectedId = id; }} />
+  <CatalogSection items={reviewedCombos} loading={combosLoading} failed={combosFailed} block={findSection(display, 'combos')} dark={display?.dark ?? false} palette={$restaurantCssVars} onOpenDetails={(id) => { selectedId = id; }} />
 
 </div>
 

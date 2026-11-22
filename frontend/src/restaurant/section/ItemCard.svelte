@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { add_item } from '../lib/stores/Cart';
-  import ReviewProp from '../review/ReviewProp.svelte';
-  import type { Item } from '../lib/stores/Item';
+  import { add_item } from '../../lib/stores/Cart';
+  import ReviewProp from '../../review/ReviewProp.svelte';
+  import type { Item } from '../../lib/stores/Item';
+  import { sectionText, resolveItemColors } from './section';
 
   type PromotionItem = Item & {
     originalPrice?: number;
@@ -12,16 +13,18 @@
 
   let {
     item,
+    colors,
     onOpenDetails = () => {},
   }: {
     item: PromotionItem;
+    colors: ReturnType<typeof resolveItemColors>;
     onOpenDetails?: () => void;
   } = $props();
 
   let isPopping = $state(false);
   let justAdded = $state(false);
 
-  const newPriceLabel = $derived(formatBRL(item.basePrice));
+  const newPriceLabel = $derived(Number.isFinite(item.basePrice) ? formatBRL(item.basePrice) : sectionText());
   const oldPriceLabel = $derived(
     typeof item.originalPrice === 'number' ? formatBRL(item.originalPrice) : null,
   );
@@ -53,7 +56,8 @@
 
 <div
   onclick={onOpenDetails}
-  class="relative flex w-full min-w-[280px] h-[185px] bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 snap-start group hover:shadow-md transition-shadow cursor-pointer
+  style:background-color={colors.background}
+  class="relative flex w-full min-w-[280px] h-[185px] rounded-2xl overflow-hidden shadow-sm border border-gray-100 snap-start group hover:shadow-md transition-shadow cursor-pointer
   {isPopping ? 'animate-card-pop' : ''}"
 >
   <div class="w-[42%] h-full relative shrink-0">
@@ -79,13 +83,13 @@
     {/if}
   </div>
 
-  <div class="flex flex-col flex-1 p-3 pl-4 relative z-10 bg-gradient-to-r from-white via-white to-transparent">
-    <h3 class="text-[#a82b00] font-extrabold text-[15px] leading-tight mb-1 pr-1">
-      {item.name}
+  <div class="flex flex-col flex-1 p-3 pl-4 relative z-10">
+    <h3 class="font-extrabold text-[15px] leading-tight mb-1 pr-1" style:color={colors.title}>
+      {sectionText(item.name)}
     </h3>
 
-    <p class="text-gray-500 text-[11px] leading-snug line-clamp-2 mb-2 flex-1 pr-1">
-      {item.description}
+    <p class="text-[11px] leading-snug line-clamp-2 mb-2 flex-1 pr-1" style:color={colors.description}>
+      {sectionText(item.description)}
     </p>
 
     <div class="flex items-end justify-between mt-auto pr-1">
@@ -98,19 +102,22 @@
               {oldPriceLabel}
             </span>
           {/if}
-          <span class="text-[#ff5722] font-black text-xl leading-none">
+          <span class="font-black text-xl leading-none" style:color={colors.price}>
             {newPriceLabel}
           </span>
         </div>
       </div>
 
       <button
+        type="button"
         onclick={handleAdd}
         disabled={isPopping}
+        style:background-color={justAdded ? undefined : colors.addBackground}
+        style:color={justAdded ? undefined : colors.addForeground}
         class="p-2 rounded-full flex items-center justify-center transition-all duration-300 group/btn shrink-0 mb-0.5 min-w-[36px] min-h-[36px]
         {justAdded
           ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)]'
-          : 'bg-[#ff5722]/10 hover:bg-[#ff5722] text-[#ff5722] hover:text-white'}"
+          : 'hover:brightness-95'}"
         aria-label="Adicionar ao carrinho"
       >
         {#if justAdded}

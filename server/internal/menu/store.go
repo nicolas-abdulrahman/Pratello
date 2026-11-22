@@ -13,6 +13,14 @@ import (
 
 type postgres struct{ db *sql.DB }
 
+func styleJSON(style *itemStyle) any {
+	if style == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(style) // itemStyle contains only strings and an optional bool.
+	return string(raw)
+}
+
 // CheckoutLines prices and validates selections within the caller's checkout transaction.
 func CheckoutLines(ctx context.Context, tx *sql.Tx, org int, slug string, branch int, selections []Selection, at time.Time) ([]CheckoutLine, error) {
 	u := sqlSession{tx: tx, org: org, slug: slug}
@@ -104,7 +112,7 @@ func (u sqlSession) categoryUsed(ctx context.Context, id int) (bool, error) {
 // Read the normalized rows in one database round trip, within the same snapshot
 // as the role and publication checks. Domain availability is evaluated in Go.
 const loadSQL = `WITH items AS (
-  SELECT id,category_id,name,description,base_price_cents,base_cost_cents,image_url AS photo_url,is_combo,is_available,allows_review,created_at,updated_at
+  SELECT id,category_id,name,description,base_price_cents,base_cost_cents,image_url AS photo_url,is_combo,is_available,allows_review,created_at,updated_at,display_style
   FROM menu_item WHERE restaurant_id=$1 AND archived_at IS NULL
 ), groups AS (
   SELECT g.* FROM item_side g JOIN items i ON i.id=g.item_id
@@ -237,12 +245,12 @@ func (u sqlSession) mutate(ctx context.Context, r request, data any) (int, error
 		return u.returningID(ctx, `UPDATE category SET archived_at=now() WHERE id=$1 AND restaurant_id=$2 RETURNING id`, r.id, u.org)
 	case addItem:
 		v := data.(item)
-		return u.returningID(ctx, `INSERT INTO menu_item(restaurant_id,category_id,name,description,base_price_cents,base_cost_cents,image_url,is_combo,is_available,allows_review)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, u.org, v.Category, v.Name, v.Description, v.Base, v.Cost, v.Photo, v.Combo, v.Available, v.Reviews)
+		return u.returningID(ctx, `INSERT INTO menu_item(restaurant_id,category_id,name,description,base_price_cents,base_cost_cents,image_url,is_combo,is_available,allows_review,display_style)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, u.org, v.Category, v.Name, v.Description, v.Base, v.Cost, v.Photo, v.Combo, v.Available, v.Reviews, styleJSON(v.DisplayStyle))
 	case putItem, patchItem:
 		v := data.(item)
 		return u.returningID(ctx, `UPDATE menu_item SET category_id=$1,name=$2,description=$3,base_price_cents=$4,base_cost_cents=$5,image_url=$6,
-		is_combo=$7,is_available=$8,allows_review=$9 WHERE id=$10 AND restaurant_id=$11 RETURNING id`, v.Category, v.Name, v.Description, v.Base, v.Cost, v.Photo, v.Combo, v.Available, v.Reviews, r.item, u.org)
+		is_combo=$7,is_available=$8,allows_review=$9,display_style=$12 WHERE id=$10 AND restaurant_id=$11 RETURNING id`, v.Category, v.Name, v.Description, v.Base, v.Cost, v.Photo, v.Combo, v.Available, v.Reviews, r.item, u.org, styleJSON(v.DisplayStyle))
 	case archiveItem:
 		return u.returningID(ctx, `UPDATE menu_item SET archived_at=now(),is_available=FALSE WHERE id=$1 AND restaurant_id=$2 RETURNING id`, r.item, u.org)
 	case stockItem:

@@ -183,6 +183,29 @@ func TestMenuPostgresLifecycle(t *testing.T) {
 	burger := decodeID(call("POST", root+"/items", owner, create(cat, "Burger", `,"base_cost_cents":300,"allows_review":false`), 201))
 	combo := decodeID(call("POST", root+"/items", owner, create(cat, "Combo", `,"is_combo":true`), 201))
 	burgerURL, comboURL := fmt.Sprintf("%s/items/%d", root, burger), fmt.Sprintf("%s/items/%d", root, combo)
+	config := `{"display_config":{"dark":true,"colors":{"bg":"#ffffff","primary_color":"#ea580c","secondary_color":"#fde68a","bg_dark":"#431407","primary_color_dark":"#facc15","secondary_color_dark":"#9a3412"},"menu":{"container":"horizontal"},"first_page":[{"id":"hero","type":"header1","img":"/media/hero.png","welcome":{"text":"Olá"},"title":{"text":"Menu","dark":false},"desc":{"text":""},"button1":{"bg":"primary_color","text":{"dark":false}}},{"id":"sales","type":"section","container":"grid","title":{"text":"Promoções"},"display_items":{"by":"category","value":"sales"},"border_color":"primary_color","item_style":{"bg":"secondary_color","dark":false}}]}}`
+	call("PUT", root+"/menu", owner, config, 200)
+	var savedLayout layout
+	if err := json.Unmarshal(call("GET", root+"/menu", "", "", 200), &savedLayout); err != nil {
+		t.Fatal(err)
+	}
+	hero, section := savedLayout.Display.FirstPage[0], savedLayout.Display.FirstPage[1]
+	if hero.Button1.BG != "primary_color" || hero.Button1.Text.Dark == nil || *hero.Button1.Text.Dark || hero.Title.Dark == nil || *hero.Title.Dark || section.BorderColor != "primary_color" || section.ItemStyle.Dark == nil || *section.ItemStyle.Dark {
+		t.Fatalf("display styles did not round-trip: %+v", savedLayout.Display)
+	}
+	call("PUT", root+"/menu", owner, strings.Replace(config, `"border_color":"primary_color"`, `"border_color":"#ffffff"`, 1), 400)
+	call("PATCH", burgerURL, owner, `{"display_style":{"bg":"secondary_color","title_color":"text","price_color":"primary_color","dark":false}}`, 200)
+	call("PATCH", burgerURL, owner, `{"display_style":{"price_color":"lighter_primary_color"}}`, 400)
+	for _, path := range []string{burgerURL, root + "/items"} {
+		body := string(call("GET", path, "", "", 200))
+		if !strings.Contains(body, `"display_style":{"dark":false,"bg":"secondary_color","title_color":"text","price_color":"primary_color"}`) {
+			t.Fatalf("style missing from %s: %s", path, body)
+		}
+	}
+	call("PATCH", burgerURL, owner, `{"display_style":null}`, 200)
+	if v := decodeItem(call("GET", burgerURL, "", "", 200)); v.DisplayStyle != nil {
+		t.Fatal("style was not cleared")
+	}
 	for _, tok := range []string{"", manager, employee, owner, analyst, admin} {
 		detail := decodeItem(call("GET", burgerURL+query(b1), tok, "", 200))
 		private := tok == owner || tok == analyst || tok == admin

@@ -8,8 +8,9 @@ export type ColorPalette = Record<BaseColorKey, string>;
 export interface StyledText {
   text: string;
   color?: ColorToken;
-  text_white?: boolean | null;
+  dark?: boolean | null;
   gradient?: {
+    dark?: boolean | null;
     type: 'rough' | 'smooth';
     start_char: number;
     first_color: ColorToken;
@@ -18,9 +19,9 @@ export interface StyledText {
 }
 
 interface HeroButton {
-  text: string;
+  dark?: boolean | null;
+  text?: { dark?: boolean | null } | null;
   bg?: ColorToken | null;
-  text_color?: ColorToken | null;
   href?: string;
 }
 
@@ -62,28 +63,30 @@ function buttonHref(href?: string): string | undefined {
 
 function resolveButton(button: HeroButton | null | undefined, isDark: boolean, usePrimary = false) {
   const href = buttonHref(button?.href);
-  const bg = usePrimary ? 'primary_color' : button?.bg;
+  isDark = button?.dark ?? isDark;
+  const bg = button?.bg ?? (usePrimary ? 'primary_color' : null);
   return {
     href,
     bgCss: bg ? resolveColor(bg, isDark) : 'white',
-    textCss: button?.text_color ? resolveColor(button.text_color, isDark) : bg && !isDark ? 'white' : 'black',
-    borderCss: usePrimary ? resolveColor('darker_primary_color', isDark) : bg ? resolveColor(bg, isDark) : 'black',
+    textCss: resolveColor('text', button?.text?.dark ?? isDark),
+    borderCss: bg === 'primary_color' ? resolveColor('darker_primary_color', isDark) : bg ? resolveColor(bg, isDark) : 'black',
   };
 }
 
 export const fallbackHeroButtons = [resolveButton(null, false), resolveButton(null, false)] as const;
 
-function resolveText(node: StyledText | undefined, isDark: boolean, fallback: ColorToken): ResolvedText {
+export function resolveText(node: StyledText | undefined, isDark: boolean, fallback: ColorToken): ResolvedText {
   const text = node?.text ?? '';
   const gradient = node?.gradient;
-  if (!gradient || node?.text_white) {
-    return { mode: 'flat', text, color: node?.text_white ? '#FFFFFF' : resolveColor(node?.color ?? fallback, isDark) };
+  isDark = node?.dark ?? isDark;
+  if (!gradient) {
+    return { mode: 'flat', text, color: resolveColor(node?.color ?? fallback, isDark) };
   }
   // The API counts Unicode code points, not UTF-16 code units.
   const chars = Array.from(text);
   const start = Math.max(0, Math.min(chars.length, gradient.start_char));
-  const firstColor = resolveColor(gradient.first_color, isDark);
-  const secondColor = resolveColor(gradient.second_color, isDark);
+  const firstColor = resolveColor(gradient.first_color, gradient.dark ?? isDark);
+  const secondColor = resolveColor(gradient.second_color, gradient.dark ?? isDark);
   if (gradient.type === 'rough') {
     return { mode: 'rough', text, first: chars.slice(0, start).join(''), second: chars.slice(start).join(''), firstColor, secondColor };
   }
@@ -105,6 +108,10 @@ export const restaurantCssVars = derived(rawDisplayConfig, (config) => {
     return `--${key}: ${hex}; --darker_${key}: color-mix(in srgb, var(--${key}) ${weight}%, black); --lighter_${key}: color-mix(in srgb, var(--${key}) ${weight}%, white);`;
   }).join(' ');
 });
+
+export const restaurantPageBackground = derived(rawDisplayConfig, (config) =>
+  config ? `var(--${config.dark ? 'bg_dark' : 'bg'}, var(--color-background))` : 'var(--color-background)',
+);
 
 export const header1Rules = derived(rawDisplayConfig, (config) => {
   const hero = config?.first_page?.[0];

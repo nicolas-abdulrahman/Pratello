@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS menu_item (
     is_combo BOOLEAN NOT NULL DEFAULT FALSE, allows_review BOOLEAN NOT NULL DEFAULT TRUE, archived_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE menu_item ADD COLUMN IF NOT EXISTS display_style JSONB CHECK (jsonb_typeof(display_style)='object');
 CREATE TABLE IF NOT EXISTS item_ingredient (
     id SERIAL PRIMARY KEY, item_id INT NOT NULL REFERENCES menu_item(id), ingredient_id INT NOT NULL REFERENCES ingredient(id),
     quantity NUMERIC(10,3), measure ingredient_unit_enum, is_removable BOOLEAN NOT NULL DEFAULT FALSE

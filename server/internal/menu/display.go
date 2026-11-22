@@ -16,6 +16,10 @@ type displayConfig struct {
 	FirstPage []displayBlock `json:"first_page"`
 }
 type displayBlock struct {
+	Button1      *heroButton `json:"button1,omitempty"`
+	Button2      *heroButton `json:"button2,omitempty"`
+	BorderColor  string      `json:"border_color,omitempty"`
+	ItemStyle    *itemStyle  `json:"item_style,omitempty"`
 	ID           string      `json:"id"`
 	Type         string      `json:"type"`
 	Dark         *bool       `json:"dark,omitempty"`
@@ -32,11 +36,43 @@ type displayBlock struct {
 	} `json:"display_items,omitempty"`
 	BannerID string `json:"banner_id,omitempty"`
 }
+
+type itemStyle struct {
+	Dark  *bool  `json:"dark,omitempty"`
+	BG    string `json:"bg,omitempty"`
+	Title string `json:"title_color,omitempty"`
+	Price string `json:"price_color,omitempty"`
+}
+
+type heroButton struct {
+	Dark *bool  `json:"dark,omitempty"`
+	BG   string `json:"bg,omitempty"`
+	Href string `json:"href,omitempty"`
+	Text *struct {
+		Dark *bool `json:"dark,omitempty"`
+	} `json:"text,omitempty"`
+}
+
+func (b *heroButton) valid() bool { return b == nil || b.BG == "" || token(b.BG) }
+
+func (s *itemStyle) valid() bool {
+	if s == nil {
+		return true
+	}
+	for _, v := range []string{s.BG, s.Title, s.Price} {
+		if v != "" && (!token(v) || strings.HasPrefix(v, "darker_") || strings.HasPrefix(v, "lighter_")) {
+			return false
+		}
+	}
+	return true
+}
+
 type styledText struct {
 	Text     *string `json:"text"`
 	Color    string  `json:"color,omitempty"`
-	White    *bool   `json:"text_white,omitempty"`
+	Dark     *bool   `json:"dark,omitempty"`
 	Gradient *struct {
+		Dark   *bool  `json:"dark,omitempty"`
 		Type   string `json:"type"`
 		Start  *int   `json:"start_char"`
 		First  string `json:"first_color"`
@@ -81,6 +117,12 @@ func (c *displayConfig) valid() bool {
 			return false
 		}
 		ids[b.ID] = true
+		if (b.Button1 != nil || b.Button2 != nil) && (b.Type != "header1" || !b.Button1.valid() || !b.Button2.valid()) {
+			return false
+		}
+		if (b.BorderColor != "" || b.ItemStyle != nil) && b.Type != "section" {
+			return false
+		}
 		if (i == 0) != (b.Type == "header1" || b.Type == "header2") {
 			return false
 		}
@@ -95,6 +137,9 @@ func (c *displayConfig) valid() bool {
 				return false
 			}
 		case "section":
+			if (b.BorderColor != "" && !token(b.BorderColor)) || !b.ItemStyle.valid() {
+				return false
+			}
 			f := b.DisplayItems
 			if !container(b.Container) || !b.Title.valid() || f == nil || strings.TrimSpace(f.Value) == "" {
 				return false

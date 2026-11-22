@@ -74,7 +74,9 @@ var errTooLarge = errors.New("menu request body too large")
 
 func (n *nullable[T]) UnmarshalJSON(raw []byte) error {
 	n.Set = true
-	return json.Unmarshal(raw, &n.Value)
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	return d.Decode(&n.Value)
 }
 
 func decode(w http.ResponseWriter, r *http.Request, dst any) error {
