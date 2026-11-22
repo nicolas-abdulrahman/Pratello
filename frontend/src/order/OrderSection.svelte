@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { cart, cart_total, remove_item } from '../lib/stores/Cart';
-  import OrderSidebarItem from './OrderSidebarItem.svelte';
+  import { cart, cart_total } from '../lib/stores/Cart';
+  import OrderCard from './OrderCard.svelte';
 
   let {
     goToCheckout = () => {},
@@ -48,7 +48,7 @@
     {:else}
       <div class="space-y-4">
         {#each $cart as line (line.id)}
-          <OrderSidebarItem {line} onRemove={remove_item} />
+          <OrderCard {line} />
         {/each}
       </div>
 

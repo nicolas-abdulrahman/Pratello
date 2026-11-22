@@ -1,8 +1,8 @@
 # Plano e Especificação Detalhada de Testes — Pratello (DBML Alinhado)
 
-> **Versão:** 0.1.19
+> **Versão:** 0.1.21
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de casos documentados:** 247
+> **Total de casos documentados:** 248
 
 ## Resumo Executivo e Metodologia de Teste
 
@@ -14,22 +14,25 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 casos): rascunhos, autorização por pedido, salão com mesa opcional, entrega, checkout atômico, QR reutilizável, atribuição de conversão e transições operacionais. Integrações futuras estão marcadas no módulo.
 5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-040` (40 casos): pagamento simulado, PIX pendente e confirmação, idempotência, devoluções, cupons e banners, descontos sem acúmulo e resgate concorrente de moedas. Cenários de integração futura estão identificados no módulo.
 6. **Módulo 6: Avaliações de Itens, Combos e Restaurantes (REV)** — Casos `REV-001` a `REV-014` (14 casos automatizados): escalas, autorização por compra, comentários, concorrência, avaliações da organização e integridade dos totais.
-7. **Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB)** — Casos `WEB-001` a `WEB-050` (50 roteiros manuais): carrinho, navegação, endereços, autenticação, cardápio e checkout.
+7. **Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB)** — Carrinho, navegação, endereços, autenticação, cardápio, checkout e storefront configurável. A suíte Playwright em `e2e/` identifica os cenários automatizados pelos respectivos IDs WEB.
 
 ### Contagem e execução verificadas nesta revisão
 
-| Módulo | Casos documentados | PASS com vínculo por caso | XFAIL com vínculo por caso | Planejados | Roteiros manuais WEB | Sem resultado verificado por ID |
-|---|---:|---:|---:|---:|---:|---:|
-| IDP | 29 | 29 | 0 | 0 | 0 | 0 |
-| TEN | 19 | 19 | 0 | 0 | 0 | 0 |
-| CAT | 55 | 33 | 0 | 0 | 0 | 22 |
-| ORD | 40 | 35 | 0 | 2 | 0 | 3 |
-| FIN | 40 | 32 | 0 | 4 | 0 | 4 |
-| REV | 14 | 14 | 0 | 0 | 0 | 0 |
-| WEB | 50 | 0 | 0 | 0 | 50 | 0 |
-| **Total** | **247** | **162** | **0** | **6** | **50** | **29** |
+| Módulo | PASS | XFAIL | Planejados | FAIL |
+|---|---:|---:|---:|---:|
+| IDP | 29 | 0 | 0 | 0 |
+| TEN | 19 | 0 | 0 | 0 |
+| CAT | 33 | 0 | 0 | 0 |
+| ORD | 35 | 0 | 2 | 0 |
+| FIN | 32 | 0 | 4 | 0 |
+| REV | 14 | 0 | 0 | 0 |
+| WEB | 45 | 0 | 6 | 0 |
+| **Total** | **207** | **0** | **12** | **0** |
 
-Os números da tabela contam IDs distintos. Os testes Go agrupados de CAT, ORD e FIN passaram com PostgreSQL e o detector de corridas (`go test -race -count=1 -v ./server/internal/menu ./server/internal/order ./server/internal/sales ./server/internal/transaction`). Um grupo aprovado só conta para os IDs com asserções correspondentes. Os roteiros WEB não foram executados.
+Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A tabela não inclui os 29 casos de CAT, ORD e FIN sem resultado verificado por ID. Os resultados WEB vêm do Playwright em Chromium; os resultados dos módulos 1–6 foram mantidos da revisão anterior.
+
+- **WEB PASS:** `WEB-001–014`, `WEB-016–018`, `WEB-020–038`, `WEB-041–045`, `WEB-048–051`.
+- **WEB Planejados:** `WEB-015` (logo clicável), `WEB-019` (menu hambúrguer), `WEB-039–040` (filtragem por busca e restauração da lista), `WEB-046–047` (opcionais e quantidade no modal).
 
 | Módulo | IDs verificados como PASS | Evidência automatizada |
 |---|---|---|
@@ -898,7 +901,22 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 
 ---
 
-## Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB-001 a WEB-050)
+## Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB-001 a WEB-051)
+
+### Suíte de testes Web
+
+Os cenários Playwright acionam os controles reais da interface e verificam o resultado visível, como a URL, a abertura ou o fechamento de um painel, o conteúdo do carrinho ou a cor computada.
+
+**Suíte:** `e2e/module-7.spec.cjs`. As fixtures HTTP testam o navegador e o frontend, sem validar o backend real.
+
+`WEB-017` e `WEB-018` têm variantes independentes para a navbar e para os links do hero (“Ver cardápio” e “Delivery”). Cada variante verifica a URL de destino e a manutenção do tema da loja.
+
+**Execução:** após instalar as dependências do frontend na raiz, execute em `e2e/`: `npm ci --workspaces=false`, `npx playwright install chromium` e `npm test`. Para usar Chromium do sistema, defina `PLAYWRIGHT_CHROMIUM_EXECUTABLE` com o caminho do executável.
+
+### WEB-051: Prévia de modo escuro do storefront
+- **Pré-condição:** Loja com `dark: false` e cores distintas em `bg` e `bg_dark`.
+- **Passos:** Clicar duas vezes no botão “Modo escuro” da navbar.
+- **Esperado:** O primeiro clique muda o fundo computado para `bg_dark` e marca o botão como pressionado; o segundo restaura `bg` e desmarca o botão.
 
 ### WEB-001: Clique no Botão Flutuante do Carrinho para Abertura da Gaveta Lateral
 - **Pré-condição:** Usuário na página inicial ou na página do restaurante com o botão de carrinho flutuante visível.
@@ -940,9 +958,9 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 - **Passos:** Abrir o carrinho e clicar no botão com ícone de subtração (-) na linha do item.
 - **Esperado:** A quantidade do item diminui para 1 e o total do carrinho é recalculado de acordo.
 
-### WEB-009: Remoção Automática do Item ao Decrementar Quantidade de 1 para 0
+### WEB-009: Remoção pelo Botão “Remover item”
 - **Pré-condição:** Item presente no carrinho com quantidade = 1.
-- **Passos:** Clicar no botão (-) do item.
+- **Passos:** Abrir a gaveta e clicar em “Remover item”.
 - **Esperado:** O item é completamente removido da lista do carrinho. Se não houver outros itens, a visualização alterna para o estado vazio.
 
 ### WEB-010: Atualização Reativa do Total do Pedido (R$) ao Alterar Quantidades
@@ -953,12 +971,12 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-011: Botão "No Restaurante" na Gaveta do Carrinho (Modalidade Salão)
 - **Pré-condição:** Carrinho com ao menos 1 item adicionado.
 - **Passos:** Clicar no botão "No Restaurante" no rodapé do carrinho.
-- **Esperado:** O tipo de pedido é configurado como `LOCAL` e a aplicação avança para a etapa de seleção/inserção de mesa ou comanda.
+- **Esperado:** Abre `/order`, com a revisão do pedido e o botão “Ir para o Pagamento”.
 
 ### WEB-012: Botão "Deliver" / "Entrega" na Gaveta do Carrinho (Modalidade Delivery)
 - **Pré-condição:** Carrinho com ao menos 1 item adicionado.
 - **Passos:** Clicar no botão "Deliver" no rodapé do carrinho.
-- **Esperado:** O tipo de pedido é configurado como `REMOTE` e a aplicação abre os campos de taxa de entrega e endereço.
+- **Esperado:** Abre `/r/{slug}/delivery`, com o título “Área de Delivery”.
 
 ### WEB-013: Botão "Finalizar Pedido" / Redirecionamento para Fluxo de Checkout
 - **Pré-condição:** Carrinho preenchido e modalidade selecionada.
@@ -970,7 +988,7 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 - **Passos:** Navegar para a lista de restaurantes e depois retornar à página do restaurante.
 - **Esperado:** O contador do carrinho permanece inalterado e os itens continuam preservados na memória/store.
 
-### WEB-015: Clique no Logo Pratello na Barra de Navegação (Navegação para Início)
+### WEB-015: Clique no Logo Pratello na Barra de Navegação — Planejado
 - **Pré-condição:** Usuário em qualquer página interna ou detalhe de restaurante.
 - **Passos:** Clicar no logotipo Pratello posicionado na barra de navegação superior.
 - **Esperado:** A rota corrente é alterada para a página principal (`/` ou `/home`), restaurando a visualização inicial.
@@ -988,9 +1006,9 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-018: Clique no Link "Delivery" no Navbar
 - **Pré-condição:** Usuário em qualquer página da aplicação.
 - **Passos:** Clicar no link "Delivery" no navbar.
-- **Esperado:** A página carrega a listagem geral de estabelecimentos disponíveis para entrega (`/restaurantes`).
+- **Esperado:** Abre `/r/{slug}/delivery` com o tema do restaurante.
 
-### WEB-019: Botão de Menu Mobile (Hambúrguer) em Telas Menores
+### WEB-019: Botão de Menu Mobile (Hambúrguer) em Telas Menores — Planejado
 - **Pré-condição:** Visualização em viewport de dispositivo móvel (< 768px).
 - **Passos:** Clicar no ícone de menu hambúrguer no canto do navbar.
 - **Esperado:** O menu mobile expande exibindo os links de navegação acessíveis por toque.
@@ -1000,15 +1018,15 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 - **Passos:** Clicar no botão do chip de endereço.
 - **Esperado:** O popover `AddressSection` abre abaixo do chip e a seta indicadora rotaciona 180 graus.
 
-### WEB-021: Popover de Endereço: Seleção de Endereço Existente e Fechamento
-- **Pré-condição:** Popover de endereço aberto exibindo lista de endereços previamente cadastrados.
-- **Passos:** Clicar em um dos endereços sugeridos na lista.
-- **Esperado:** O endereço selecionado passa a ser exibido no chip do navbar, o popover fecha e as taxas de entrega são recalculadas.
+### WEB-021: Popover de Endereço: Seleção de estado e cidade
+- **Pré-condição:** Popover de endereço aberto e localidades disponíveis.
+- **Passos:** Selecionar Pernambuco no campo “Estado” e Recife no campo “Cidade”.
+- **Esperado:** A cidade e a UF selecionadas aparecem no chip da navbar.
 
-### WEB-022: Popover de Endereço: Botão "Adicionar novo endereço"
+### WEB-022: Popover de Endereço: Busca por CEP
 - **Pré-condição:** Popover de endereço aberto.
-- **Passos:** Clicar no botão "Adicionar novo endereço" ou botão de ação de CEP.
-- **Esperado:** Exibição do formulário de entrada com campos para CEP, rua, bairro e número.
+- **Passos:** Preencher “Buscar por CEP” com `50000000` e clicar em “Buscar”.
+- **Esperado:** A busca por CEP atualiza cidade e UF no chip e fecha o popover.
 
 ### WEB-023: Popover de Endereço: Fechamento ao Clicar Fora (Click Outside)
 - **Pré-condição:** Popover de endereço aberto.
@@ -1033,7 +1051,7 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-027: Menu Lateral de Acesso: Opção "Entrar como Funcionário"
 - **Pré-condição:** Menu lateral de acesso aberto.
 - **Passos:** Clicar no botão "Entrar como Funcionário".
-- **Esperado:** A sidebar fecha e o usuário é direcionado para a interface de autenticação do time operacional/PDV.
+- **Esperado:** A opção “Funcionário” abre o formulário de autenticação compartilhado em `/login`.
 
 ### WEB-028: Tela de Login: Foco e Digitação no Campo de Input "E-mail"
 - **Pré-condição:** Usuário na página de login (`Auth.svelte`).
@@ -1063,7 +1081,7 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-033: Tela de Login: Link "Esqueceu sua senha?"
 - **Pré-condição:** Usuário visualizando o bloco de login.
 - **Passos:** Clicar no link de recuperação de acesso "Esqueceu sua senha?".
-- **Esperado:** Redirecionamento para a página ou modal de redefinição de credenciais de acesso.
+- **Esperado:** Um alerta orienta o usuário a solicitar suporte ao administrador.
 
 ### WEB-034: Tela de Login: Botão Submit "Entrar" com Campos Vazios
 - **Pré-condição:** Campos de e-mail e senha sem nenhum caractere preenchido.
@@ -1078,24 +1096,24 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-036: Tela de Login: Link "Crie uma conta" / "Novo aqui?"
 - **Pré-condição:** Usuário na página de login.
 - **Passos:** Clicar no link "Crie uma conta".
-- **Esperado:** Navegação para o formulário de cadastro de novos usuários com campos adicionais de nome e documento.
+- **Esperado:** Aparece o campo de nome no formulário de cadastro; “Faça login” volta ao formulário de entrada.
 
 ### WEB-037: Perfil Autenticado no Navbar: Exibição de Iniciais e Nome
 - **Pré-condição:** Sessão iniciada com conta autenticada (ex: "Gregório Silva").
 - **Passos:** Observar a área esquerda do navbar.
-- **Esperado:** O botão "Entrar" é substituído pelo chip de perfil contendo a inicial "G", saudação "Olá Gregório" e indicador de status verde.
+- **Esperado:** Para Ana Silva, o chip exibe as iniciais “AS” e a saudação “Olá Ana”.
 
 ### WEB-038: Menu Lateral do Usuário Autenticado: Botão "Fazer logout"
 - **Pré-condição:** Usuário logado na aplicação.
 - **Passos:** Clicar no chip de perfil para abrir a sidebar e em seguida clicar no botão "Fazer logout".
 - **Esperado:** A sessão é limpa na store e no storage, a sidebar fecha e o navbar retorna ao estado inicial deslogado com o botão "Entrar".
 
-### WEB-039: Campo de Busca de Restaurantes: Digitação e Filtragem em Tempo Real
+### WEB-039: Campo de Busca de Restaurantes: Digitação e Filtragem em Tempo Real — Planejado
 - **Pré-condição:** Usuário na página principal de restaurantes (`RestaurantsPage`).
 - **Passos:** Clicar no campo de busca com ícone de lupa e digitar "Burger".
 - **Esperado:** A lista de restaurantes é filtrada imediatamente, exibindo apenas estabelecimentos cujo nome ou especialidade contenham o termo.
 
-### WEB-040: Campo de Busca de Restaurantes: Limpeza do Texto de Pesquisa
+### WEB-040: Campo de Busca de Restaurantes: Limpeza do Texto de Pesquisa — Planejado
 - **Pré-condição:** Campo de pesquisa preenchido com filtro ativo.
 - **Passos:** Apagar o texto da busca por completo.
 - **Esperado:** A grade de restaurantes restaura a exibição de todos os estabelecimentos disponíveis na região.
@@ -1105,10 +1123,10 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 - **Passos:** Clicar no botão de destaque com gradiente âmbar "Explorar restaurantes".
 - **Esperado:** A visualização desliza com scroll animado suave até a âncora da seção de restaurantes próximos (`#restaurantes-proximos`).
 
-### WEB-042: Carrossel de Destaques: Botões de Navegação Próximo/Anterior
+### WEB-042: Carrossel horizontal de combos: Próximo e Anterior
 - **Pré-condição:** Carrossel de banners de restaurantes em exibição.
 - **Passos:** Clicar nas setas ou indicadores laterais de avanço e retrocesso de slide.
-- **Esperado:** O banner ativo transiciona suavemente apresentando o próximo destaque promocional com título e chamada para ação atualizados.
+- **Esperado:** “Próximos combos” avança a lista e revela “Combos anteriores”; voltar ao início oculta a seta anterior.
 
 ### WEB-043: Card de Restaurante: Clique para Acessar o Estabelecimento
 - **Pré-condição:** Lista de restaurantes visível na página.
@@ -1123,14 +1141,14 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-045: Card de Item/Prato: Clique para Abrir o Modal de Detalhes
 - **Pré-condição:** Itens visíveis no catálogo.
 - **Passos:** Clicar no card de um item do cardápio (ex: "Hambúrguer Especial").
-- **Esperado:** O modal `ItemModal` abre em sobreposição central, exibindo foto ampliada, descrição completa, preço e opções de customização.
+- **Esperado:** O modal `ItemModal` abre dentro do tema da loja e exibe a descrição do prato.
 
-### WEB-046: Modal do Item: Seleção e Desseleção de Opcionais/Adicionais
+### WEB-046: Modal do Item: Seleção e Desseleção de Opcionais/Adicionais — Planejado
 - **Pré-condição:** Modal de item aberto contendo grupo de adicionais (ex: "Bacon Extra", "Molho Especial").
 - **Passos:** Clicar no seletor de um opcional e em seguida clicar novamente.
 - **Esperado:** O item adicional é marcado e o preço base no botão de adicionar sofre acréscimo proporcional; ao desmarcar, o valor decrementa de volta ao base.
 
-### WEB-047: Modal do Item: Botões de Controle de Quantidade (+ e -)
+### WEB-047: Modal do Item: Botões de Controle de Quantidade (+ e -) — Planejado
 - **Pré-condição:** Modal de item aberto com quantidade padrão igual a 1.
 - **Passos:** Clicar no botão (+) duas vezes e depois no botão (-) uma vez.
 - **Esperado:** O mostrador numérico de quantidade avança para 3 e depois recua para 2, recalculando o valor total daquele prato no modal.
@@ -1138,7 +1156,7 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-048: Modal do Item: Botão "Adicionar ao Pedido"
 - **Pré-condição:** Modal de item aberto com quantidade e opcionais configurados.
 - **Passos:** Clicar no botão principal de ação "Adicionar ao Pedido (R$ XX,XX)".
-- **Esperado:** O prato com todas as suas personalizações é incluído na store do carrinho, o modal se fecha automaticamente e o carrinho é atualizado.
+- **Esperado:** O prato é incluído no carrinho e o contador aumenta.
 
 ### WEB-049: Modal do Item: Fechamento via Botão de Fechar ou Clique no Fundo
 - **Pré-condição:** Modal de item aberto na tela.
@@ -1148,4 +1166,4 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 ### WEB-050: Checkout: Seleção de Método de Pagamento e Botão de Confirmação
 - **Pré-condição:** Usuário na página de checkout com itens no carrinho.
 - **Passos:** Clicar no botão do método de pagamento desejado (PIX, Cartão ou Dinheiro) e clicar em "Confirmar Pedido".
-- **Esperado:** O método escolhido recebe realce ativo de seleção e o clique no botão de confirmação dispara a criação do pedido, abrindo a tela de acompanhamento e comprovante.
+- **Esperado:** A aba de cartão exibe o formulário; na aba PIX, “Já realizei o pagamento” abre o alerta de confirmação simulada.

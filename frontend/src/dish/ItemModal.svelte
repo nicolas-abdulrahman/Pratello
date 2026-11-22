@@ -57,6 +57,8 @@
       icon: item.image,
       price: parsePrice(item.newPrice),
       combo: item.combo,
+      ingredients: [],
+      extras: [],
     });
 
     setTimeout(() => {

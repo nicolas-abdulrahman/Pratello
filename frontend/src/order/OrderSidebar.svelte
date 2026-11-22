@@ -25,6 +25,10 @@
   }
 </script>
 
+<svelte:window onkeydown={(event) => {
+  if (isOpen && event.key === 'Escape') onClose();
+}} />
+
 {#if isOpen}
   <div
     class="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300"
