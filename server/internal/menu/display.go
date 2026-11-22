@@ -8,6 +8,7 @@ import (
 )
 
 type displayConfig struct {
+	Navbar *displayNavbar    `json:"navbar,omitempty"`
 	Dark   *bool             `json:"dark"`
 	Colors map[string]string `json:"colors"`
 	Menu   struct {
@@ -15,6 +16,18 @@ type displayConfig struct {
 	} `json:"menu"`
 	FirstPage []displayBlock `json:"first_page"`
 }
+
+type displayNavbar struct {
+	BGColor     string `json:"bg_color,omitempty"`
+	Border      *bool  `json:"border,omitempty"`
+	BorderStyle string `json:"border_style,omitempty"`
+}
+
+func (n *displayNavbar) valid() bool {
+	return n == nil || ((n.BGColor == "" || token(n.BGColor)) &&
+		(n.BorderStyle == "" || n.BorderStyle == "none" || n.BorderStyle == "solid" || n.BorderStyle == "dotted"))
+}
+
 type displayBlock struct {
 	Button1      *heroButton `json:"button1,omitempty"`
 	Button2      *heroButton `json:"button2,omitempty"`
@@ -73,8 +86,8 @@ type styledText struct {
 	Dark     *bool   `json:"dark,omitempty"`
 	Gradient *struct {
 		Dark   *bool  `json:"dark,omitempty"`
-		Type   string `json:"type"`
-		Start  *int   `json:"start_char"`
+		Smooth *bool  `json:"smooth"`
+		End    *int   `json:"end"`
 		First  string `json:"first_color"`
 		Second string `json:"second_color"`
 	} `json:"gradient,omitempty"`
@@ -98,10 +111,13 @@ func (t *styledText) valid() bool {
 		return false
 	}
 	g := t.Gradient
-	return g == nil || ((g.Type == "rough" || g.Type == "smooth") && g.Start != nil && *g.Start >= 0 && *g.Start <= utf8.RuneCountInString(*t.Text) && token(g.First) && token(g.Second))
+	return g == nil || (g.Smooth != nil && g.End != nil && *g.End >= 0 && *g.End <= utf8.RuneCountInString(*t.Text) && token(g.First) && token(g.Second))
 }
 func container(v string) bool { return v == "grid" || v == "horizontal" }
 func (c *displayConfig) valid() bool {
+	if !c.Navbar.valid() {
+		return false
+	}
 	if c.Dark == nil || len(c.Colors) != 6 || !container(c.Menu.Container) || len(c.FirstPage) == 0 {
 		return false
 	}

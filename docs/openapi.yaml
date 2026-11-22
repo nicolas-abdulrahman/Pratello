@@ -4,7 +4,7 @@ openapi: 3.0.3
 # ============================================================
 info:
   title: Pratello API
-  version: 2.2.14
+  version: 2.2.16
   description: |
     SaaS for restaurants — complete API.
 
@@ -3563,6 +3563,12 @@ components:
       type: object
       required: [dark, colors, menu, first_page]
       properties:
+        navbar:
+          type: object
+          properties:
+            bg_color: { type: string, pattern: '^(text(_muted)?|((lighter|darker)_)?(bg|primary_color|secondary_color)(_dark)?)$' }
+            border: { type: boolean }
+            border_style: { type: string, enum: [none, solid, dotted] }
         dark: { type: boolean }
         colors:
           type: object
@@ -3619,11 +3625,11 @@ components:
         gradient:
           type: object
           nullable: true
-          required: [type, start_char, first_color, second_color]
+          required: [end, smooth, first_color, second_color]
           properties:
-            type: { type: string, enum: [rough, smooth] }
+            smooth: { type: boolean, description: False switches colors abruptly. }
             dark: *nestedDark
-            start_char: { type: integer, minimum: 0 }
+            end: { type: integer, minimum: 0, description: Number of Unicode code points in the first color. }
             first_color: *displayToken
             second_color: *displayToken
     HeroDisplayButton:

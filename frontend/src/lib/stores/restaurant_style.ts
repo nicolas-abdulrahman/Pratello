@@ -1,4 +1,4 @@
-import { derived, writable } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 
 const baseColors = ['bg', 'primary_color', 'secondary_color', 'bg_dark', 'primary_color_dark', 'secondary_color_dark'] as const;
 export type BaseColorKey = typeof baseColors[number];
@@ -11,8 +11,8 @@ export interface StyledText {
   dark?: boolean | null;
   gradient?: {
     dark?: boolean | null;
-    type: 'rough' | 'smooth';
-    start_char: number;
+    end: number;
+    smooth: boolean;
     first_color: ColorToken;
     second_color: ColorToken;
   } | null;
@@ -41,6 +41,7 @@ interface Header1Block {
 export interface DisplayConfig {
   dark: boolean;
   colors: ColorPalette;
+  navbar?: { dark?: boolean | null; bg_color?: ColorToken; border?: boolean; border_style?: 'solid' | 'dotted' | 'none'; border_color?: ColorToken } | null;
   menu: { container: 'grid' | 'horizontal' };
   first_page: [Header1Block | { id: string; type: 'header2'; dark?: boolean | null; img?: string }, ...Record<string, unknown>[]];
 }
@@ -67,9 +68,9 @@ function resolveButton(button: HeroButton | null | undefined, isDark: boolean, u
   const bg = button?.bg ?? (usePrimary ? 'primary_color' : null);
   return {
     href,
-    bgCss: bg ? resolveColor(bg, isDark) : 'white',
+    bgCss: bg ? resolveColor(bg, isDark) : isDark ? 'var(--color-surface)' : 'white',
     textCss: resolveColor('text', button?.text?.dark ?? isDark),
-    borderCss: bg === 'primary_color' ? resolveColor('darker_primary_color', isDark) : bg ? resolveColor(bg, isDark) : 'black',
+    borderCss: bg === 'primary_color' ? resolveColor('darker_primary_color', isDark) : bg ? resolveColor(bg, isDark) : resolveColor('text', isDark),
   };
 }
 
@@ -78,26 +79,47 @@ export const fallbackHeroButtons = [resolveButton(null, false), resolveButton(nu
 export function resolveText(node: StyledText | undefined, isDark: boolean, fallback: ColorToken): ResolvedText {
   const text = node?.text ?? '';
   const gradient = node?.gradient;
+  const end = gradient?.end;
   isDark = node?.dark ?? isDark;
-  if (!gradient) {
+  if (!gradient || typeof end !== 'number' || !Number.isFinite(end)) {
     return { mode: 'flat', text, color: resolveColor(node?.color ?? fallback, isDark) };
   }
   // The API counts Unicode code points, not UTF-16 code units.
   const chars = Array.from(text);
-  const start = Math.max(0, Math.min(chars.length, gradient.start_char));
+  const split = Math.max(0, Math.min(chars.length, Math.trunc(end)));
   const firstColor = resolveColor(gradient.first_color, gradient.dark ?? isDark);
   const secondColor = resolveColor(gradient.second_color, gradient.dark ?? isDark);
-  if (gradient.type === 'rough') {
-    return { mode: 'rough', text, first: chars.slice(0, start).join(''), second: chars.slice(start).join(''), firstColor, secondColor };
+  if (!gradient.smooth || split === chars.length) {
+    return { mode: 'rough', text, first: chars.slice(0, split).join(''), second: chars.slice(split).join(''), firstColor, secondColor };
   }
-  const stop = start / Math.max(1, chars.length) * 100;
+  const stop = split / Math.max(1, chars.length) * 100;
   return { mode: 'smooth', text, gradientCss: `linear-gradient(90deg, ${firstColor} 0%, ${firstColor} ${stop}%, ${secondColor} 100%)` };
 }
 
-export const rawDisplayConfig = writable<DisplayConfig | null>(null);
+const rawDisplayConfig = writable<DisplayConfig | null>(null);
+const darkOverride = writable<boolean | null>(null);
+export const restaurantDarkOverride = { subscribe: darkOverride.subscribe };
+
+export const restaurantDark = derived([rawDisplayConfig, darkOverride], ([config, override]) => override ?? config?.dark ?? false);
+
+export function toggleRestaurantDark() {
+  darkOverride.set(!get(restaurantDark));
+}
+
 export function setRestaurantDisplayConfig(config: DisplayConfig | null) {
   rawDisplayConfig.set(config);
 }
+
+// A preview overrides local dark flags as well as the storefront default.
+function overrideDarkFlags<T>(value: T, dark: boolean): T {
+  if (Array.isArray(value)) return value.map((entry) => overrideDarkFlags(entry, dark)) as T;
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, key === 'dark' ? dark : overrideDarkFlags(entry, dark)])) as T;
+}
+
+export const restaurantDisplayConfig = derived([rawDisplayConfig, darkOverride], ([config, override]) =>
+  config && override !== null ? overrideDarkFlags(config, override) : config,
+);
 
 export const restaurantCssVars = derived(rawDisplayConfig, (config) => {
   if (!config?.colors) return '';
@@ -109,11 +131,43 @@ export const restaurantCssVars = derived(rawDisplayConfig, (config) => {
   }).join(' ');
 });
 
-export const restaurantPageBackground = derived(rawDisplayConfig, (config) =>
+export const restaurantThemeVars = derived([restaurantCssVars, restaurantDark], ([palette, dark]) => {
+  const suffix = dark ? '_dark' : '';
+  return `${palette}
+    color-scheme: ${dark ? 'dark' : 'light'};
+    --color-background: var(--bg${suffix}, var(--restaurant-default-bg));
+    --color-primary: var(--primary_color${suffix}, var(--restaurant-default-primary));
+    --color-primary-hover: var(--darker_primary_color${suffix}, var(--restaurant-default-primary));
+    --color-primary-soft: color-mix(in srgb, var(--color-primary) 18%, var(--color-background));
+    --color-text: ${resolveColor('text', dark)};
+    --color-text-muted: ${resolveColor('text_muted', dark)};
+    --color-surface: ${dark ? 'var(--lighter_bg_dark, var(--restaurant-default-surface))' : 'var(--color-restaurant-surface)'};
+    --color-surface-hover: color-mix(in srgb, var(--color-surface) 90%, var(--color-text));
+    --color-border: color-mix(in srgb, var(--color-surface) 78%, var(--color-text));
+    --color-navbar-bg: ${dark ? 'var(--lighter_bg_dark, var(--restaurant-default-surface))' : 'var(--color-restaurant-navbar-bg)'};
+    --color-navbar-border: var(--color-border);`;
+});
+
+export const restaurantPageBackground = derived(restaurantDisplayConfig, (config) =>
   config ? `var(--${config.dark ? 'bg_dark' : 'bg'}, var(--color-background))` : 'var(--color-background)',
 );
 
-export const header1Rules = derived(rawDisplayConfig, (config) => {
+export const restaurantNavbar = derived(restaurantDisplayConfig, (config) => {
+  const nav = config?.navbar;
+  if (!nav || !config) return null;
+  const dark = nav.dark ?? config.dark;
+  const color = nav.bg_color ?? 'bg';
+  const bg = color === 'text' || color === 'text_muted'
+    ? `color-mix(in srgb, ${resolveColor(color, dark)} 85%, white)`
+    : resolveColor(`lighter_${color.replace(/^(lighter|darker)_/, '')}` as ColorToken, dark);
+  return {
+    background: bg,
+    borderStyle: !nav.border || nav.border_style === 'none' ? 'none' : nav.border_style === 'dotted' ? 'dotted' : 'solid',
+    borderColor: nav.border_color ? resolveColor(nav.border_color, dark) : 'black',
+  };
+});
+
+export const header1Rules = derived(restaurantDisplayConfig, (config) => {
   const hero = config?.first_page?.[0];
   if (!config || hero?.type !== 'header1') return null;
   const isDark = hero.dark ?? config.dark;

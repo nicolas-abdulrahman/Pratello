@@ -25,7 +25,7 @@
   });
 
   function teleport(node) {
-    document.body.appendChild(node);
+    (document.querySelector('[data-theme="restaurantTheme"]') ?? document.body).appendChild(node);
     return () => node.remove();
   }
 

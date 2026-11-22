@@ -7,6 +7,7 @@ export type SectionBlock = {
   bg?: ColorToken | null;
   border?: 'solid' | 'dotted' | 'none' | null;
   border_color?: ColorToken | null;
+  container?: 'grid' | 'horizontal' | null;
   title?: StyledText | null;
   item_style?: ItemColors | null;
 };
@@ -33,6 +34,7 @@ export function resolveSection(block: SectionBlock, config: Pick<DisplayConfig, 
     isDark,
     background: withFallback(resolveColor(block.bg ?? 'bg', isDark), 'var(--color-background)'),
     border,
+    container: block.container === 'grid' ? 'grid' : 'horizontal',
     borderColor: block.border_color ? resolveColor(block.border_color, isDark) : 'black',
     title: resolveText({ ...block.title, text: sectionText(block.title?.text) }, isDark, 'text'),
   };

@@ -2,6 +2,7 @@
   import ItemCard from './section/ItemCard.svelte';
   import SectionTitle from './section/SectionTitle.svelte';
   import { resolveItemColors, resolveSection } from './section/section';
+  import { restaurantDarkOverride } from '../lib/stores/restaurant_style';
 
   let { items, loading, failed, onOpenDetails, block, dark = false, palette = '' } = $props();
   let styles = $derived(resolveSection(block ?? {}, { dark }));
@@ -20,7 +21,7 @@
       <div class="flex snap-x gap-space-sm overflow-x-auto pb-space-xs md:grid md:grid-cols-3 lg:grid-cols-4">
         {#each items as item (item.id)}
           <div class="w-70 shrink-0 snap-start md:w-auto">
-            <ItemCard colors={resolveItemColors({ ...block?.item_style, ...item.style, dark: item.style?.dark ?? block?.item_style?.dark }, styles.isDark, block?.bg ?? 'bg')}
+            <ItemCard colors={resolveItemColors({ ...block?.item_style, ...item.style, dark: $restaurantDarkOverride ?? item.style?.dark ?? block?.item_style?.dark }, styles.isDark, block?.bg ?? 'bg')}
               item={{ id: item.id, name: item.title, description: item.description,
               imageUrl: item.image, basePrice: item.basePrice, originalPrice: item.originalPrice,
               type: item.combo ? 'combo' : 'simple', ingredients: [], extras: [], rating: item.rating,

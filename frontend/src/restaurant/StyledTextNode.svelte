@@ -1,20 +1,8 @@
 <script>
-  import { resolveColor } from './display';
+  import { resolveText } from '../lib/stores/restaurant_style';
+  import SectionTitle from './section/SectionTitle.svelte';
   let { content, isDark } = $props();
-  let chars = $derived(Array.from(content.text));
-  let gradient = $derived(content.gradient);
-  let textDark = $derived(content.dark ?? isDark);
-  let gradientDark = $derived(gradient?.dark ?? textDark);
+  let title = $derived(resolveText(content, isDark, 'text'));
 </script>
 
-{#if gradient?.type === 'rough'}
-  <span style:color={resolveColor(gradient.first_color, gradientDark)}>{chars.slice(0, gradient.start_char).join('')}</span><span style:color={resolveColor(gradient.second_color, gradientDark)}>{chars.slice(gradient.start_char).join('')}</span>
-{:else if gradient?.type === 'smooth'}
-  <span class="gradient" style:background-image={`linear-gradient(90deg, ${resolveColor(gradient.first_color, gradientDark)} ${gradient.start_char / Math.max(1, chars.length) * 100}%, ${resolveColor(gradient.second_color, gradientDark)} 100%)`}>{content.text}</span>
-{:else}
-  <span style:color={resolveColor(content.color ?? 'text', textDark)}>{content.text}</span>
-{/if}
-
-<style>
-  .gradient { background-clip: text; color: transparent; }
-</style>
+<SectionTitle {title} />

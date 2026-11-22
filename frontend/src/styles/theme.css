@@ -128,6 +128,9 @@
 }
 
 [data-theme="restaurantTheme"] {
+  --restaurant-default-bg: var(--color-restaurant-bg);
+  --restaurant-default-primary: var(--color-restaurant-primary);
+  --restaurant-default-surface: var(--color-restaurant-surface);
   --color-primary:       var(--color-restaurant-primary);
   --color-primary-hover: var(--color-restaurant-primary-hover);
   --color-primary-soft:  var(--color-restaurant-primary-soft);
@@ -140,4 +143,32 @@
 
   --color-navbar-bg:     var(--color-restaurant-navbar-bg);
   --color-navbar-border: var(--color-restaurant-navbar-border);
+}
+
+[data-restaurant-dark] {
+  --restaurant-default-bg: #211712;
+  --restaurant-default-primary: #ffab80;
+  --restaurant-default-surface: #32231c;
+}
+
+/* Legacy storefront components still use fixed light utility classes. */
+@layer utilities {
+  [data-restaurant-dark] :is(.bg-white, .bg-gray-50, .bg-gray-100, .bg-stone-50, .bg-orange-50, [class~="bg-[#fff9f5]"]) {
+    background-color: var(--color-surface);
+  }
+  [data-restaurant-dark] :is([class~="bg-white/80"], [class~="bg-white/90"]) {
+    background-color: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  }
+  [data-restaurant-dark] :is([class~="hover:bg-white"], [class~="hover:bg-white/90"], [class~="hover:bg-orange-100"]):hover {
+    background-color: var(--color-surface-hover);
+  }
+  [data-restaurant-dark] :is(.text-gray-900, .text-gray-800, .text-gray-700, .text-stone-900, .text-stone-800, .text-stone-700) {
+    color: var(--color-text);
+  }
+  [data-restaurant-dark] :is(.text-gray-600, .text-gray-500, .text-gray-400, .text-stone-600, .text-stone-500) {
+    color: var(--color-text-muted);
+  }
+  [data-restaurant-dark] :is(.border-gray-100, .border-gray-200, .border-stone-100, .border-stone-200, .border-orange-100, .border-orange-50) {
+    border-color: var(--color-border);
+  }
 }

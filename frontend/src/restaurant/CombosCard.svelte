@@ -48,7 +48,7 @@
   type="button"
   onclick={onOpenDetails}
   style:background-color={colors.background}
-  class="text-left rounded-2xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-xl transition-all duration-300 group flex flex-col w-[300px] min-w-[300px] snap-start h-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#ff5722]
+  class="text-left rounded-2xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-xl transition-all duration-300 group flex flex-col w-full h-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#ff5722]
   {isPopping ? 'animate-card-pop' : ''}"
 >
   <div class="relative h-48 overflow-hidden shrink-0 w-full">

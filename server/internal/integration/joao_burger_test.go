@@ -214,10 +214,23 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 	}
 	var layout struct {
 		Display struct {
+			Navbar struct {
+				BGColor     string `json:"bg_color"`
+				Border      *bool  `json:"border"`
+				BorderStyle string `json:"border_style"`
+			} `json:"navbar"`
 			FirstPage []struct {
 				ID          string
 				Border      string `json:"border"`
 				BorderColor string `json:"border_color"`
+				Title       struct {
+					Gradient struct {
+						End    int    `json:"end"`
+						Smooth *bool  `json:"smooth"`
+						First  string `json:"first_color"`
+						Second string `json:"second_color"`
+					} `json:"gradient"`
+				} `json:"title"`
 			} `json:"first_page"`
 		} `json:"display_config"`
 		Style     string `json:"template_style"`
@@ -225,12 +238,20 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		Secondary string `json:"secondary_color"`
 	}
 	get(base+"/menu", "", &layout)
+	nav := layout.Display.Navbar
+	if nav.BGColor != "primary_color" || nav.Border == nil || *nav.Border || nav.BorderStyle != "none" {
+		t.Fatalf("wrong storefront navbar: %+v", nav)
+	}
 	blocks := layout.Display.FirstPage
 	if len(blocks) != 4 || blocks[0].ID != "hero_joao_burger" || blocks[1].ID != "sec_promocoes" || blocks[2].ID != "promo_card_1" || blocks[3].ID != "sec_combos" {
 		t.Fatalf("storefront layout was not returned in display order: %+v", blocks)
 	}
 	if blocks[1].Border != "dotted" || blocks[1].BorderColor != "primary_color" {
 		t.Fatalf("wrong promotions border: %+v", blocks[1])
+	}
+	gradient := blocks[1].Title.Gradient
+	if gradient.End != 5 || gradient.Smooth == nil || *gradient.Smooth || gradient.First != "text" || gradient.Second != "primary_color" {
+		t.Fatalf("wrong promotions gradient: %+v", gradient)
 	}
 	if layout.Style != "classic" || layout.Accent != "#EA580C" || layout.Secondary != "#FDE68A" {
 		t.Fatalf("wrong menu layout: %+v", layout)

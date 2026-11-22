@@ -1,5 +1,6 @@
 <script lang="ts">
   import Footer from './common/Footer.svelte';
+  import { restaurantDark, restaurantThemeVars, setRestaurantDisplayConfig } from './lib/stores/restaurant_style';
   import Navbar from './common/Navbar.svelte';
   import OrderCart from './order/OrderCart.svelte';
   import OrderSection from './order/OrderSection.svelte';
@@ -136,6 +137,12 @@
     restaurantBrand = null;
     if (!showNavLinks) return;
     const controller = new AbortController();
+    void fetch(`/api/restaurants/${encodeURIComponent(slug)}/menu`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((menu) => {
+        if (!controller.signal.aborted) setRestaurantDisplayConfig(menu?.display_config ?? null);
+      })
+      .catch(() => {});
     const originalTitle = document.title;
     const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     const original = favicon?.getAttribute('href');
@@ -154,6 +161,7 @@
       .catch(() => {});
     return () => {
       controller.abort();
+      setRestaurantDisplayConfig(null);
       document.title = originalTitle;
       if (favicon && original) favicon.setAttribute('href', original);
       if (favicon && originalType) favicon.setAttribute('type', originalType);
@@ -184,7 +192,7 @@
   });
 </script>
 
-<div data-theme={currentTheme} class="relative w-full min-h-screen bg-background text-text">
+<div data-theme={currentTheme} data-restaurant-dark={showNavLinks && $restaurantDark ? '' : undefined} style={showNavLinks ? $restaurantThemeVars : undefined} class="relative w-full min-h-screen bg-background text-text">
   {#if !hideGlobalUI}
     <Navbar
       {cartItemCount}
@@ -196,11 +204,11 @@
       onGoRestaurantes={goToRestaurantes}
       {showNavLinks}
       brand={brandTheme}
-    />
-
-    {#if showOrderCart}
-      <OrderCart goToOrder={goToOrder} />
-    {/if}
+    >
+      {#snippet cartControls()}
+        {#if showOrderCart}<OrderCart goToOrder={goToOrder} />{/if}
+      {/snippet}
+    </Navbar>
   {/if}
 
   <div class="relative overflow-hidden w-full">
@@ -229,7 +237,7 @@
     {/key}
   </div>
 
-  {#if !hideGlobalUI}
+  {#if currentView === 'home' || currentView === 'restaurantes'}
     <Footer />
   {/if}
 </div>

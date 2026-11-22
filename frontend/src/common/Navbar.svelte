@@ -2,6 +2,8 @@
   import LeftSidebarSection from './LeftSidebarSection.svelte';
   import AddressSection from './AddressSection.svelte';
   import { account } from '../lib/stores/account';
+  import type { Snippet } from 'svelte';
+  import { restaurantCssVars, restaurantDark, restaurantNavbar, toggleRestaurantDark } from '../lib/stores/restaurant_style';
   import AccountAvatar from './AccountAvatar.svelte';
   import { addressLabel } from '../lib/stores/address.js';
 
@@ -15,6 +17,7 @@
     onGoAccount = undefined as (() => void) | undefined,
     onOpenCart = () => {},
     showNavLinks = false,
+    cartControls = undefined as Snippet | undefined,
     brand = false
   } = $props();
 
@@ -24,6 +27,10 @@
 
 <nav
   class="w-full border-b border-navbar-border bg-navbar-bg shadow-xs relative z-10 transition-colors"
+  style={showNavLinks && $restaurantNavbar ? $restaurantCssVars : undefined}
+  style:background-color={showNavLinks ? $restaurantNavbar?.background : undefined}
+  style:border-bottom-style={showNavLinks ? $restaurantNavbar?.borderStyle : undefined}
+  style:border-bottom-color={showNavLinks ? $restaurantNavbar?.borderColor : undefined}
 >
   <div class="max-w-7xl mx-auto px-4 md:px-8 h-20 flex items-center justify-between gap-4 relative">
     <div class="flex items-center gap-3">
@@ -91,7 +98,7 @@
     </div>
 
     {#if showNavLinks}
-      <div class="hidden md:flex items-center gap-8 font-medium absolute left-1/2 -translate-x-1/2">
+      <div class="hidden md:flex items-center gap-4 lg:gap-8 font-medium">
         <a
           href={slug ? `/r/${slug}` : '/'}
           onclick={(e) => { e.preventDefault(); onGoHome(); }}
@@ -113,6 +120,18 @@
         >
           Delivery
         </a>
+      </div>
+      <div class="ml-auto flex shrink-0 items-center gap-space-2xs">
+        <button type="button" onclick={toggleRestaurantDark} aria-label="Modo escuro" aria-pressed={$restaurantDark} title={$restaurantDark ? 'Ativar modo claro' : 'Ativar modo escuro'} class="grid size-10 place-items-center rounded-full border border-border bg-surface text-text shadow-sm hover:bg-surface-hover">
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            {#if $restaurantDark}
+              <circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+            {:else}
+              <path d="M20.9 13.35A9 9 0 0 1 10.65 3.1 9 9 0 1 0 20.9 13.35Z" />
+            {/if}
+          </svg>
+        </button>
+        {@render cartControls?.()}
       </div>
     {/if}
   </div>

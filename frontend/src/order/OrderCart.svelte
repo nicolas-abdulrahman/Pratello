@@ -12,8 +12,10 @@
 </script>
 
 <button 
+  type="button"
+  aria-label="Carrinho"
   onclick={() => isCartOpen = true}
-  class="fixed top-6 right-4 md:right-8 z-40 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-[#ff5722] border border-orange-100 px-4 py-2.5 rounded-full font-bold transition-all shadow-lg hover:scale-105"
+  class="relative flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-2.5 font-bold text-text shadow-lg transition-all hover:scale-105 hover:bg-surface-hover sm:px-4"
 >
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="8" cy="21" r="1"/>
@@ -22,7 +24,7 @@
   </svg>
   
   {#if cartItemCount > 0}
-    <span class="bg-[#ff5722] text-white text-xs w-5 h-5 flex items-center justify-center rounded-full absolute -top-1 -left-1 shadow-sm">
+    <span class="bg-primary text-background text-xs w-5 h-5 flex items-center justify-center rounded-full absolute -top-1 -left-1 shadow-sm">
       {cartItemCount}
     </span>
   {/if}
