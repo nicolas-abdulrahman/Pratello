@@ -60,7 +60,7 @@ func openTENDB(t *testing.T) *sql.DB {
 	return conn
 }
 
-func TestRestaurantPostgresLifecycle(t *testing.T) {
+func TestIDP019And023RestaurantPostgresLifecycle(t *testing.T) {
 	conn := openTENDB(t)
 	var err error
 	identity := auth.NewService(auth.NewSQLStore(conn))

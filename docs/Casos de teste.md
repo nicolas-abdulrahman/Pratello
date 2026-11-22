@@ -23,24 +23,33 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 | IDP | 29 | 0 | 0 | 0 |
 | TEN | 19 | 0 | 0 | 0 |
 | CAT | 33 | 0 | 0 | 0 |
-| ORD | 35 | 0 | 2 | 0 |
+| ORD | 35 | 0 | 0 | 0 |
 | FIN | 32 | 0 | 4 | 0 |
 | REV | 14 | 0 | 0 | 0 |
 | WEB | 45 | 0 | 6 | 0 |
-| **Total** | **207** | **0** | **12** | **0** |
+| **Total** | **207** | **0** | **10** | **0** |
 
-Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A tabela não inclui os 29 casos de CAT, ORD e FIN sem resultado verificado por ID. Os resultados WEB vêm do Playwright em Chromium; os resultados dos módulos 1–6 foram mantidos da revisão anterior.
+Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A tabela não inclui os 29 casos de CAT, ORD e FIN sem resultado verificado por ID. A suíte Go foi reexecutada com PostgreSQL e Redis, sem falhas ou testes pulados. Os resultados WEB vêm da execução anterior do Playwright em Chromium.
 
+- **IDP PASS:** `IDP-001–029`.
+- **TEN PASS:** `TEN-001–019`.
+- **CAT PASS:** `CAT-002`, `CAT-004–005`, `CAT-007–008`, `CAT-011–012`, `CAT-014–019`, `CAT-021–022`, `CAT-025`, `CAT-031–033`, `CAT-035`, `CAT-043–055`.
+- **ORD PASS:** `ORD-001–002`, `ORD-004–023`, `ORD-027–035`, `ORD-037–040`.
+- **FIN PASS:** `FIN-003–004`, `FIN-006`, `FIN-009–011`, `FIN-013–020`, `FIN-022–027`, `FIN-029–040`.
+- **FIN Planejados:** `FIN-007–008` (emissão de recibo e código único), `FIN-021` (reversão de crédito de fidelidade), `FIN-028` (cálculo e auditoria de recibo em JSONB).
+- **REV PASS:** `REV-001–014`.
 - **WEB PASS:** `WEB-001–014`, `WEB-016–018`, `WEB-020–038`, `WEB-041–045`, `WEB-048–051`.
 - **WEB Planejados:** `WEB-015` (logo clicável), `WEB-019` (menu hambúrguer), `WEB-039–040` (filtragem por busca e restauração da lista), `WEB-046–047` (opcionais e quantidade no modal).
 
 | Módulo | IDs verificados como PASS | Evidência automatizada |
 |---|---|---|
-| CAT | `CAT-002`, `CAT-004–005`, `CAT-007–008`, `CAT-011–012`, `CAT-014–019`, `CAT-021–022`, `CAT-025`, `CAT-031–033`, `CAT-035`, `CAT-043–055` | `TestMenuPostgresLifecycle`, `TestSelectionPricingAndSnapshot`, `TestCAT050And051GroupCountsAndBranchStock`, `TestCAT053FutureSaleDoesNotOverrideEarly` e o snapshot persistido em `TestOrderCheckoutRevalidatesAndFreezesSnapshot`. |
-| ORD | `ORD-001–002`, `ORD-004–023`, `ORD-027–035`, `ORD-037–040` | Testes HTTP, checkout e concorrência em `server/internal/order`, incluindo `TestORD013ComboPreparationLines`; auditoria de cupom em `TestPostgresCouponRedemption`; avaliações em `TestReviewCasesPostgres` (`REV-001`, `REV-004–005`, `REV-008–009`), também reexecutado com PostgreSQL. |
-| FIN | `FIN-003–004`, `FIN-006`, `FIN-009–011`, `FIN-013–020`, `FIN-022–027`, `FIN-029–040` | `TestPostgresPaymentLifecycle`, `TestPostgresCouponRedemption`, `TestFIN024And030ConcurrentRedemptions`, `TestBestDiscountPerLine`, `TestFIN034ComboCouponsAndExtras`, `TestFIN025Through027CouponEligibility`, PIX em `TestOrderQRCodeCheckoutAndAnalyticsPostgres` e fidelidade por CPF em `TestFIN013014016GuestCPFLoyaltyAndSignup`. |
+| CAT | `CAT-002`, `CAT-004–005`, `CAT-007–008`, `CAT-011–012`, `CAT-014–019`, `CAT-021–022`, `CAT-025`, `CAT-031–033`, `CAT-035`, `CAT-043–055` | `TestMenuPostgresLifecycle`, `TestSelectionPricingAndSnapshot`, `TestCAT050SelectionCountsAreIndependentPerGroup`, `TestCAT051BranchOptionStockControlsAvailability`, `TestCAT053FutureSaleDoesNotOverrideEarly` e o snapshot persistido em `TestOrderCheckoutRevalidatesAndFreezesSnapshot`. |
+| ORD | `ORD-001–002`, `ORD-004–023`, `ORD-027–035`, `ORD-037–040` | `TestOrderQRCodeCheckoutAndAnalyticsPostgres`, `TestOrderCheckoutRevalidatesAndFreezesSnapshot`, `TestOrderConcurrentWritesRecordOneConversion`, `TestOrderHTTPRejectsMalformedDraftAndMissingStaffAuth`, `TestORD013ComboPreparationLines`, `TestPostgresCouponRedemption`, `TestREV001RatingScales`, `TestREV004GuestItemRatingWithoutComment`, `TestREV005RepeatBuyerDistinctPurchases`, `TestREV008OrganizationUpdateAcrossBranches`, `TestREV009RestaurantGuestReplay`. |
+| FIN | `FIN-003–004`, `FIN-006`, `FIN-009–011`, `FIN-013–020`, `FIN-022–027`, `FIN-029–040` | `TestPostgresPaymentLifecycle`, `TestPostgresCouponRedemption`, `TestFIN024And030ConcurrentRedemptions`, `TestFIN033BestDiscountPerLine`, `TestFIN034ComboCouponsAndExtras`, `TestFIN025CouponExpiresAtDeadline`, `TestFIN026InactiveCouponIsRejected`, `TestFIN027CouponRequiresMinimumSubtotal`, PIX em `TestOrderQRCodeCheckoutAndAnalyticsPostgres` e fidelidade por CPF em `TestFIN013014016GuestCPFLoyaltyAndSignup`. |
 
-Para executar a suíte de integração completa, configure `AUTH_TEST_DATABASE_URL` (PostgreSQL) e `AUTH_TEST_REDIS_URL` (Redis de teste), e rode `go test -count=1 -race ./...`. A contagem por ID não equivale ao número de funções Go.
+Na raiz do repositório, entre no ambiente com `nix develop`, configure `AUTH_TEST_DATABASE_URL` (PostgreSQL de teste) e `AUTH_TEST_REDIS_URL` (Redis de teste) e rode `go test -v -count=1 ./...`. A saída mostra `=== RUN` e o resultado (`PASS`, `FAIL` ou `SKIP`) de cada teste. Para verificar condições de corrida, acrescente `-race`. A contagem por ID não equivale ao número de funções Go.
+
+Para executar a suíte Go do backend e ver o relatório por ID, rode `nix develop -c node scripts/test-backend-cases.mjs` na raiz, com as mesmas variáveis de teste. O relatório inclui CAT e os demais módulos do backend. `shared suite` indica evidência de integração compartilhada, `UNVERIFIED` indica que ainda não há evidência vinculada ao ID, e `PLANNED` indica um caso planejado.
 
 ---
 
@@ -74,7 +83,7 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Passos:** Autenticar com senha correta; marcar e-mail não verificado e repetir.
 - **Entradas:** `a@example.com`, `password123`.
 - **Esperado:** Login correto funciona; e-mail não verificado é rejeitado.
-- **Testes:** `TestService_Register_And_Login_Success`, `TestService_LoginRejectsUnverifiedEmail`.
+- **Testes:** `TestIDP004RegistrationAndLogin`, `TestIDP004LoginRejectsUnverifiedEmail`.
 
 ### IDP-005: Login sem enumeração de conta
 - **Pré-condição:** Uma conta conhecida.
@@ -88,21 +97,21 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Passos:** Registrar e-mail com o CPF da sombra; tentar novo cadastro com o mesmo CPF.
 - **Entradas:** `12345678901`, `a@example.com`, `password123`.
 - **Esperado:** Mesmo ID da sombra é preservado, CPF é marcado como reivindicado e o segundo cadastro conflita.
-- **Teste:** `TestShadowGraduationAndClaim`.
+- **Teste:** `TestIDP006ShadowGraduationAndClaim`.
 
 ### IDP-007: Reivindicação e desvinculação preservam carteira
 - **Pré-condição:** PostgreSQL com conta real e sombra com carteira de 50 pontos.
 - **Passos:** Reivindicar o CPF da sombra e depois removê-lo.
 - **Entradas:** CPF `12345678901`.
 - **Esperado:** Carteira passa à conta real sem perda de pontos e continua vinculada após remover CPF.
-- **Teste:** `TestPostgresCPFClaimPreservesWallet` (requer `AUTH_TEST_DATABASE_URL`).
+- **Teste:** `TestIDP007PostgresCPFClaimPreservesWallet` (requer `AUTH_TEST_DATABASE_URL`).
 
 ### IDP-008: Corrida por CPF único
 - **Pré-condição:** CPF livre em armazenamento de memória.
 - **Passos:** Executar cinco cadastros concorrentes para o mesmo CPF.
 - **Entradas:** CPF `12345678901` e cinco telefones distintos.
 - **Esperado:** Exatamente um cadastro vence; os demais retornam conflito.
-- **Teste:** `TestConcurrentCPFRegistration`.
+- **Teste:** `TestIDP008ConcurrentCPFRegistration`.
 
 ### IDP-009: CPF malformado
 - **Pré-condição:** Conta autenticada.
@@ -116,49 +125,49 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Passos:** Tentar login, adicionar o telefone via confirmação simulada e tentar novamente.
 - **Entradas:** `+5511999999999`.
 - **Esperado:** Primeiro login rejeitado; após confirmação simulada, login gera tokens; após remoção, é rejeitado.
-- **Teste:** `TestPhoneLoginRequiresVerifiedPhone`.
+- **Teste:** `TestIDP010PhoneLoginRequiresVerifiedPhone`.
 
 ### IDP-011: Cadastro e login por telefone exigem código
 - **Pré-condição:** Telefone livre; armazenamento de verificação habilitado.
 - **Passos:** Solicitar código de cadastro, tentar confirmar sem código e depois com o código certo. Solicitar código de login, tentar código errado, confirmar e tentar reutilizá-lo.
 - **Entradas:** `+5511888888888`, `654321` e `123456`.
 - **Esperado:** HTTP 400 sem código, com código errado ou reutilizado. HTTP 201 e par de tokens no cadastro correto; login correto retorna 200.
-- **Teste:** `TestPhoneRegistrationHTTPRequiresPIN`.
+- **Teste:** `TestIDP011PhoneRegistrationHTTPRequiresPIN`.
 
 ### IDP-012: Telefone duplicado e último método
 - **Pré-condição:** Duas contas; uma possui telefone verificado.
 - **Passos:** Outra conta reivindica o telefone; em seguida, tentar removê-lo quando for o único método verificado.
 - **Entradas:** `+5511999999999`.
 - **Esperado:** Ambas operações retornam conflito e os métodos permanecem intactos.
-- **Teste:** `TestPhoneConflictsAndLastMethod`.
+- **Teste:** `TestIDP012PhoneConflictsAndLastMethod`.
 
 ### IDP-013: E-mail como último método
 - **Pré-condição:** Conta com e-mail verificado e sem telefone verificado.
 - **Passos:** Remover o e-mail; adicionar telefone e remover e-mail; tentar remover telefone.
 - **Entradas:** `a@example.com`, `+5511999999999`.
 - **Esperado:** Primeira e última remoções conflitam; remoção intermediária funciona.
-- **Teste:** `TestEmailChangeAndLastMethod`.
+- **Teste:** `TestIDP013And014EmailChangeAndLastMethod`.
 
 ### IDP-014: Alteração de e-mail exige senha atual
 - **Pré-condição:** Conta com e-mail e senha.
 - **Passos:** Alterar e-mail com senha atual incorreta e depois correta; autenticar com novo par.
 - **Entradas:** `b@example.com`, `newpassword`, `wrong` e `password123`.
 - **Esperado:** Tentativa incorreta rejeitada; alteração correta permite login com nova senha.
-- **Teste:** `TestEmailChangeAndLastMethod`.
+- **Teste:** `TestIDP013And014EmailChangeAndLastMethod`.
 
 ### IDP-015: Rotação de refresh e rejeição de replay
 - **Pré-condição:** Conta real com par de tokens.
 - **Passos:** Trocar refresh; reutilizar o antigo e usar o novo como bearer.
 - **Entradas:** Refresh original e refresh rotacionado.
 - **Esperado:** Troca funciona; replay e uso de refresh como access são rejeitados.
-- **Teste:** `TestSessionRotationAndRevocation`.
+- **Teste:** `TestIDP015And016SessionRotationAndRevocation`.
 
 ### IDP-016: Logout global invalida sessões
 - **Pré-condição:** Conta com par de tokens válido.
 - **Passos:** Chamar `POST /auth/logout-all` e tentar usar tokens antigos.
 - **Entradas:** Access e refresh emitidos antes do logout.
 - **Esperado:** HTTP 204; access e refresh anteriores são rejeitados.
-- **Testes:** `TestHTTPRegistrationAndLogoutAll`, `TestSessionRotationAndRevocation`.
+- **Testes:** `TestIDP016HTTPRegistrationAndLogoutAll`, `TestIDP015And016SessionRotationAndRevocation`.
 
 ### IDP-017: Bearer ausente, expirado ou forjado
 - **Pré-condição:** Conta real e segredo de teste.
@@ -172,14 +181,14 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Passos:** Segunda conta tenta revogar o refresh da primeira; primeira tenta renová-lo.
 - **Entradas:** ID da segunda conta e refresh da primeira.
 - **Esperado:** Revogação não autorizada; refresh original ainda funciona.
-- **Teste:** `TestLogoutCannotRevokeAnotherAccount`.
+- **Teste:** `TestIDP018LogoutCannotRevokeAnotherAccount`.
 
 ### IDP-019: Proteção do último proprietário
 - **Pré-condição:** Restaurante com apenas um proprietário.
 - **Passos:** Solicitar remoção pela API; depois adicionar outro proprietário e repetir com o token dele.
 - **Entradas:** IDs de duas contas existentes.
 - **Esperado:** Primeira remoção rejeitada; segunda permitida sem deixar restaurante órfão.
-- **Teste:** `TestRestaurantPostgresLifecycle` em `server/internal/restaurants/restaurants_casos_de_testes_test.go` (requer `AUTH_TEST_DATABASE_URL`).
+- **Teste:** `TestIDP019And023RestaurantPostgresLifecycle` em `server/internal/restaurants/restaurants_casos_de_testes_test.go` (requer `AUTH_TEST_DATABASE_URL`).
 
 ### IDP-020: Sysadmin e Administrador são papéis distintos
 - **Pré-condição:** Conta comum, sysadmin e conta alvo sem atribuições globais.
@@ -207,7 +216,7 @@ Os casos de identidade ficam em `server/internal/auth/auth_casos_de_testes_test.
 - **Passos:** Enviar `POST /restaurants/cafe/owners` com o bearer do gerente, antes de revogar seu vínculo de gerente.
 - **Entradas:** `account_id` da segunda conta.
 - **Esperado:** HTTP 403 e somente o proprietário original permanece.
-- **Teste:** `TestRestaurantPostgresLifecycle` em `server/internal/restaurants/restaurants_casos_de_testes_test.go` (requer `AUTH_TEST_DATABASE_URL`).
+- **Teste:** `TestIDP019And023RestaurantPostgresLifecycle` em `server/internal/restaurants/restaurants_casos_de_testes_test.go` (requer `AUTH_TEST_DATABASE_URL`).
 
 ### IDP-024: CPF de outra conta real não pode ser reivindicado
 - **Pré-condição:** Conta A possui CPF; conta B não possui CPF.
@@ -709,8 +718,6 @@ As regressões do domínio `order` exercitam o HTTP e o PostgreSQL. `POST /resta
 | ORD-022 | Usar mesa de outra filial, inativa ou identificadores conflitantes. | Mesa alheia ou inativa: `404`; campos conflitantes: `400`. |
 | ORD-023 | Usar QR de mesa e QR sem mesa. | Ambos atribuem `qr_id`; só o primeiro preenche a mesa. |
 | ORD-024 | Solicitar entrega com telefone ou endereço inválido. | `400` sem pedido persistido. |
-| ORD-025 | Registrar instruções de entrega no pedido. **Planejado.** | Instruções persistem no subtipo remoto. |
-| ORD-026 | Publicar estimativa de entrega. **Planejado.** | Estimativa fica disponível ao cliente autorizado. |
 | ORD-027 | Alterar o frete sem permissão, definir frete negativo ou falsificar o frete no checkout. | Ações rejeitadas; só o valor configurado pelo Owner ou Administrator é cobrado. |
 | ORD-028 | Adicionar item a rascunho autorizado. | `201`, totais atualizados e evento `cart_item_add` com item e quantidade. |
 | ORD-029 | Adicionar ou remover uma linha após submissão. | `409`, sem alterar o snapshot. |

@@ -332,7 +332,7 @@ func TestIDP026ConcurrentLastMethodRemoval(t *testing.T) {
 }
 
 // This test uses an isolated, temporary schema in the explicitly supplied DB.
-func TestPostgresCPFClaimPreservesWallet(t *testing.T) {
+func TestIDP007PostgresCPFClaimPreservesWallet(t *testing.T) {
 	url := os.Getenv("AUTH_TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("AUTH_TEST_DATABASE_URL is not set")
@@ -463,7 +463,7 @@ func TestIDP022UnavailableVerificationDoesNotCreateAccount(t *testing.T) {
 	}
 }
 
-func TestService_Register_And_Login_Success(t *testing.T) {
+func TestIDP004RegistrationAndLogin(t *testing.T) {
 	mock := NewMemoryStore()
 	svc := NewService(mock)
 	svc.SetHashCost(bcrypt.MinCost)
@@ -497,7 +497,7 @@ func TestService_Register_And_Login_Success(t *testing.T) {
 	}
 }
 
-func TestService_LoginRejectsUnverifiedEmail(t *testing.T) {
+func TestIDP004LoginRejectsUnverifiedEmail(t *testing.T) {
 	store := NewMemoryStore()
 	svc := NewService(store)
 	svc.SetHashCost(bcrypt.MinCost)
@@ -511,7 +511,7 @@ func TestService_LoginRejectsUnverifiedEmail(t *testing.T) {
 	}
 }
 
-func TestShadowGraduationAndClaim(t *testing.T) {
+func TestIDP006ShadowGraduationAndClaim(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	svc := NewService(store)
@@ -556,7 +556,7 @@ func TestShadowGraduationAndClaim(t *testing.T) {
 	}
 }
 
-func TestConcurrentCPFRegistration(t *testing.T) {
+func TestIDP008ConcurrentCPFRegistration(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	var wg sync.WaitGroup
@@ -584,7 +584,7 @@ func TestConcurrentCPFRegistration(t *testing.T) {
 	}
 }
 
-func TestEmailChangeAndLastMethod(t *testing.T) {
+func TestIDP013And014EmailChangeAndLastMethod(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	svc := NewService(store)
@@ -619,7 +619,7 @@ func TestEmailChangeAndLastMethod(t *testing.T) {
 	}
 }
 
-func TestPhoneRegistrationHTTPRequiresPIN(t *testing.T) {
+func TestIDP011PhoneRegistrationHTTPRequiresPIN(t *testing.T) {
 	_, _, mux := idpSetup()
 	const phone = `{"phone":"+5511888888888"}`
 	const correct = `{"phone":"+5511888888888","code":"123456"}`
@@ -661,7 +661,7 @@ func TestPhoneRegistrationHTTPRequiresPIN(t *testing.T) {
 	}
 }
 
-func TestPhoneLoginRequiresVerifiedPhone(t *testing.T) {
+func TestIDP010PhoneLoginRequiresVerifiedPhone(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	svc := NewService(store)
@@ -691,7 +691,7 @@ func TestPhoneLoginRequiresVerifiedPhone(t *testing.T) {
 	}
 }
 
-func TestPhoneConflictsAndLastMethod(t *testing.T) {
+func TestIDP012PhoneConflictsAndLastMethod(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	svc := NewService(store)
@@ -715,7 +715,7 @@ func TestPhoneConflictsAndLastMethod(t *testing.T) {
 	}
 }
 
-func TestSessionRotationAndRevocation(t *testing.T) {
+func TestIDP015And016SessionRotationAndRevocation(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	a, err := store.CreateAccount(ctx, "", "user@example.com", "hash", "")
@@ -751,7 +751,7 @@ func TestSessionRotationAndRevocation(t *testing.T) {
 	}
 }
 
-func TestHTTPRegistrationAndLogoutAll(t *testing.T) {
+func TestIDP016HTTPRegistrationAndLogoutAll(t *testing.T) {
 	svc := NewService(NewMemoryStore())
 	svc.SetHashCost(bcrypt.MinCost)
 	svc.verification = newTestVerification()
@@ -783,7 +783,7 @@ func TestHTTPRegistrationAndLogoutAll(t *testing.T) {
 	}
 }
 
-func TestLogoutCannotRevokeAnotherAccount(t *testing.T) {
+func TestIDP018LogoutCannotRevokeAnotherAccount(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	svc := NewService(store)

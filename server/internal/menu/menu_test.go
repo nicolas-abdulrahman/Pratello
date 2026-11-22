@@ -178,9 +178,8 @@ func TestSelectionPricingAndSnapshot(t *testing.T) {
 	}
 }
 
-func TestCAT050And051GroupCountsAndBranchStock(t *testing.T) {
-	at := time.Now()
-	c := catalog{
+func selectionGroupCatalog() catalog {
+	return catalog{
 		Items: map[int]item{1: {ID: 1, Name: "Lunch", Base: 1200, Available: true}},
 		Sides: map[int][]side{1: {
 			{Title: "Extras", Max: 2, Options: []option{{ID: 1, Price: 250, Available: true}}},
@@ -188,6 +187,11 @@ func TestCAT050And051GroupCountsAndBranchStock(t *testing.T) {
 			{Title: "Sides", Min: 3, Max: 3, Options: []option{{ID: 4, Available: true}, {ID: 5, Available: true}, {ID: 6, Price: 75, Available: true}, {ID: 7, Available: true}}},
 		}},
 	}
+}
+
+func TestCAT050SelectionCountsAreIndependentPerGroup(t *testing.T) {
+	at := time.Now()
+	c := selectionGroupCatalog()
 	for _, tc := range []struct {
 		name  string
 		ids   []int
@@ -214,6 +218,11 @@ func TestCAT050And051GroupCountsAndBranchStock(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCAT051BranchOptionStockControlsAvailability(t *testing.T) {
+	at := time.Now()
+	c := selectionGroupCatalog()
 	branch := c
 	branch.OptionStock = map[int]bool{6: false}
 	if !branch.view(1, 2, false, at).Available {

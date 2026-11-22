@@ -7,7 +7,7 @@ import (
 	"pratello/server/internal/menu"
 )
 
-func TestBestDiscountPerLine(t *testing.T) {
+func TestFIN033BestDiscountPerLine(t *testing.T) {
 	burger := 1
 	lines := []menu.CheckoutLine{
 		{LineSnapshot: menu.LineSnapshot{ItemID: burger, Quantity: 1, LineTotalCents: 2700}, SaleSavings: 300},
@@ -44,32 +44,31 @@ func TestFIN034ComboCouponsAndExtras(t *testing.T) {
 	}
 }
 
-func TestFIN025Through027CouponEligibility(t *testing.T) {
+func TestFIN025CouponExpiresAtDeadline(t *testing.T) {
 	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	c := Coupon{ID: 1, Scope: "order", Active: true, Type: "fixed_cents", Value: 200, Minimum: 1000, Expires: &at}
-	for _, tc := range []struct {
-		name     string
-		date     time.Time
-		subtotal int64
-		inactive bool
-		reason   string
-		saving   int64
-	}{
-		{"below minimum", at.Add(-time.Second), 999, false, "MIN_ORDER_NOT_MET", 0},
-		{"at minimum", at.Add(-time.Second), 1000, false, "", 200},
-		{"at expiry", at, 1000, false, "EXPIRED", 0},
-		{"deactivated", at.Add(-time.Second), 1000, true, "INACTIVE", 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			coupon := c
-			coupon.Active = !tc.inactive
-			if got := coupon.reason(tc.subtotal, tc.date); got != tc.reason {
-				t.Fatalf("got reason %q want %q", got, tc.reason)
-			}
-			p, err := calculate([]menu.CheckoutLine{{LineSnapshot: menu.LineSnapshot{ItemID: 1, Quantity: 1, LineTotalCents: tc.subtotal}}}, []Coupon{coupon}, tc.date)
-			if err != nil || p.Discount != tc.saving {
-				t.Fatalf("discount %+v %v", p, err)
-			}
-		})
+	coupon := Coupon{ID: 1, Scope: "order", Active: true, Type: "fixed_cents", Value: 200, Expires: &at}
+	assertCouponEligibility(t, coupon, at.Add(-time.Second), 1000, "", 200)
+	assertCouponEligibility(t, coupon, at, 1000, "EXPIRED", 0)
+}
+
+func TestFIN026InactiveCouponIsRejected(t *testing.T) {
+	coupon := Coupon{ID: 1, Scope: "order", Active: false, Type: "fixed_cents", Value: 200}
+	assertCouponEligibility(t, coupon, time.Time{}, 1000, "INACTIVE", 0)
+}
+
+func TestFIN027CouponRequiresMinimumSubtotal(t *testing.T) {
+	coupon := Coupon{ID: 1, Scope: "order", Active: true, Type: "fixed_cents", Value: 200, Minimum: 1000}
+	assertCouponEligibility(t, coupon, time.Time{}, 999, "MIN_ORDER_NOT_MET", 0)
+	assertCouponEligibility(t, coupon, time.Time{}, 1000, "", 200)
+}
+
+func assertCouponEligibility(t *testing.T, coupon Coupon, at time.Time, subtotal int64, reason string, saving int64) {
+	t.Helper()
+	if got := coupon.reason(subtotal, at); got != reason {
+		t.Fatalf("got reason %q want %q", got, reason)
+	}
+	p, err := calculate([]menu.CheckoutLine{{LineSnapshot: menu.LineSnapshot{ItemID: 1, Quantity: 1, LineTotalCents: subtotal}}}, []Coupon{coupon}, at)
+	if err != nil || p.Discount != saving {
+		t.Fatalf("got discount %+v, error %v; want discount %d", p, err, saving)
 	}
 }

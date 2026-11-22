@@ -161,167 +161,202 @@ func (f reviewFixture) assertSummary(path string, count, sum int64) page {
 	return p
 }
 
-func TestReviewCasesPostgres(t *testing.T) {
-	const burger = "/api/restaurants/cafe/items/1/reviews"
-	const combo = "/restaurants/cafe/items/2/reviews"
-	const org = "/restaurants/cafe/reviews"
-	const itemPurchase = "/orders/1/items/1/review"
-	const guestPurchase = "/orders/3/items/4/review"
-	const restaurantPurchase = "/orders/1/review"
-	const guestRestaurant = "/orders/3/review"
-	for _, tc := range []struct {
-		name  string
-		check func(reviewFixture)
-	}{
-		{"REV-001_rating_scales", func(f reviewFixture) {
-			for _, path := range []string{itemPurchase, restaurantPurchase} {
-				for _, body := range []string{`{"comment":"no rating"}`, `{"rating":0}`} {
-					f.post(path, "buyer", body, 400)
-				}
-			}
-			f.post(itemPurchase, "buyer", `{"rating":4}`, 400)
-			f.post(restaurantPurchase, "buyer", `{"rating":6}`, 400)
-			f.assertSummary(burger, 0, 0)
-			f.assertSummary(org, 0, 0)
-			f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
-			f.post("/orders/2/items/3/review", "buyer", `{"rating":1}`, 200)
-			f.post(restaurantPurchase, "buyer", `{"rating":5}`, 200)
-			f.post(guestRestaurant, f.guest, `{"rating":1}`, 200)
-			f.assertSummary(burger, 2, 4)
-			f.assertSummary(org, 2, 6)
-		}},
-		{"REV-002_purchase_credentials", func(f reviewFixture) {
-			f.post(itemPurchase, "", `{"rating":3}`, 401)
-			f.post(itemPurchase, "other", `{"rating":3}`, 403)
-			f.post(itemPurchase, f.guest, `{"rating":3}`, 403)
-			f.post(guestPurchase, strings.Repeat("b", 43), `{"rating":3}`, 403)
-			f.post("/orders/1/items/3/review", "buyer", `{"rating":3}`, 404)
-			f.assertSummary(burger, 0, 0)
-		}},
-		{"REV-003_ineligible_purchases", func(f reviewFixture) {
-			// Give the draft a delivered status to test that submission, not only status, is required.
-			f.exec(`UPDATE "order" SET status='delivered' WHERE id=6`)
-			for _, path := range []string{"/orders/4/items/5/review", "/orders/5/items/6/review", "/orders/6/items/7/review", "/orders/2/items/8/review", "/orders/2/items/9/review", "/orders/1/items/10/review", "/orders/4/review"} {
-				f.post(path, "buyer", `{"rating":3}`, 409)
-			}
-			f.assertSummary(burger, 0, 0)
-			f.assertSummary(org, 0, 0)
-			f.assertSummary("/restaurants/cafe/items/3/reviews", 0, 0)
-		}},
-		{"REV-004_guest_item_rating_without_comment", func(f reviewFixture) {
-			f.post(guestPurchase, f.guest, `{"rating":1,"comment":"Guest text"}`, 403)
-			f.assertSummary(burger, 0, 0)
-			f.post(guestPurchase, f.guest, `{"rating":1}`, 200)
-			p := f.assertSummary(burger, 1, 1)
-			if len(p.Data) != 1 || p.Data[0].Comment != nil {
-				f.t.Fatalf("guest comment persisted: %+v", p.Data)
-			}
-		}},
-		{"REV-005_repeat_buyer_distinct_purchases", func(f reviewFixture) {
-			f.post(itemPurchase, "buyer", `{"rating":3,"comment":"Great"}`, 200)
-			f.post("/orders/2/items/3/review", "buyer", `{"rating":2,"comment":"Another visit"}`, 200)
-			f.post(itemPurchase, "buyer", `{"rating":1}`, 409)
-			p := f.assertSummary(burger, 2, 5)
-			if len(p.Data) != 2 || p.Data[0].Comment == nil || *p.Data[0].Comment != "Another visit" || p.Data[1].Comment == nil || *p.Data[1].Comment != "Great" {
-				f.t.Fatalf("independent reviews were not preserved: %+v", p.Data)
-			}
-		}},
-		{"REV-006_concurrent_guest_replay", func(f reviewFixture) {
-			var wg sync.WaitGroup
-			results := make(chan int, 2)
-			start := make(chan struct{})
-			for range 2 {
-				wg.Go(func() { <-start; results <- f.run("POST", guestPurchase, f.guest, `{"rating":1}`).Code })
-			}
-			close(start)
-			wg.Wait()
-			close(results)
-			counts := map[int]int{}
-			for status := range results {
-				counts[status]++
-			}
-			if counts[200] != 1 || counts[409] != 1 {
-				f.t.Fatalf("guest replay statuses: %v", counts)
-			}
-			f.assertSummary(burger, 1, 1)
-		}},
-		{"REV-007_combo_and_dish_are_independent", func(f reviewFixture) {
-			f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
-			f.post("/orders/1/items/2/review", "buyer", `{"rating":1}`, 200)
-			f.assertSummary(burger, 1, 3)
-			f.assertSummary(combo, 1, 1)
-		}},
-		{"REV-008_organization_update_across_branches", func(f reviewFixture) {
-			f.post(restaurantPurchase, "buyer", `{"rating":5,"comment":"First branch"}`, 200)
-			before := f.assertSummary(org, 1, 5)
-			f.post("/orders/2/review", "buyer", `{"rating":4,"comment":"Updated after another branch"}`, 200)
-			after := f.assertSummary(org, 1, 4)
-			if len(before.Data) != 1 || len(after.Data) != 1 || before.Data[0].ID != after.Data[0].ID || after.Data[0].Comment == nil || *after.Data[0].Comment != "Updated after another branch" || after.Summary.Sold != nil {
-				f.t.Fatalf("restaurant review was not updated in place: %+v", after)
-			}
-		}},
-		{"REV-009_restaurant_guest_replay", func(f reviewFixture) {
-			f.post(guestRestaurant, f.guest, `{"rating":2,"comment":"Guest text"}`, 403)
-			f.post(guestRestaurant, f.guest, `{"rating":2}`, 200)
-			f.post(guestRestaurant, f.guest, `{"rating":3}`, 409)
-			p := f.assertSummary(org, 1, 2)
-			if len(p.Data) != 1 || p.Data[0].Comment != nil {
-				f.t.Fatalf("guest review: %+v", p.Data)
-			}
-		}},
-		{"REV-010_public_pagination_and_privacy", func(f reviewFixture) {
-			f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
-			f.post(guestPurchase, f.guest, `{"rating":1}`, 200)
-			first := f.assertSummary(burger+"?page_size=1", 2, 4)
-			second := f.assertSummary(burger+"?page_size=1&page=2", 2, 4)
-			past := f.assertSummary(burger+"?page_size=1&page=3", 2, 4)
-			if len(first.Data) != 1 || len(second.Data) != 1 || first.Data[0].Rating != 1 || second.Data[0].Rating != 3 || len(past.Data) != 0 || second.Page != 2 || second.Size != 1 {
-				f.t.Fatalf("wrong page contents: %+v %+v %+v", first, second, past)
-			}
-		}},
-		{"REV-011_publication_and_tenant_gate", func(f reviewFixture) {
-			f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
-			f.assertSummary(burger, 1, 3)
-			f.exec(`INSERT INTO physical_restaurant(restaurant_id,address_id,name,cnpj,owner_cnpj,cnpj_verified) VALUES(2,1,'Other','12345678000300','12345678000100',true)`)
-			f.call("GET", "/restaurants/other/items/1/reviews", "", "", 404)
-			f.exec(`UPDATE menu_item SET archived_at=now() WHERE id=1`)
-			f.call("GET", burger, "", "", 404)
-			f.exec(`UPDATE menu_item SET archived_at=NULL WHERE id=1; UPDATE physical_restaurant SET cnpj_verified=false WHERE restaurant_id=1`)
-			f.call("GET", burger, "", "", 404)
-			f.call("GET", org, "", "", 404)
-		}},
-		{"REV-012_sales_exclude_non_purchases", func(f reviewFixture) {
-			b, c := f.assertSummary(burger, 0, 0), f.assertSummary(combo, 0, 0)
-			if b.Summary.Sold == nil || *b.Summary.Sold != 6 || c.Summary.Sold == nil || *c.Summary.Sold != 1 {
-				f.t.Fatalf("wrong sold counts: %+v %+v", b.Summary, c.Summary)
-			}
-			f.exec(`UPDATE "order" SET status='cancelled' WHERE id=4`)
-			p := f.get(burger)
-			if p.Summary.Sold == nil || *p.Summary.Sold != 4 {
-				f.t.Fatalf("cancellation did not subtract units: %+v", p.Summary)
-			}
-		}},
-		{"REV-013_rollup_update_and_delete", func(f reviewFixture) {
-			f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
-			f.assertSummary(burger, 1, 3)
-			f.exec(`UPDATE item_review SET rating=2 WHERE order_item_id=1`)
-			f.assertSummary(burger, 1, 2)
-			f.exec(`DELETE FROM item_review WHERE order_item_id=1`)
-			p := f.assertSummary(burger, 0, 0)
-			if len(p.Data) != 0 {
-				f.t.Fatalf("deleted review still visible: %+v", p.Data)
-			}
-		}},
-		{"REV-014_multibyte_comment_limit", func(f reviewFixture) {
-			comment := strings.Repeat("á", 2000)
-			f.post(restaurantPurchase, "buyer", fmt.Sprintf(`{"rating":5,"comment":%q}`, comment), 200)
-			f.post(restaurantPurchase, "buyer", fmt.Sprintf(`{"rating":2,"comment":%q}`, comment+"á"), 400)
-			p := f.assertSummary(org, 1, 5)
-			if len(p.Data) != 1 || p.Data[0].Comment == nil || *p.Data[0].Comment != comment {
-				f.t.Fatal("overlong input changed the review or valid comment was truncated")
-			}
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) { t.Parallel(); tc.check(setupReviews(t)) })
+const (
+	burger             = "/api/restaurants/cafe/items/1/reviews"
+	combo              = "/restaurants/cafe/items/2/reviews"
+	org                = "/restaurants/cafe/reviews"
+	itemPurchase       = "/orders/1/items/1/review"
+	guestPurchase      = "/orders/3/items/4/review"
+	restaurantPurchase = "/orders/1/review"
+	guestRestaurant    = "/orders/3/review"
+)
+
+func TestREV001RatingScales(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	for _, path := range []string{itemPurchase, restaurantPurchase} {
+		for _, body := range []string{`{"comment":"no rating"}`, `{"rating":0}`} {
+			f.post(path, "buyer", body, 400)
+		}
+	}
+	f.post(itemPurchase, "buyer", `{"rating":4}`, 400)
+	f.post(restaurantPurchase, "buyer", `{"rating":6}`, 400)
+	f.assertSummary(burger, 0, 0)
+	f.assertSummary(org, 0, 0)
+	f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
+	f.post("/orders/2/items/3/review", "buyer", `{"rating":1}`, 200)
+	f.post(restaurantPurchase, "buyer", `{"rating":5}`, 200)
+	f.post(guestRestaurant, f.guest, `{"rating":1}`, 200)
+	f.assertSummary(burger, 2, 4)
+	f.assertSummary(org, 2, 6)
+}
+
+func TestREV002PurchaseCredentials(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(itemPurchase, "", `{"rating":3}`, 401)
+	f.post(itemPurchase, "other", `{"rating":3}`, 403)
+	f.post(itemPurchase, f.guest, `{"rating":3}`, 403)
+	f.post(guestPurchase, strings.Repeat("b", 43), `{"rating":3}`, 403)
+	f.post("/orders/1/items/3/review", "buyer", `{"rating":3}`, 404)
+	f.assertSummary(burger, 0, 0)
+}
+
+func TestREV003IneligiblePurchases(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	// Give the draft a delivered status to test that submission, not only status, is required.
+	f.exec(`UPDATE "order" SET status='delivered' WHERE id=6`)
+	for _, path := range []string{"/orders/4/items/5/review", "/orders/5/items/6/review", "/orders/6/items/7/review", "/orders/2/items/8/review", "/orders/2/items/9/review", "/orders/1/items/10/review", "/orders/4/review"} {
+		f.post(path, "buyer", `{"rating":3}`, 409)
+	}
+	f.assertSummary(burger, 0, 0)
+	f.assertSummary(org, 0, 0)
+	f.assertSummary("/restaurants/cafe/items/3/reviews", 0, 0)
+}
+
+func TestREV004GuestItemRatingWithoutComment(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(guestPurchase, f.guest, `{"rating":1,"comment":"Guest text"}`, 403)
+	f.assertSummary(burger, 0, 0)
+	f.post(guestPurchase, f.guest, `{"rating":1}`, 200)
+	p := f.assertSummary(burger, 1, 1)
+	if len(p.Data) != 1 || p.Data[0].Comment != nil {
+		f.t.Fatalf("guest comment persisted: %+v", p.Data)
+	}
+}
+
+func TestREV005RepeatBuyerDistinctPurchases(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(itemPurchase, "buyer", `{"rating":3,"comment":"Great"}`, 200)
+	f.post("/orders/2/items/3/review", "buyer", `{"rating":2,"comment":"Another visit"}`, 200)
+	f.post(itemPurchase, "buyer", `{"rating":1}`, 409)
+	p := f.assertSummary(burger, 2, 5)
+	if len(p.Data) != 2 || p.Data[0].Comment == nil || *p.Data[0].Comment != "Another visit" || p.Data[1].Comment == nil || *p.Data[1].Comment != "Great" {
+		f.t.Fatalf("independent reviews were not preserved: %+v", p.Data)
+	}
+}
+
+func TestREV006ConcurrentGuestReplay(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	var wg sync.WaitGroup
+	results := make(chan int, 2)
+	start := make(chan struct{})
+	for range 2 {
+		wg.Go(func() { <-start; results <- f.run("POST", guestPurchase, f.guest, `{"rating":1}`).Code })
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	counts := map[int]int{}
+	for status := range results {
+		counts[status]++
+	}
+	if counts[200] != 1 || counts[409] != 1 {
+		f.t.Fatalf("guest replay statuses: %v", counts)
+	}
+	f.assertSummary(burger, 1, 1)
+}
+
+func TestREV007ComboAndDishAreIndependent(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
+	f.post("/orders/1/items/2/review", "buyer", `{"rating":1}`, 200)
+	f.assertSummary(burger, 1, 3)
+	f.assertSummary(combo, 1, 1)
+}
+
+func TestREV008OrganizationUpdateAcrossBranches(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(restaurantPurchase, "buyer", `{"rating":5,"comment":"First branch"}`, 200)
+	before := f.assertSummary(org, 1, 5)
+	f.post("/orders/2/review", "buyer", `{"rating":4,"comment":"Updated after another branch"}`, 200)
+	after := f.assertSummary(org, 1, 4)
+	if len(before.Data) != 1 || len(after.Data) != 1 || before.Data[0].ID != after.Data[0].ID || after.Data[0].Comment == nil || *after.Data[0].Comment != "Updated after another branch" || after.Summary.Sold != nil {
+		f.t.Fatalf("restaurant review was not updated in place: %+v", after)
+	}
+}
+
+func TestREV009RestaurantGuestReplay(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(guestRestaurant, f.guest, `{"rating":2,"comment":"Guest text"}`, 403)
+	f.post(guestRestaurant, f.guest, `{"rating":2}`, 200)
+	f.post(guestRestaurant, f.guest, `{"rating":3}`, 409)
+	p := f.assertSummary(org, 1, 2)
+	if len(p.Data) != 1 || p.Data[0].Comment != nil {
+		f.t.Fatalf("guest review: %+v", p.Data)
+	}
+}
+
+func TestREV010PublicPaginationAndPrivacy(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
+	f.post(guestPurchase, f.guest, `{"rating":1}`, 200)
+	first := f.assertSummary(burger+"?page_size=1", 2, 4)
+	second := f.assertSummary(burger+"?page_size=1&page=2", 2, 4)
+	past := f.assertSummary(burger+"?page_size=1&page=3", 2, 4)
+	if len(first.Data) != 1 || len(second.Data) != 1 || first.Data[0].Rating != 1 || second.Data[0].Rating != 3 || len(past.Data) != 0 || second.Page != 2 || second.Size != 1 {
+		f.t.Fatalf("wrong page contents: %+v %+v %+v", first, second, past)
+	}
+}
+
+func TestREV011PublicationAndTenantGate(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
+	f.assertSummary(burger, 1, 3)
+	f.exec(`INSERT INTO physical_restaurant(restaurant_id,address_id,name,cnpj,owner_cnpj,cnpj_verified) VALUES(2,1,'Other','12345678000300','12345678000100',true)`)
+	f.call("GET", "/restaurants/other/items/1/reviews", "", "", 404)
+	f.exec(`UPDATE menu_item SET archived_at=now() WHERE id=1`)
+	f.call("GET", burger, "", "", 404)
+	f.exec(`UPDATE menu_item SET archived_at=NULL WHERE id=1; UPDATE physical_restaurant SET cnpj_verified=false WHERE restaurant_id=1`)
+	f.call("GET", burger, "", "", 404)
+	f.call("GET", org, "", "", 404)
+}
+
+func TestREV012SalesExcludeNonPurchases(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	b, c := f.assertSummary(burger, 0, 0), f.assertSummary(combo, 0, 0)
+	if b.Summary.Sold == nil || *b.Summary.Sold != 6 || c.Summary.Sold == nil || *c.Summary.Sold != 1 {
+		f.t.Fatalf("wrong sold counts: %+v %+v", b.Summary, c.Summary)
+	}
+	f.exec(`UPDATE "order" SET status='cancelled' WHERE id=4`)
+	p := f.get(burger)
+	if p.Summary.Sold == nil || *p.Summary.Sold != 4 {
+		f.t.Fatalf("cancellation did not subtract units: %+v", p.Summary)
+	}
+}
+
+func TestREV013RollupUpdateAndDelete(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	f.post(itemPurchase, "buyer", `{"rating":3}`, 200)
+	f.assertSummary(burger, 1, 3)
+	f.exec(`UPDATE item_review SET rating=2 WHERE order_item_id=1`)
+	f.assertSummary(burger, 1, 2)
+	f.exec(`DELETE FROM item_review WHERE order_item_id=1`)
+	p := f.assertSummary(burger, 0, 0)
+	if len(p.Data) != 0 {
+		f.t.Fatalf("deleted review still visible: %+v", p.Data)
+	}
+}
+
+func TestREV014MultibyteCommentLimit(t *testing.T) {
+	t.Parallel()
+	f := setupReviews(t)
+	comment := strings.Repeat("á", 2000)
+	f.post(restaurantPurchase, "buyer", fmt.Sprintf(`{"rating":5,"comment":%q}`, comment), 200)
+	f.post(restaurantPurchase, "buyer", fmt.Sprintf(`{"rating":2,"comment":%q}`, comment+"á"), 400)
+	p := f.assertSummary(org, 1, 5)
+	if len(p.Data) != 1 || p.Data[0].Comment == nil || *p.Data[0].Comment != comment {
+		f.t.Fatal("overlong input changed the review or valid comment was truncated")
 	}
 }
