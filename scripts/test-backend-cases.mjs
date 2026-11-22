@@ -8,6 +8,14 @@ const docs = await readFile('docs/Casos de teste.md', 'utf8');
 const cases = new Map([...docs.matchAll(new RegExp(`^(?:### |\\| )(${prefix})-(\\d{3})(.*)$`, 'gm'))]
   .map(([, module, number, description]) => [module + number, { planned: /planejado/i.test(description), tests: new Set() }]));
 const grouped = new Map();
+const newEvidence = {
+  TestMenuPostgresLifecycle: 'CAT001 CAT003 CAT006 CAT009 CAT010 CAT013 CAT020 CAT023 CAT024 CAT026 CAT027 CAT028 CAT029 CAT030 CAT034 CAT036 CAT037 CAT038 CAT039 CAT040 CAT041 CAT042',
+  TestOrderQRCodeCheckoutAndAnalyticsPostgres: 'ORD003 ORD024 ORD036',
+  TestPostgresPaymentLifecycle: 'FIN001 FIN002 FIN005',
+};
+for (const [test, ids] of Object.entries(newEvidence)) {
+  for (const id of ids.split(' ')) grouped.set(id, [test]);
+}
 const standalone = new Set(['CAT050', 'CAT051', 'FIN025', 'FIN026', 'FIN027']);
 for (const [, module, ranges, evidence] of docs.matchAll(/^\| (CAT|ORD|FIN) \| (`[^\n]+?) \| ([^\n]+) \|$/gm)) {
   const tests = [...evidence.matchAll(/`(Test\w+)`/g)].map(([, name]) => name);
@@ -66,5 +74,6 @@ for (const module of modules) {
     console.log(`  ${id}  ──────────  ${display}${suites ? '  (shared suite)' : ''}`);
   }
 }
-console.log(`\n${cases.size} backend IDs  │  ${Object.entries(counts).map(([status, count]) => `${count} ${status}`).join('  │  ')}`);
-process.exitCode = code === 0 && counts.FAIL === 0 ? 0 : 1;
+console.log(`\nBackend cases executed: ${counts.PASS + counts.FAIL}  │  ${counts.PASS} PASS  │  ${counts.FAIL} FAIL`);
+console.log(`Not executed: ${counts.SKIP} skipped  │  ${counts.PLANNED} planned${counts.UNVERIFIED ? `  │  ${counts.UNVERIFIED} missing evidence` : ''}`);
+process.exitCode = code === 0 && counts.FAIL === 0 && counts.UNVERIFIED === 0 ? 0 : 1;

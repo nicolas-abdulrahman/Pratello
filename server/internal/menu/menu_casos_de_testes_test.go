@@ -155,7 +155,10 @@ func TestMenuPostgresLifecycle(t *testing.T) {
 		t.Fatal(string(body))
 	}
 	exec(`UPDATE physical_restaurant SET cnpj_verified=true WHERE id=$1`, b1)
-	call("GET", "/api"+root+"/menu", "", "", 200)
+	publicMenu := string(call("GET", "/api"+root+"/menu", "", "", 200))
+	if !strings.Contains(publicMenu, `"template_style":"experience"`) || !strings.Contains(publicMenu, `"accent_color":"#123456"`) {
+		t.Fatalf("CAT-001/003/038: menu style or color not persisted: %s", publicMenu)
+	}
 	call("GET", root+"/categories"+query(b2), "", "", 404)
 	exec(`UPDATE physical_restaurant SET cnpj_verified=true WHERE id=$1`, b2)
 	// CAT-048: verification of one location cannot publish another location.
@@ -181,6 +184,13 @@ func TestMenuPostgresLifecycle(t *testing.T) {
 	call("POST", root+"/items", analyst, create(cat, "Forbidden", ""), 403)
 	call("POST", root+"/items", owner, fmt.Sprintf(`{"category_id":%d,"name":"Missing price"}`, cat), 400)
 	burger := decodeID(call("POST", root+"/items", owner, create(cat, "Burger", `,"base_cost_cents":300,"allows_review":false`), 201))
+	call("POST", root+"/items", owner, fmt.Sprintf(`{"category_id":%d,"name":"Negative","base_price_cents":-500}`, cat), 400)
+	call("POST", root+"/items", owner, create(cat, strings.Repeat("x", 256), ""), 400)
+	empty := decodeID(call("POST", root+"/categories", owner, `{"name":"Empty"}`, 201))
+	call("DELETE", fmt.Sprintf("%s/categories/%d", root, empty), owner, "", 204)
+	if id(`SELECT count(*) FROM category WHERE id=$1 AND archived_at IS NULL`, empty) != 0 {
+		t.Fatal("CAT-006: empty category was not archived")
+	}
 	combo := decodeID(call("POST", root+"/items", owner, create(cat, "Combo", `,"is_combo":true`), 201))
 	burgerURL, comboURL := fmt.Sprintf("%s/items/%d", root, burger), fmt.Sprintf("%s/items/%d", root, combo)
 	config := `{"display_config":{"dark":true,"colors":{"bg":"#ffffff","primary_color":"#ea580c","secondary_color":"#fde68a","bg_dark":"#431407","primary_color_dark":"#facc15","secondary_color_dark":"#9a3412"},"menu":{"container":"horizontal"},"first_page":[{"id":"hero","type":"header1","img":"/media/hero.png","welcome":{"text":"Olá"},"title":{"text":"Menu","dark":false},"desc":{"text":""},"button1":{"bg":"primary_color","text":{"dark":false}}},{"id":"sales","type":"section","container":"grid","title":{"text":"Promoções"},"display_items":{"by":"category","value":"sales"},"border_color":"primary_color","item_style":{"bg":"secondary_color","dark":false}}]}}`
@@ -232,7 +242,28 @@ func TestMenuPostgresLifecycle(t *testing.T) {
 		t.Fatal("cost not cleared")
 	}
 
+	longDescription := strings.Repeat("x", 1500)
+	longItem := decodeID(call("POST", root+"/items", owner, create(cat, "Long description", fmt.Sprintf(`,"description":%q`, longDescription)), 201))
+	if body := string(call("GET", fmt.Sprintf("%s/items/%d", root, longItem), "", "", 200)); !strings.Contains(body, longDescription) {
+		t.Fatal("CAT-040: description was not preserved")
+	}
+	call("PATCH", burgerURL, owner, `{"description":"Updated burger","photo_url":"https://example.test/burger.png","is_available":false}`, 200)
+	if body := string(call("GET", burgerURL, "", "", 200)); !strings.Contains(body, `"description":"Updated burger"`) || !strings.Contains(body, `"photo_url":"https://example.test/burger.png"`) || !strings.Contains(body, `"is_available":false`) {
+		t.Fatalf("CAT-010/024: item changes were not persisted: %s", body)
+	}
+	if body := string(call("GET", root+"/items", "", "", 200)); !strings.Contains(body, `"is_available":false`) || !strings.Contains(body, `"is_available":true`) {
+		t.Fatalf("CAT-030: public list does not include both availability states: %s", body)
+	}
+	call("PATCH", burgerURL, owner, `{"is_available":true}`, 200)
 	ing := decodeID(call("POST", root+"/ingredients", owner, `{"name":"Onions","default_unit":"g"}`, 201))
+	unused := decodeID(call("POST", root+"/ingredients", owner, `{"name":"Unused","default_unit":"g"}`, 201))
+	if body := string(call("GET", root+"/ingredients", owner, "", 200)); !strings.Contains(body, `"name":"Onions"`) || !strings.Contains(body, `"name":"Unused"`) {
+		t.Fatalf("CAT-041: ingredient list incomplete: %s", body)
+	}
+	call("DELETE", fmt.Sprintf("%s/ingredients/%d", root, unused), owner, "", 204)
+	if id(`SELECT count(*) FROM ingredient WHERE id=$1`, unused) != 0 {
+		t.Fatal("CAT-042: unused ingredient was not deleted")
+	}
 	// CAT-055: a racing retry must not create a duplicate recipe relation.
 	var recipeID int
 	statuses := make(chan *httptest.ResponseRecorder, 2)
@@ -276,6 +307,15 @@ func TestMenuPostgresLifecycle(t *testing.T) {
 	group := decodeID(call("POST", comboURL+"/sides", owner, `{"title":"Drink","min_options":1,"max_options":1}`, 201))
 	groupURL := fmt.Sprintf("%s/sides/%d", comboURL, group)
 	optionID := decodeID(call("POST", groupURL+"/options", owner, `{"name":"Juice","additional_price_cents":200}`, 201))
+	call("POST", groupURL+"/options", owner, `{"name":"Negative","additional_price_cents":-300}`, 400)
+	fixedRecipe := decodeID(call("POST", comboURL+"/ingredients", owner, fmt.Sprintf(`{"ingredient_id":%d,"quantity":10,"unit":"g","is_removable":false}`, ing), 201))
+	if body := string(call("GET", comboURL, "", "", 200)); !strings.Contains(body, `"unit":"g"`) || !strings.Contains(body, `"is_removable":false`) || !strings.Contains(body, `"name":"Juice"`) {
+		t.Fatalf("CAT-013/023/034: detail missing recipe or options: %s", body)
+	}
+	call("DELETE", fmt.Sprintf("%s/ingredients/%d", comboURL, fixedRecipe), owner, "", 204)
+	if id(`SELECT count(*) FROM item_ingredient WHERE id=$1`, fixedRecipe) != 0 {
+		t.Fatal("CAT-027: recipe relation was not deleted")
+	}
 	stockURL := func(b, i int) string { return fmt.Sprintf("%s/branches/%d/items/%d/availability", root, b, i) }
 	call("PUT", stockURL(b2, burger), manager, `{"is_available":false}`, 403)
 	call("PUT", stockURL(foreignBranch, burger), manager, `{"is_available":false}`, 404)
@@ -289,6 +329,9 @@ func TestMenuPostgresLifecycle(t *testing.T) {
 		wg.Go(func() { call("PUT", stockURL(b1, burger), manager, `{"is_available":true}`, 200) })
 	}
 	wg.Wait()
+	if !decodeItem(call("GET", burgerURL+query(b1), "", "", 200)).Available {
+		t.Fatal("CAT-037: concurrent stock updates did not persist")
+	}
 	optionStock := fmt.Sprintf("%s/branches/%d/items/%d/sides/%d/options/%d/availability", root, b1, combo, group, optionID)
 	call("PUT", optionStock, manager, `{"is_available":false}`, 200)
 	if v := decodeItem(call("GET", comboURL+query(b1), "", "", 200)); v.Available || len(v.Sides) != 1 || v.Sides[0].Options[0].Available {
@@ -364,12 +407,28 @@ func TestMenuPostgresLifecycle(t *testing.T) {
 	if err != nil || second.ItemName != "Edited combo" || second.LineTotalCents != 4000 || len(second.Options) != 0 {
 		t.Fatalf("new snapshot did not reflect edited catalog: %+v %v", second, err)
 	}
+	purchase := id(`INSERT INTO "order"(physical_restaurant_id,order_type,submitted_at) VALUES($1,'local',now()) RETURNING id`, b1)
+	line := id(`INSERT INTO order_item(order_id,item_id,item_name,unit_price_cents,line_total_cents,quantity) VALUES($1,$2,'Burger',1200,1200,1) RETURNING id`, purchase, burger)
 	call("DELETE", burgerURL, owner, "", 204)
 	call("GET", burgerURL, "", "", 404)
+	if id(`SELECT count(*) FROM order_item oi JOIN menu_item i ON i.id=oi.item_id WHERE oi.id=$1 AND oi.item_id=$2 AND i.archived_at IS NOT NULL`, line, burger) != 1 {
+		t.Fatal("CAT-026: archiving lost the purchased item reference")
+	}
 	if v := decodeItem(call("GET", comboURL, "", "", 200)); v.Available {
 		t.Fatal("archived item leaves bundle available")
 	}
 	if snapshot.ItemName != "Combo" || snapshot.LineTotalCents != 3000 {
 		t.Fatal("prior checkout snapshot changed")
 	}
+	partURL := fmt.Sprintf("%s/combo-items/%d", comboURL, part)
+	call("PUT", partURL, owner, `{"quantity":3}`, 200)
+	if id(`SELECT quantity FROM combo_item WHERE id=$1`, part) != 3 {
+		t.Fatal("CAT-028: component quantity was not updated")
+	}
+	call("DELETE", partURL, owner, "", 204)
+	if id(`SELECT count(*) FROM combo_item WHERE id=$1`, part) != 0 {
+		t.Fatal("CAT-029: component was not deleted")
+	}
+	percent := strings.Replace(strings.Replace(saleBody, "fixed_cents", "percent", 1), "500", "20", 1)
+	call("POST", comboURL+"/sales", owner, `{`+percent+`}`, 201)
 }

@@ -22,20 +22,20 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 |---|---:|---:|---:|---:|
 | IDP | 29 | 0 | 0 | 0 |
 | TEN | 19 | 0 | 0 | 0 |
-| CAT | 33 | 0 | 0 | 0 |
-| ORD | 35 | 0 | 0 | 0 |
-| FIN | 32 | 0 | 4 | 0 |
+| CAT | 55 | 0 | 0 | 0 |
+| ORD | 38 | 0 | 0 | 0 |
+| FIN | 36 | 0 | 4 | 0 |
 | REV | 14 | 0 | 0 | 0 |
 | WEB | 45 | 0 | 6 | 0 |
-| **Total** | **207** | **0** | **10** | **0** |
+| **Total** | **236** | **0** | **10** | **0** |
 
-Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A tabela não inclui os 29 casos de CAT, ORD e FIN sem resultado verificado por ID. A suíte Go foi reexecutada com PostgreSQL e Redis, sem falhas ou testes pulados. Os resultados WEB vêm da execução anterior do Playwright em Chromium.
+Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A suíte Go foi reexecutada com PostgreSQL e Redis: 191 IDs do backend passaram, sem falhas ou casos pulados. Os 45 resultados WEB vêm da execução anterior do Playwright em Chromium.
 
 - **IDP PASS:** `IDP-001–029`.
 - **TEN PASS:** `TEN-001–019`.
-- **CAT PASS:** `CAT-002`, `CAT-004–005`, `CAT-007–008`, `CAT-011–012`, `CAT-014–019`, `CAT-021–022`, `CAT-025`, `CAT-031–033`, `CAT-035`, `CAT-043–055`.
-- **ORD PASS:** `ORD-001–002`, `ORD-004–023`, `ORD-027–035`, `ORD-037–040`.
-- **FIN PASS:** `FIN-003–004`, `FIN-006`, `FIN-009–011`, `FIN-013–020`, `FIN-022–027`, `FIN-029–040`.
+- **CAT PASS:** `CAT-001–055`.
+- **ORD PASS:** `ORD-001–024`, `ORD-027–040`.
+- **FIN PASS:** `FIN-001–006`, `FIN-009–020`, `FIN-022–027`, `FIN-029–040`.
 - **FIN Planejados:** `FIN-007–008` (emissão de recibo e código único), `FIN-021` (reversão de crédito de fidelidade), `FIN-028` (cálculo e auditoria de recibo em JSONB).
 - **REV PASS:** `REV-001–014`.
 - **WEB PASS:** `WEB-001–014`, `WEB-016–018`, `WEB-020–038`, `WEB-041–045`, `WEB-048–051`.

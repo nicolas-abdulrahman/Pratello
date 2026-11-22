@@ -91,6 +91,35 @@ The API serves media from `./media` by default. Set `MEDIA_DIR` to a different d
 
 ---
 
+## Backend tests (Go)
+
+From the repository root, start PostgreSQL and Redis instances for testing and set their connection URLs:
+
+```bash
+export AUTH_TEST_DATABASE_URL='postgres://localhost/pratello_test?sslmode=disable'
+export AUTH_TEST_REDIS_URL='redis://127.0.0.1:6379/0'
+nix develop -c node scripts/test-backend-cases.mjs
+```
+
+The report groups case IDs by backend module. Planned and skipped cases appear separately from executed cases. The PostgreSQL role needs permission to create test schemas. Without the test URLs, some integration tests are skipped.
+
+To see each Go test function and subtest in the terminal, use the same environment variables and run:
+
+```bash
+nix develop -c go test -v -count=1 ./server/...
+```
+
+## OpenAPI reference
+
+Open [`docs/openapi.yaml`](docs/openapi.yaml) in your editor to read the source. To browse the same specification in Swagger UI, run this from the repository root and open <http://localhost:8081>:
+
+```bash
+docker run --rm -p 127.0.0.1:8081:8080 \
+  -v "$PWD/docs:/spec:ro" \
+  -e SWAGGER_JSON=/spec/openapi.yaml \
+  swaggerapi/swagger-ui
+```
+
 ## 🧪 Running E2E Tests (Java + Playwright + Gradle)
 
 With the app running (e.g. `npm run dev` and `npm run server`):

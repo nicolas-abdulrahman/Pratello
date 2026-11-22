@@ -309,6 +309,10 @@ func TestOrderQRCodeCheckoutAndAnalyticsPostgres(t *testing.T) {
 	call("PUT", branch+"/delivery-fee", "customer", `{"delivery_fee_cents":500}`, 403)
 	call("PUT", branch+"/delivery-fee", "staff", `{"delivery_fee_cents":-1}`, 400)
 	call("PUT", branch+"/delivery-fee", "staff", `{"delivery_fee_cents":500}`, 200)
+	var ordersBefore, ordersAfter int
+	if err := c.QueryRow(`SELECT count(*) FROM "order"`).Scan(&ordersBefore); err != nil {
+		t.Fatal(err)
+	}
 	call("POST", branch+"/orders/local", "", `{"delivery_address":{}}`, 400)
 	call("POST", branch+"/orders/remote", "", `{"table_id":1}`, 400)
 	call("POST", branch+"/orders/remote", "", `{"phone":"bad","delivery_address":{}}`, 400)
@@ -321,6 +325,9 @@ func TestOrderQRCodeCheckoutAndAnalyticsPostgres(t *testing.T) {
 	call("POST", branch+"/orders/local", "", `{"table_id":1}`, 404)
 	call("POST", "/api/restaurants/cafe/branches/2/orders/local", "", `{}`, 404)
 	call("POST", "/api/restaurants/cafe/branches/999/orders/local", "", `{}`, 404)
+	if err := c.QueryRow(`SELECT count(*) FROM "order"`).Scan(&ordersAfter); err != nil || ordersAfter != ordersBefore {
+		t.Fatalf("ORD-003/024/036: rejected requests changed order count from %d to %d: %v", ordersBefore, ordersAfter, err)
+	}
 	var remote detail
 	delivery := call("POST", branch+"/orders/remote", "", `{"phone":"81999990000","delivery_address":{"cep":"12345678","street":"Rua","number":"1","city":"Recife","state":"PE"},"items":[{"item_id":1,"quantity":1}]}`, 201)
 	deliveryKey := delivery.Header().Get("X-Order-Token")

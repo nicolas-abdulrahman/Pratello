@@ -1,11 +1,25 @@
 package sales
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"pratello/server/internal/menu"
 )
+
+func TestFIN012CouponDiscountLimits(t *testing.T) {
+	for _, coupon := range []Coupon{
+		{Code: "LIMIT", Scope: "order", Type: "percent", Value: 101},
+		{Code: "LIMIT", Scope: "order", Type: "percent", Value: 0},
+		{Code: "LIMIT", Scope: "order", Type: "fixed_cents", Value: -1},
+	} {
+		if _, err := prepare(context.Background(), nil, coupon, input{}); err == nil {
+			t.Fatalf("accepted invalid discount: %+v", coupon)
+		}
+	}
+	assertCouponEligibility(t, Coupon{ID: 1, Scope: "order", Active: true, Type: "fixed_cents", Value: 2000}, time.Time{}, 1000, "", 1000)
+}
 
 func TestFIN033BestDiscountPerLine(t *testing.T) {
 	burger := 1
