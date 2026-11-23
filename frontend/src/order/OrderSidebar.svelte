@@ -90,32 +90,16 @@
       <span class="text-3xl font-black text-text">{$cart_total ? formatBRL($cart_total) : 'R$ 0,00'}</span>
     </div>
 
-    <div class="flex gap-3 w-full">
-      <button
-        onclick={() => handleCheckout('dine-in')}
-        class="w-[70%] bg-primary hover:bg-primary-hover text-white font-bold text-sm py-3 rounded-xl transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
-          <path d="M7 2v20" />
-          <path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
-        </svg>
-        No Restaurante
-      </button>
-
-      <button
-        onclick={() => handleCheckout('delivery')}
-        class="w-[30%] bg-primary-soft hover:bg-border text-primary-hover font-bold text-sm py-3 rounded-xl transition-colors flex items-center justify-center gap-1.5"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11" />
-          <path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2" />
-          <circle cx="7" cy="18" r="2" />
-          <circle cx="17" cy="18" r="2" />
-          <path d="M9 18h6" />
-        </svg>
-        Deliver
-      </button>
-    </div>
+    <button
+      onclick={() => handleCheckout('dine-in')}
+      class="w-full bg-primary hover:bg-primary-hover text-white font-bold text-sm py-3.5 rounded-xl transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+        <path d="M3 6h18" />
+        <path d="M16 10a4 4 0 0 1-8 0" />
+      </svg>
+      Ver Pedido
+    </button>
   </div>
 </div>
