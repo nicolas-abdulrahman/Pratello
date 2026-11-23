@@ -51,26 +51,32 @@ function generate_line_id(): number {
 }
 
 /** Lines merge when menu item + selected ingredients + extras match. */
-function signature(item: Item): string {
-  const ingr = item.ingredients
-    .filter((i) => i.selected)
-    .map((i) => i.id)
+function signature(item: any): string {
+  const ingr = (item.ingredients || [])
+    .filter((i: any) => i.selected)
+    .map((i: any) => i.id)
     .sort()
     .join(',');
-  const extr = item.extras
-    .filter((e) => e.selected)
-    .map((e) => e.id)
+  const extr = (item.extras || [])
+    .filter((e: any) => e.selected)
+    .map((e: any) => e.id)
     .sort()
     .join(',');
-  return `${item.id}|${item.type}|${ingr}|${extr}`;
+  return `${item.id || item.name}|${item.type || 'simple'}|${ingr}|${extr}`;
 }
 
-function clone_item(item: Item): Item {
+function clone_item(item: any): Item {
   return {
     ...item,
-    components: item.components ? item.components.map((c) => ({ ...c })) : undefined,
-    ingredients: item.ingredients.map((i) => ({ ...i })),
-    extras: item.extras.map((e) => ({ ...e })),
+    id: item.id || Date.now(),
+    name: item.name || item.title || 'Item',
+    description: item.description || item.desc,
+    imageUrl: item.imageUrl || item.image || item.icon,
+    basePrice: typeof item.basePrice === 'number' ? item.basePrice : (typeof item.price === 'number' ? item.price : 0),
+    type: item.type || (item.combo || item.isCombo ? 'combo' : 'simple'),
+    components: item.components ? item.components.map((c: any) => ({ ...c })) : undefined,
+    ingredients: Array.isArray(item.ingredients) ? item.ingredients.map((i: any) => ({ ...i })) : [],
+    extras: Array.isArray(item.extras) ? item.extras.map((e: any) => ({ ...e })) : [],
     review: item.review ? { ...item.review } : undefined,
   };
 }
