@@ -32,7 +32,8 @@ const exit = new Promise(resolve => {
 const results = new Map();
 const logs = new Map();
 const packageStatus = new Map();
-const rank = { PASS: 0, SKIP: 1, FAIL: 2 };
+const rank = { PASS: 0, XFAIL: 1, SKIP: 2, XPASS: 3, FAIL: 4 };
+const expectations = new Map();
 console.log('Running backend Go tests…');
 for await (const line of createInterface({ input: child.stdout })) {
   const { Action, Package, Test, Output } = JSON.parse(line);
@@ -40,10 +41,16 @@ for await (const line of createInterface({ input: child.stdout })) {
     if (!logs.has(Package)) logs.set(Package, []);
     logs.get(Package).push(Output);
   }
+  if (Action === 'output' && Test && !Test.includes('/')) {
+    const marker = Output?.match(/^\s+\S+\.go:\d+: (XFAIL|XPASS): /);
+    if (marker) expectations.set(Test, marker[1]);
+  }
   if (!['pass', 'skip', 'fail'].includes(Action)) continue;
   const status = Action.toUpperCase();
   if (!Test) { packageStatus.set(Package, status); continue; }
-  results.set(Test, status);
+  const expected = expectations.get(Test);
+  results.set(Test, (status === 'PASS' && expected === 'XFAIL') ||
+    (status === 'FAIL' && expected === 'XPASS') ? expected : status);
   const [name, subtest] = Test.split('/');
   const numbered = name.match(new RegExp(`^Test(${prefix})(\\d{3}(?:(?:And)?\\d{3})*)`));
   if (numbered && !subtest) {
@@ -59,8 +66,8 @@ function outcome(test) {
   const statuses = [...results].filter(([name]) => name === test || name.startsWith(`${test}/`)).map(([, status]) => status);
   return statuses.reduce((worst, status) => rank[status] > rank[worst] ? status : worst, results.get(test) ?? 'SKIP');
 }
-const counts = { PASS: 0, FAIL: 0, SKIP: 0, UNVERIFIED: 0, PLANNED: 0 };
-const colors = { PASS: 32, FAIL: 31, SKIP: 33, UNVERIFIED: 33, PLANNED: 90 };
+const counts = { PASS: 0, XFAIL: 0, XPASS: 0, FAIL: 0, SKIP: 0, UNVERIFIED: 0, PLANNED: 0 };
+const colors = { PASS: 32, XFAIL: 33, XPASS: 31, FAIL: 31, SKIP: 33, UNVERIFIED: 33, PLANNED: 90 };
 for (const module of modules) {
   console.log(`\n── ${module} ${'─'.repeat(24)}`);
   for (const [id, entry] of [...cases].sort(([a], [b]) => a.localeCompare(b))) {
@@ -74,6 +81,6 @@ for (const module of modules) {
     console.log(`  ${id}  ──────────  ${display}${suites ? '  (shared suite)' : ''}`);
   }
 }
-console.log(`\nBackend cases executed: ${counts.PASS + counts.FAIL}  │  ${counts.PASS} PASS  │  ${counts.FAIL} FAIL`);
+console.log(`\nBackend cases executed: ${counts.PASS + counts.XFAIL + counts.XPASS + counts.FAIL}  │  ${counts.PASS} PASS  │  ${counts.XFAIL} XFAIL  │  ${counts.XPASS} XPASS  │  ${counts.FAIL} FAIL`);
 console.log(`Not executed: ${counts.SKIP} skipped  │  ${counts.PLANNED} planned${counts.UNVERIFIED ? `  │  ${counts.UNVERIFIED} missing evidence` : ''}`);
-process.exitCode = code === 0 && counts.FAIL === 0 && counts.UNVERIFIED === 0 ? 0 : 1;
+process.exitCode = code === 0 && counts.FAIL === 0 && counts.XPASS === 0 && counts.UNVERIFIED === 0 ? 0 : 1;

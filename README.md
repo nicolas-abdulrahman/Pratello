@@ -103,6 +103,8 @@ nix develop -c node scripts/test-backend-cases.mjs
 
 The report groups case IDs by backend module. Planned and skipped cases appear separately from executed cases. The PostgreSQL role needs permission to create test schemas. Without the test URLs, some integration tests are skipped.
 
+`XFAIL` means a test reproduced a known failure. `XPASS` means the expected behavior now works; it fails the run so the test can be converted to a normal regression test.
+
 To see each Go test function and subtest in the terminal, use the same environment variables and run:
 
 ```bash

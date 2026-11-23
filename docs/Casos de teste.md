@@ -10,7 +10,7 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 
 1. **Módulo 1: Identidade, Contas, Papéis e Autoridade (IDP)** — Casos `IDP-001` a `IDP-029`: cadastro, contas sombra, CPF, métodos de acesso, sessões e autorização.
 2. **Módulo 2: Estabelecimentos e Filiais (TEN)** — Casos `TEN-001` a `TEN-019`: organizações, aprovação de filiais, isolamento, vínculos por filial, arquivamento e resiliência operacional.
-3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-055` (55 testes): layout visual, categorias, itens, ingredientes, grupos de opções, combos e promoções. Inclui regressões de isolamento entre restaurantes e filiais, privacidade de custos, validação de personalizações, preços, snapshots e concorrência.
+3. **Módulo 3: Cardápio, Catálogo, Ficha Técnica e Combos (CAT)** — Casos `CAT-001` a `CAT-059` (59 casos): layout visual, categorias, itens, ingredientes, grupos de opções, combos e promoções. Inclui regressões de isolamento entre restaurantes e filiais, privacidade de custos, validação de personalizações, preços, snapshots e concorrência.
 4. **Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD)** — Casos `ORD-001` a `ORD-040` (40 casos): rascunhos, autorização por pedido, salão com mesa opcional, entrega, checkout atômico, QR reutilizável, atribuição de conversão e transições operacionais. Integrações futuras estão marcadas no módulo.
 5. **Módulo 5: Pagamentos, PIX, Cupons e Fidelidade (FIN)** — Casos `FIN-001` a `FIN-040` (40 casos): pagamento simulado, PIX pendente e confirmação, idempotência, devoluções, cupons e banners, descontos sem acúmulo e resgate concorrente de moedas. Cenários de integração futura estão identificados no módulo.
 6. **Módulo 6: Avaliações de Itens, Combos e Restaurantes (REV)** — Casos `REV-001` a `REV-014` (14 casos automatizados): escalas, autorização por compra, comentários, concorrência, avaliações da organização e integridade dos totais.
@@ -22,12 +22,12 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 |---|---:|---:|---:|---:|
 | IDP | 29 | 0 | 0 | 0 |
 | TEN | 19 | 0 | 0 | 0 |
-| CAT | 55 | 0 | 0 | 0 |
+| CAT | 55 | 4 | 0 | 0 |
 | ORD | 38 | 0 | 0 | 0 |
 | FIN | 36 | 0 | 4 | 0 |
 | REV | 14 | 0 | 0 | 0 |
 | WEB | 45 | 0 | 6 | 0 |
-| **Total** | **236** | **0** | **10** | **0** |
+| **Total** | **236** | **4** | **10** | **0** |
 
 Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A suíte Go foi reexecutada com PostgreSQL e Redis: 191 IDs do backend passaram, sem falhas ou casos pulados. Os 45 resultados WEB vêm da execução anterior do Playwright em Chromium.
 
@@ -687,6 +687,24 @@ Casos de rejeição passam apenas se o sistema recusar a operação com o result
 | CAT-055 | Duas requisições tentam criar simultaneamente a mesma associação de ingrediente no item. | Exatamente uma retorna `201` e a outra `409`, com uma única relação gravada. |
 
 ---
+
+Os quatro casos abaixo exercitam a decodificação e validação do layout. O OpenAPI permite omitir esses campos, mas não admite `null` explícito; atualmente o backend trata ambos como omissão. O `display_config`, que admite `null`, não faz parte dessa restrição.
+
+### CAT-056: Rejeitar estilo de layout nulo (XFAIL)
+- **Entrada:** `{"template_style":null}`.
+- **Esperado:** HTTP 400.
+
+### CAT-057: Rejeitar nome de layout nulo (XFAIL)
+- **Entrada:** `{"name":null}`.
+- **Esperado:** HTTP 400.
+
+### CAT-058: Rejeitar cor de destaque nula (XFAIL)
+- **Entrada:** `{"accent_color":null}`.
+- **Esperado:** HTTP 400.
+
+### CAT-059: Rejeitar tipografia nula (XFAIL)
+- **Entrada:** `{"typography":null}`.
+- **Esperado:** HTTP 400.
 
 ## Módulo 4: Pedidos Anônimos, Especialização e Itens (ORD-001 a ORD-040)
 
