@@ -46,10 +46,18 @@
       : 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-space-sm'}>
       {#each items as item (item.id)}
         <div class={horizontal ? 'w-[300px] shrink-0 snap-start' : 'min-w-0'}>
-          <CombosCard image={item.image} title={item.title} desc={item.description} price={item.newPrice}
+          <CombosCard
+            image={item.image || item.imageUrl || item.photo_url || item.image_url || '/media/default.png'}
+            title={item.title || item.name || 'Item'}
+            desc={item.description || ''}
+            price={item.newPrice || (typeof item.basePrice === 'number' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.basePrice) : '')}
             colors={resolveItemColors({ ...block?.item_style, ...item.style, dark: $restaurantDarkOverride ?? item.style?.dark ?? block?.item_style?.dark }, styles.isDark, block?.bg ?? 'bg')}
-            originalPrice={item.oldPrice} combo={item.combo} rating={item.rating} count={item.count}
-            onOpenDetails={() => onOpenDetails(item.id)} />
+            originalPrice={item.oldPrice}
+            combo={item.combo || item.is_combo}
+            rating={item.rating}
+            count={item.count || item.reviewCount}
+            onOpenDetails={() => onOpenDetails(item.id)}
+          />
         </div>
       {/each}
     </div>

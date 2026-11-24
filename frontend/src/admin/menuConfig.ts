@@ -62,6 +62,57 @@ export type MenuConfig = {
   menu_container?: 'grid' | 'horizontal';
 };
 
+export const defaultSections: MenuSection[] = [
+  {
+    id: 'sec_banner_1',
+    type: 'promotion_banner',
+    name: 'Fast Food Menu Spread Banner',
+    category: 'BURGERFEST',
+    banner_id: 'BURGERFEST',
+    border: 'none',
+    layout: 'grid',
+  },
+  {
+    id: 'sec_lanches',
+    type: 'section',
+    name: 'Hambúrgueres & Lanches',
+    category: 'lanches',
+    filter_by: 'category',
+    border: 'solid',
+    border_color: 'primary_color',
+    layout: 'grid',
+    bg: 'bg',
+    gradient_enabled: false,
+    item_style_bg: 'bg',
+    item_style_title: 'text',
+    item_style_price: 'primary_color',
+  },
+  {
+    id: 'sec_banner_2',
+    type: 'promotion_banner',
+    name: 'Burgers & Fries Combo Banner',
+    category: 'COMBOBURGER',
+    banner_id: 'COMBOBURGER',
+    border: 'none',
+    layout: 'grid',
+  },
+  {
+    id: 'sec_pratos',
+    type: 'section',
+    name: 'Pizzas & Pratos Especiais',
+    category: 'pratos',
+    filter_by: 'category',
+    border: 'solid',
+    border_color: 'secondary_color',
+    layout: 'grid',
+    bg: 'bg',
+    gradient_enabled: false,
+    item_style_bg: 'bg',
+    item_style_title: 'text',
+    item_style_price: 'primary_color',
+  },
+];
+
 export const defaultConfig: MenuConfig = {
   name: '',
   picture: '',
@@ -76,7 +127,7 @@ export const defaultConfig: MenuConfig = {
     primary_dark: '#FACC15',
     secondary_dark: '#9A3412',
   },
-  sections: [],
+  sections: defaultSections,
   hero_type: 'header1',
   hero_bg: 'bg',
   hero_dark: null,
@@ -104,7 +155,7 @@ export function readConfig(slug = ''): MenuConfig {
       ...defaultConfig,
       ...saved,
       colors: { ...defaultConfig.colors, ...(saved?.colors || {}) },
-      sections: Array.isArray(saved?.sections) ? saved.sections : [],
+      sections: Array.isArray(saved?.sections) && saved.sections.length > 0 ? saved.sections : defaultSections,
     };
   } catch {
     return { ...defaultConfig };

@@ -185,7 +185,7 @@
       onChangeAccent={onChangeAccent}
     />
   {:else if activeTab === 'precos'}
-    <PricesManager {slug} {products} {categories} />
+    <PricesManager {slug} bind:products {categories} {onSaveProduct} />
   {:else if activeTab === 'preparar'}
     <MenuBuilder {slug} {products} {categories} />
   {:else if activeTab === 'pedidos'}

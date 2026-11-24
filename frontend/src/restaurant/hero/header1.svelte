@@ -27,14 +27,14 @@
     <div class="mx-auto flex max-w-7xl flex-col items-center justify-between gap-space-lg lg:flex-row">
       <div class="min-w-0 text-center lg:w-1/2 lg:text-left">
         <p class="hero-welcome text-lg font-bold uppercase tracking-wide">
-          {#if hero?.welcome.text}{@render styled(hero.welcome)}{:else}Bem-vindo ao{/if}
+          {#if hero?.welcome?.text && hero.welcome.text !== '<Not Found>'}{@render styled(hero.welcome)}{:else}Bem-vindo ao{/if}
         </p>
         <h1 class="hero-title mt-space-2xs text-6xl font-black tracking-tighter md:text-8xl">
-          {#if hero?.title.text}{@render styled(hero.title)}{:else}{fallbackName}{/if}
+          {#if hero?.title?.text && hero.title.text !== '<Not Found>'}{@render styled(hero.title)}{:else if fallbackName}{fallbackName}{:else}João Burger{/if}
         </h1>
-        {#if hero?.desc.text || fallbackDescription}
+        {#if (hero?.desc?.text && hero.desc.text !== '<Not Found>') || fallbackDescription}
           <p class="mx-auto mt-space-lg max-w-lg text-lg md:text-xl lg:mx-0" style:color={hero?.mutedTextCss ?? 'var(--color-text-muted)'}>
-            {#if hero?.desc.text}{@render styled(hero.desc)}{:else}{fallbackDescription}{/if}
+            {#if hero?.desc?.text && hero.desc.text !== '<Not Found>'}{@render styled(hero.desc)}{:else}{fallbackDescription}{/if}
           </p>
         {/if}
         <div class="mt-space-lg flex flex-wrap justify-center gap-space-sm lg:justify-start">

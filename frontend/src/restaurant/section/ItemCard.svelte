@@ -27,7 +27,13 @@
   const newPriceLabel = $derived(
     Number.isFinite(item.basePrice)
       ? formatBRL(item.basePrice)
-      : sectionText()
+      : (typeof (item as any).price === 'number' && Number.isFinite((item as any).price))
+        ? formatBRL((item as any).price)
+        : (typeof (item as any).price_cents === 'number' && Number.isFinite((item as any).price_cents))
+          ? formatBRL((item as any).price_cents / 100)
+          : (typeof (item as any).base_cost_cents === 'number' && Number.isFinite((item as any).base_cost_cents))
+            ? formatBRL((item as any).base_cost_cents / 100)
+            : ''
   );
 
   const oldPriceLabel = $derived(
@@ -128,16 +134,18 @@
         mb-1 pr-1 line-clamp-2 shrink-0"
       style:color={colors.title}
     >
-      {sectionText(item.name)}
+      {item.name?.trim() || (item as any).title?.trim() || 'Item'}
     </h3>
 
-    <p
-      class="text-[11px] leading-snug line-clamp-2
-        mb-2 flex-1 min-h-0 overflow-hidden pr-1"
-      style:color={colors.description}
-    >
-      {sectionText(item.description)}
-    </p>
+    {#if item.description}
+      <p
+        class="text-[11px] leading-snug line-clamp-2
+          mb-2 flex-1 min-h-0 overflow-hidden pr-1"
+        style:color={colors.description}
+      >
+        {item.description}
+      </p>
+    {/if}
 
     <!-- Reviews and pricing -->
     <div class="flex flex-col gap-1 mt-auto shrink-0">

@@ -82,8 +82,9 @@
 
   onMount(async () => {
     config = readConfig(activeSlug);
-    if (!config.name && slug) {
-      config.name = slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    if (!config.name) {
+      config.name = slug ? slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'João Burger';
+      persist();
     }
 
     // Try fetching existing server layout
@@ -329,6 +330,19 @@
     } finally {
       isDeploying = false;
     }
+  }
+
+  function openPreview() {
+    persist();
+    const slg = activeSlug;
+    try {
+      localStorage.setItem(`pratello-menu-preview:${slg}`, JSON.stringify({ config, products }));
+      const payload = buildMenuPayload(config);
+      saveRestaurantLayout(slg, payload);
+    } catch (e) {
+      console.warn('Não foi possível persistir prévia:', e);
+    }
+    window.open(`/me/my-restaurant/${slg}`, '_blank', 'noopener');
   }
 
   let generatedPayloadJson = '';
@@ -1079,15 +1093,14 @@
         <Sparkles size={18} />
         {isDeploying ? 'Realizando deploy...' : 'Deploy test'}
       </button>
-      <a
-        href={`/me/my-restaurant/${activeSlug}`}
-        target="_blank"
-        rel="noopener"
+      <button
+        type="button"
+        on:click={openPreview}
         class="inline-flex items-center gap-1 rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
       >
         <Eye size={16} />
         Ver Prévia
-      </a>
+      </button>
     </div>
     <p class="text-xs text-zinc-500">
       Ao clicar em "Deploy test", o layout é validado, salvo no armazenamento persistente e sincronizado via PUT /api/restaurants/{activeSlug}/menu.

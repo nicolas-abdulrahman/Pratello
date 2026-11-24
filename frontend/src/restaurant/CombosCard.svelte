@@ -56,8 +56,10 @@
   </div>
 
   <div class="p-5 flex flex-col flex-1 w-full">
-    <h3 class="text-lg font-extrabold mb-1" style:color={colors.title}>{sectionText(title)}</h3>
-    <p class="text-sm leading-snug mb-4 flex-1 line-clamp-2" style:color={colors.description}>{sectionText(desc)}</p>
+    <h3 class="text-lg font-extrabold mb-1" style:color={colors.title}>{title?.trim() || 'Combo'}</h3>
+    {#if desc}
+      <p class="text-sm leading-snug mb-4 flex-1 line-clamp-2" style:color={colors.description}>{desc}</p>
+    {/if}
     
     <div class="flex items-end justify-between mt-auto pt-4 border-t border-gray-50 w-full">
       <div class="flex flex-col gap-1 items-start">
@@ -66,7 +68,7 @@
         {#if originalPrice}
           <span class="text-xs text-gray-400 line-through font-medium leading-none mb-1">{originalPrice}</span>
         {/if}
-        <span class="text-xl font-black leading-none" style:color={colors.price}>{sectionText(price)}</span>
+        <span class="text-xl font-black leading-none" style:color={colors.price}>{price?.trim() || ''}</span>
       </div>
       
       <!-- Inner Add Button: Using a div with role=button because you can't nest buttons -->

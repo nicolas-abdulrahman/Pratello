@@ -36,7 +36,7 @@ export function resolveSection(block: SectionBlock, config: Pick<DisplayConfig, 
     border,
     container: block.container === 'grid' ? 'grid' : 'horizontal',
     borderColor: block.border_color ? resolveColor(block.border_color, isDark) : 'black',
-    title: resolveText({ ...block.title, text: sectionText(block.title?.text) }, isDark, 'text'),
+    title: resolveText({ ...block.title, text: sectionText(block.title?.text ?? (block as any).name) }, isDark, 'text'),
   };
 }
 

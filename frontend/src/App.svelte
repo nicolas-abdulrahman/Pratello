@@ -225,7 +225,7 @@
 
   // --- NAVBAR + THEME BEHAVIOUR ---
   let showNavLinks = $derived(
-    !!slug && ['restaurant', 'cardapio', 'delivery'].includes(currentView)
+    !!slug && ['restaurant', 'cardapio', 'delivery', 'menu-preview'].includes(currentView)
   );
 
   let showOrderCart = $derived(showNavLinks);

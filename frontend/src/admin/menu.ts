@@ -1,5 +1,6 @@
 import { account } from '../lib/stores/account';
 import type { MenuConfig } from './menuConfig';
+import { fetch_item, type Item } from '../lib/stores/Item';
 
 // ==========================================
 // Types according to Pratello OpenAPI 2.2.16
@@ -147,7 +148,8 @@ export interface PromotionalBanner {
   code: string;
   title: string;
   description: string;
-  background_image_url: string;
+  background_image_url?: string;
+  background_color?: string;
 }
 
 // ==========================================
@@ -156,9 +158,13 @@ export interface PromotionalBanner {
 
 const DRAFT_STORAGE_KEY = 'pratello-menu-layouts';
 const LAYOUT_STORAGE_KEY = 'pratello-chosen-menu-layouts';
+const BANNERS_STORAGE_KEY = 'pratello-custom-banners';
+const ITEMS_PRICING_STORAGE_KEY = 'pratello-items-pricing';
 
 const memoryDrafts: Record<string, MenuConfig> = {};
 const memoryLayouts: Record<string, StorefrontMenuPayload> = {};
+const memoryBanners: Record<string, PromotionalBanner[]> = {};
+const memoryPricing: Record<string, Record<string, any>> = {};
 
 function getStorage(): Storage | null {
   if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
@@ -314,14 +320,124 @@ export async function updateStorefrontLayout(slug: string, payload: StorefrontMe
 }
 
 /**
- * Fetch promotional banners for restaurant from GET /api/restaurants/{slug}/menu/banners
+ * Get custom banners stored for this restaurant
+ */
+export function getCustomBanners(slug: string): PromotionalBanner[] {
+  const store = getStorage();
+  if (store) {
+    try {
+      const dict = JSON.parse(store.getItem(BANNERS_STORAGE_KEY) || '{}');
+      return Array.isArray(dict[slug]) ? dict[slug] : [];
+    } catch {
+      return [];
+    }
+  }
+  return memoryBanners[slug] || [];
+}
+
+/**
+ * Save custom banner for this restaurant
+ */
+export function saveCustomBanner(slug: string, banner: PromotionalBanner): PromotionalBanner[] {
+  const store = getStorage();
+  let existing = getCustomBanners(slug);
+  const index = existing.findIndex((b) => b.id === banner.id || (banner.code && b.code === banner.code));
+  if (index >= 0) {
+    existing[index] = banner;
+  } else {
+    existing = [banner, ...existing];
+  }
+  if (store) {
+    try {
+      const dict = JSON.parse(store.getItem(BANNERS_STORAGE_KEY) || '{}');
+      dict[slug] = existing;
+      store.setItem(BANNERS_STORAGE_KEY, JSON.stringify(dict));
+    } catch (e) {
+      console.warn('Failed to save banner in storage:', e);
+    }
+  }
+  memoryBanners[slug] = existing;
+  return existing;
+}
+
+/**
+ * Delete a custom banner from restaurant storage
+ */
+export function deleteCustomBanner(slug: string, bannerId: string): PromotionalBanner[] {
+  const store = getStorage();
+  let existing = getCustomBanners(slug).filter((b) => b.id !== bannerId && b.code !== bannerId);
+  if (store) {
+    try {
+      const dict = JSON.parse(store.getItem(BANNERS_STORAGE_KEY) || '{}');
+      dict[slug] = existing;
+      store.setItem(BANNERS_STORAGE_KEY, JSON.stringify(dict));
+    } catch (e) {
+      console.warn('Failed to delete banner in storage:', e);
+    }
+  }
+  memoryBanners[slug] = existing;
+  return existing;
+}
+
+export const DEFAULT_BANNERS: PromotionalBanner[] = [
+  {
+    id: 'banner_menu_spread',
+    code: 'BURGERFEST',
+    title: 'Fast Food Menu Spread Banner',
+    description: 'Experimente nossos combos exclusivos de hambúrgueres artesanais com fritas crocantes e refrigerante.',
+    background_image_url: 'https://images01.nicepage.com/a1389d7bc73adea1e1c1fb7e/f55c87d06a345e9c94021f3e/3007283.jpg',
+  },
+  {
+    id: 'banner_burgers_fries',
+    code: 'COMBOBURGER',
+    title: 'Burgers & Fries Combo Banner',
+    description: 'Peça hoje o combo especial com hambúrguer duplo e batata rústica com 20% de desconto.',
+    background_image_url: 'https://media.istockphoto.com/id/694198404/photo/burgers-and-fries.jpg?s=612x612&w=0&k=20&c=ctGFhG1GKgnhYpiWQjQP1YDtCxchOfOS083mEEDms5s=',
+  },
+  {
+    id: 'banner_artisan_pizza',
+    code: 'PIZZANIGHT',
+    title: 'Artisan Pizza Banner',
+    description: 'Pizzas artesanais de fermentação natural assadas no forno com ingredientes selecionados.',
+    background_image_url: 'https://media.istockphoto.com/id/1042321668/photo/italian-pizza-and-pizza-cooking-ingredients-on-black-concrete-background.jpg?s=612x612&w=0&k=20&c=pxhbjC6ulYXWbsFGU2UIodn6SHZEBcKQIuDKFvKQBDE=',
+  },
+];
+
+/**
+ * Fetch promotional banners for restaurant from GET /api/restaurants/{slug}/menu/banners merged with custom banners
  */
 export async function getPromotionalBanners(slug: string): Promise<PromotionalBanner[]> {
+  const custom = getCustomBanners(slug);
   try {
     const data = await restaurantRequest(slug, '/menu/banners');
-    return Array.isArray(data) ? data : [];
+    const apiBanners: PromotionalBanner[] = Array.isArray(data) ? data : [];
+    const all = [...custom, ...apiBanners, ...DEFAULT_BANNERS];
+    const seen = new Set<string>();
+    const result: PromotionalBanner[] = [];
+    for (const b of all) {
+      const key = b.id || b.code;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        result.push(b);
+      } else if (!key) {
+        result.push(b);
+      }
+    }
+    return result;
   } catch {
-    return [];
+    const all = [...custom, ...DEFAULT_BANNERS];
+    const seen = new Set<string>();
+    const result: PromotionalBanner[] = [];
+    for (const b of all) {
+      const key = b.id || b.code;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        result.push(b);
+      } else if (!key) {
+        result.push(b);
+      }
+    }
+    return result;
   }
 }
 
@@ -675,6 +791,8 @@ export interface MenuItemPayload {
   base_cost_cents?: number | null;
   image_url?: string | null;
   is_available?: boolean;
+  sale_ends_at?: string | null;
+  saleEnd?: string | null;
   is_combo?: boolean;
   combo_items?: ComboItemInput[];
   preparation_time_minutes?: number | null;
@@ -719,4 +837,94 @@ export async function deleteMenuItem(slug: string, id: string): Promise<any> {
   return restaurantRequest(slug, `/items/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+}
+
+// ==========================================
+// Item Pricing & Promotions (integrated with Item.ts)
+// ==========================================
+
+export interface DishPriceUpdate {
+  base_price_cents: number;
+  effective_price_cents: number;
+  saleEnd?: string | null;
+  sale_ends_at?: string | null;
+}
+
+export function getStoredItemPricing(slug: string, itemId: string | number): DishPriceUpdate | null {
+  const store = getStorage();
+  if (store) {
+    try {
+      const dict = JSON.parse(store.getItem(ITEMS_PRICING_STORAGE_KEY) || '{}');
+      return dict[slug]?.[String(itemId)] ?? null;
+    } catch {
+      return null;
+    }
+  }
+  return memoryPricing[slug]?.[String(itemId)] ?? null;
+}
+
+/**
+ * Fetch item from lib/stores/Item.ts and augment it with stored pricing / sale data
+ */
+export async function getItemWithPricing(slug: string, numericId: number): Promise<Item & {
+  effective_price_cents?: number;
+  base_price_cents?: number;
+  saleEnd?: string | null;
+}> {
+  const baseItem = await fetch_item(numericId);
+  const stored = getStoredItemPricing(slug, numericId);
+  return {
+    ...baseItem,
+    base_price_cents: stored?.base_price_cents ?? Math.round(baseItem.basePrice * 100),
+    effective_price_cents: stored?.effective_price_cents ?? Math.round(baseItem.basePrice * 100),
+    saleEnd: stored?.saleEnd ?? stored?.sale_ends_at ?? null,
+  };
+}
+
+/**
+ * Set dish price, promotion and saleEnd, storing it in menu.ts and syncing with API
+ */
+export async function setDishPrice(
+  slug: string,
+  itemId: string,
+  pricing: DishPriceUpdate
+): Promise<any> {
+  // Store locally in persistent storage
+  const store = getStorage();
+  const entry = {
+    base_price_cents: pricing.base_price_cents,
+    effective_price_cents: pricing.effective_price_cents,
+    saleEnd: pricing.saleEnd ?? pricing.sale_ends_at ?? null,
+    sale_ends_at: pricing.sale_ends_at ?? pricing.saleEnd ?? null,
+  };
+
+  if (store) {
+    try {
+      const dict = JSON.parse(store.getItem(ITEMS_PRICING_STORAGE_KEY) || '{}');
+      if (!dict[slug]) dict[slug] = {};
+      dict[slug][String(itemId)] = entry;
+      store.setItem(ITEMS_PRICING_STORAGE_KEY, JSON.stringify(dict));
+    } catch (e) {
+      console.warn('Failed to store item pricing in localStorage:', e);
+    }
+  }
+  if (!memoryPricing[slug]) memoryPricing[slug] = {};
+  memoryPricing[slug][String(itemId)] = entry;
+
+  // Try updating the API if it's an API item
+  if (slug && !itemId.startsWith('product-')) {
+    try {
+      const patchData: any = {
+        base_price_cents: pricing.base_price_cents,
+        effective_price_cents: pricing.effective_price_cents,
+      };
+      if (pricing.sale_ends_at || pricing.saleEnd) {
+        patchData.sale_ends_at = pricing.sale_ends_at ?? pricing.saleEnd;
+      }
+      return await patchMenuItem(slug, itemId, patchData);
+    } catch (err) {
+      console.warn('Could not update item pricing on API (local fallback saved):', err);
+    }
+  }
+  return entry;
 }
