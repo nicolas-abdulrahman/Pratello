@@ -38,6 +38,9 @@
   let serviceComment = $state('');
   let error = $state('');
   let eligible = $state<Record<string, boolean>>({});
+  let itemImages = $state<Record<string, string>>({});
+  let itemDescriptions = $state<Record<string, string>>({});
+  let itemNames = $state<Record<string, string>>({});
 
   const starLabels: Record<number, string> = {
     1: 'Muito ruim 😞',
@@ -47,13 +50,23 @@
     5: 'Excelente! 🤩'
   };
 
-  onMount(() => {
+  $effect(() => {
     if (!saved) return;
     for (const line of saved.order.items ?? []) {
+      const idKey = String(line.id);
       void fetch(`/api/restaurants/${encodeURIComponent(saved.slug)}/items/${line.item_id}`)
         .then((response) => response.ok ? response.json() : null)
-        .then((item) => { eligible[String(line.id)] = item?.allows_review === true; })
-        .catch(() => { eligible[String(line.id)] = false; });
+        .then((item) => {
+          if (item) {
+            eligible[idKey] = item.allows_review === true;
+            if (item.image_url) itemImages[idKey] = item.image_url;
+            if (item.description) itemDescriptions[idKey] = item.description;
+            if (item.name) itemNames[idKey] = item.name;
+          } else {
+            eligible[idKey] = false;
+          }
+        })
+        .catch(() => { eligible[idKey] = false; });
     }
   });
 
@@ -82,7 +95,7 @@
           // Keep current if refresh fails
         }
         for (const item of itemsToReview) {
-          const value = ratings[item.id];
+          const value = ratings[item.id] ?? (comments[item.id]?.trim() ? 'happy' : null);
           if (!value || current.reviewedItems.includes(Number(item.id))) continue;
           try {
             await submitReview(current, Number(item.id), value === 'sad' ? 1 : value === 'neutral' ? 2 : 3, comments[item.id] ?? '');
@@ -168,35 +181,32 @@
         {#each itemsToReview as item (item.id)}
           <div class="bg-surface rounded-3xl border border-border p-5 sm:p-7 shadow-xs space-y-5">
             <!-- Item header -->
-            <div class="flex items-start sm:items-center gap-4">
-              {#if item.imageUrl}<img
-                src={item.imageUrl}
-                alt={item.name}
-                class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border border-border shadow-inner flex-shrink-0 bg-surface-hover"
-                loading="lazy"
-              />{/if}
+            <div class="flex items-center justify-between gap-4">
               <div class="flex-1 min-w-0">
-                <span class="inline-block text-[11px] font-semibold uppercase tracking-wider text-primary bg-surface-hover px-2 py-0.5 rounded-md border border-border mb-1">
-                  Item do Pedido
-                </span>
-                <h3 class="text-base sm:text-lg font-bold text-text leading-snug">{item.name}</h3>
-                {#if item.description}
-                  <p class="text-xs text-text-muted line-clamp-2 mt-1">{item.description}</p>
+                <h3 class="text-xl sm:text-2xl font-black text-text leading-snug">
+                  {itemNames[item.id] || item.name}
+                </h3>
+                {#if itemDescriptions[item.id] || item.description}
+                  <p class="text-xs sm:text-sm text-text-muted line-clamp-2 mt-1">
+                    {itemDescriptions[item.id] || item.description}
+                  </p>
                 {/if}
               </div>
+              <img
+                src={itemImages[item.id] || item.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&auto=format&fit=crop&q=80'}
+                alt={itemNames[item.id] || item.name}
+                class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border border-border shadow-sm flex-shrink-0 bg-surface-hover"
+                loading="lazy"
+              />
             </div>
 
             {#if saved?.reviewedItems.includes(Number(item.id))}
               <p class="text-green-600 font-bold">✓ Reviewed</p>
-            {:else if !eligible[item.id]}
+            {:else if saved && eligible[item.id] === false}
               <p class="text-text-muted">Item indisponível para avaliação.</p>
             {:else}
             <!-- Face rating selection -->
             <div class="pt-3 border-t border-border">
-              <p class="text-xs font-bold text-text-muted uppercase tracking-wider mb-3">
-                O que você achou deste item?
-              </p>
-
               <div class="mx-auto grid w-full max-w-md grid-cols-3 gap-4 sm:gap-6">
                 <!-- Sad face -->
                 <button
@@ -248,19 +258,19 @@
               </div>
             </div>
 
-            <!-- Optional comment input for item -->
-            {#if saved?.userId !== null}<div class="pt-2">
-              <label for="comment-{item.id}" class="block text-xs text-text-muted mb-1">
-                Deixe um comentário adicional (opcional)
+            <!-- Quick review text input for item -->
+            <div class="pt-2">
+              <label for="comment-{item.id}" class="block text-xs font-semibold text-text-muted mb-1.5">
+                Avaliação rápida deste item (opcional)
               </label>
-              <input
+              <textarea
                 id="comment-{item.id}"
-                type="text"
-                placeholder="Ex: Ponto da carne perfeito, batata quentinha..."
+                rows="2"
+                placeholder="O que achou deste item? Ex: Sabor marcante, bem servido, no ponto certo..."
                 bind:value={comments[item.id]}
-                class="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-border bg-surface-hover focus:bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition"
-              />
-            </div>{/if}
+                class="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-border bg-surface-hover focus:bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition resize-none"
+              ></textarea>
+            </div>
             {/if}
           </div>
         {/each}
