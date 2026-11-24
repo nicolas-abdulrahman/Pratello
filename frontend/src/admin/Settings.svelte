@@ -1,6 +1,17 @@
 <script lang="ts">
   import { Check, Flame, Palette, Plus, RotateCcw, Star } from 'lucide-svelte';
   import { DEFAULT_ACCENTS, type AccentColor } from './admin';
+  import { readConfig, saveConfig, type MenuColors } from './menuConfig';
+  let colors: MenuColors = readConfig().colors;
+  const colorFields: { key: keyof MenuColors; label: string }[] = [
+    { key: 'bg', label: 'Background' }, { key: 'primary', label: 'Primary' },
+    { key: 'secondary', label: 'Secondary' }, { key: 'bg_dark', label: 'Background dark' },
+    { key: 'primary_dark', label: 'Primary dark' }, { key: 'secondary_dark', label: 'Secondary dark' },
+  ];
+  function updateColor(key: keyof MenuColors, value: string) {
+    colors = { ...colors, [key]: value };
+    saveConfig({ ...readConfig(), colors });
+  }
 
   // --- Abstracted State & Dependencies ---
   export let accents: AccentColor[] = DEFAULT_ACCENTS;
@@ -19,9 +30,21 @@
 </script>
 
 <div>
-  <h1 class="text-2xl font-bold text-zinc-900">Configurações</h1>
+  <h1 class="text-2xl font-bold text-zinc-900">Cores</h1>
   <p class="text-sm text-zinc-600">Personalize a aparência do restaurante.</p>
 
+  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 class="font-bold text-zinc-900">Cores do cardápio</h2>
+    <p class="mt-1 text-sm text-zinc-600">Defina as cores para os temas claro e escuro.</p>
+    <div class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {#each colorFields as field}
+        <label class="flex items-center gap-3 rounded-xl border border-zinc-200 p-3 text-sm font-medium">
+          <input type="color" value={colors[field.key]} on:input={(event) => updateColor(field.key, event.currentTarget.value)} class="h-10 w-12 cursor-pointer" />
+          <span>{field.label}<br /><span class="font-normal text-zinc-500">{colors[field.key]}</span></span>
+        </label>
+      {/each}
+    </div>
+  </section>
   <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>

@@ -23,6 +23,7 @@
   import ProfilePage from './user/ProfilePage.svelte';
   import MyRestaurants from './user/MyRestaurants.svelte';
   import Admin from './admin/Admin.svelte';
+  import MenuPreview from './admin/MenuPreview.svelte';
   import OrderPage from './order/orders_page/OrderPage.svelte';
   import ReviewPage from './order/order_review/ReviewPage.svelte';
   import type { HistoricalOrder } from './order/orders_page/HistoryOrderSection.svelte';
@@ -33,6 +34,9 @@
 
   // --- ROUTE PARSER ---
   function parseRoute(path) {
+    if (path === '/admin' || path === '/admin/') return { view: 'admin', slug: '' };
+    const previewMatch = path.match(/^\/me\/my-restaurant\/([^/]+)\/?$/);
+    if (previewMatch) return { view: 'menu-preview', slug: previewMatch[1] };
     if (path === '/login') return { view: 'login', slug: '' };
     if (path === '/account' || path === '/account/') return { view: 'account', slug: '' };
     if (path === '/me/my-restaurant' || path === '/me/my-restaurant/') return { view: 'my-restaurants', slug: '' };
@@ -272,6 +276,7 @@
     currentView === 'account' ||
     currentView === 'my-restaurants' ||
     currentView === 'admin' ||
+    currentView === 'menu-preview' ||
     currentView === 'orders' ||
     currentView === 'order-review' ||
     currentView === 'order-status' ||
@@ -337,6 +342,8 @@
           <ProfilePage onBack={goBackFromAccount} onGoLogin={goToAccountLogin} />
         {:else if currentView === 'my-restaurants'}
           <MyRestaurants />
+        {:else if currentView === 'menu-preview'}
+          <MenuPreview {slug} />
         {:else if currentView === 'orders'}
           <OrderPage onOpenReview={goToOrderReview} />
         {:else if currentView === 'order-status'}

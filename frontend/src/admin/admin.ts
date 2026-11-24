@@ -40,6 +40,17 @@ export interface Product {
   ingredients: string[];
   available: boolean;
   popular: boolean;
+  base_price_cents?: number;
+  effective_price_cents?: number;
+  base_cost_cents?: number | null;
+  is_combo?: boolean;
+  combo_items?: Array<{ item_id: string; quantity: number }>;
+  display_style?: {
+    bg?: string;
+    title_color?: string;
+    price_color?: string;
+    dark?: boolean | null;
+  } | null;
 }
 
 export interface ProductInput extends Omit<Product, 'id'> {

@@ -36,6 +36,7 @@
     description: string;
     price: string;
     originalPrice: string;
+    baseCost: string;
     prepTime: string;
     category: CategoryId;
     tags: string[];
@@ -43,6 +44,11 @@
     ingredients: string;
     available: boolean;
     popular: boolean;
+    isCombo: boolean;
+    styleBg: string;
+    styleTitle: string;
+    stylePrice: string;
+    styleDark: boolean | null;
   }
 
   const emptyForm: FormState = {
@@ -50,6 +56,7 @@
     description: '',
     price: '',
     originalPrice: '',
+    baseCost: '',
     prepTime: '20',
     category: 'lanches',
     tags: [],
@@ -57,6 +64,11 @@
     ingredients: '',
     available: true,
     popular: false,
+    isCombo: false,
+    styleBg: '',
+    styleTitle: '',
+    stylePrice: '',
+    styleDark: null,
   };
 
   const money = (v?: number) => (v ? v.toFixed(2).replace('.', ',') : '');
@@ -65,8 +77,14 @@
     ...p,
     price: money(p.price),
     originalPrice: money(p.originalPrice),
+    baseCost: p.base_cost_cents ? money(p.base_cost_cents / 100) : '',
     prepTime: String(p.prepTime),
     ingredients: p.ingredients ? p.ingredients.join(', ') : '',
+    isCombo: !!p.is_combo,
+    styleBg: p.display_style?.bg || '',
+    styleTitle: p.display_style?.title_color || '',
+    stylePrice: p.display_style?.price_color || '',
+    styleDark: p.display_style?.dark ?? null,
   });
 
   let form: FormState | null = null;
@@ -96,6 +114,7 @@
     if (!form) return;
     const price = parsePrice(form.price);
     const original = form.originalPrice.trim() ? parsePrice(form.originalPrice) : undefined;
+    const baseCost = form.baseCost.trim() ? parsePrice(form.baseCost) : undefined;
     const prepTime = Number(form.prepTime);
 
     if (!form.name.trim()) {
@@ -115,6 +134,21 @@
       return;
     }
 
+    const isSale = original !== undefined && original > price;
+    const basePriceCents = Math.round((isSale ? original : price) * 100);
+    const effectivePriceCents = Math.round(price * 100);
+    const baseCostCents = baseCost !== undefined && Number.isFinite(baseCost) ? Math.round(baseCost * 100) : null;
+
+    let displayStyle: any = null;
+    if (form.styleBg || form.styleTitle || form.stylePrice || form.styleDark !== null) {
+      displayStyle = {
+        bg: form.styleBg || undefined,
+        title_color: form.styleTitle || undefined,
+        price_color: form.stylePrice || undefined,
+        dark: form.styleDark,
+      };
+    }
+
     const input: ProductInput = {
       id: form.id,
       name: form.name.trim(),
@@ -131,6 +165,11 @@
         .filter(Boolean),
       available: form.available,
       popular: form.popular,
+      base_price_cents: basePriceCents,
+      effective_price_cents: effectivePriceCents,
+      base_cost_cents: baseCostCents,
+      is_combo: form.isCombo,
+      display_style: displayStyle,
     };
 
     onSaveProduct(input);
@@ -157,7 +196,7 @@
   <!-- Header -->
   <div class="flex flex-wrap items-end justify-between gap-3">
     <div>
-      <h1 class="text-2xl font-bold text-zinc-900">Gerenciar Cardápio</h1>
+      <h1 class="text-2xl font-bold text-zinc-900">Pratos</h1>
       <p class="text-sm text-zinc-600">
         {products.length} pratos · {products.filter((p) => p.available).length} disponíveis
       </p>
@@ -232,10 +271,10 @@
               rows="2"
               bind:value={form.description}
               class="w-full resize-none rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 focus:border-yellow-400 focus:outline-none"
-            />
+            ></textarea>
           </label>
 
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-3 gap-3">
             <label class="block">
               <span class="mb-1.5 block text-sm font-medium text-zinc-700">Preço (R$)</span>
               <input
@@ -247,6 +286,29 @@
               />
             </label>
             <label class="block">
+              <span class="mb-1.5 block text-sm font-medium text-zinc-700">Preço “de” (Promoção)</span>
+              <input
+                type="text"
+                inputmode="decimal"
+                bind:value={form.originalPrice}
+                placeholder="34,90"
+                class="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 focus:border-yellow-400 focus:outline-none"
+              />
+            </label>
+            <label class="block">
+              <span class="mb-1.5 block text-sm font-medium text-zinc-700">Custo Base (R$)</span>
+              <input
+                type="text"
+                inputmode="decimal"
+                bind:value={form.baseCost}
+                placeholder="12,50"
+                class="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 focus:border-yellow-400 focus:outline-none"
+              />
+            </label>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block">
               <span class="mb-1.5 block text-sm font-medium text-zinc-700">Categoria</span>
               <select
                 bind:value={form.category}
@@ -257,19 +319,6 @@
                 {/each}
               </select>
             </label>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block">
-              <span class="mb-1.5 block text-sm font-medium text-zinc-700">Preço “de” (opcional)</span>
-              <input
-                type="text"
-                inputmode="decimal"
-                bind:value={form.originalPrice}
-                placeholder="34,90"
-                class="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 focus:border-yellow-400 focus:outline-none"
-              />
-            </label>
             <label class="block">
               <span class="mb-1.5 block text-sm font-medium text-zinc-700">Preparo (min)</span>
               <input
@@ -278,6 +327,81 @@
                 bind:value={form.prepTime}
                 class="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 focus:border-yellow-400 focus:outline-none"
               />
+            </label>
+          </div>
+
+          <!-- Estilo Visual do Card (display_style com Base Tokens) -->
+          <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3.5 space-y-2">
+            <span class="block text-xs font-bold uppercase tracking-wider text-zinc-600">
+              Personalização Visual do Item (display_style)
+            </span>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <label class="block">
+                <span class="text-zinc-600">Fundo do Card (bg)</span>
+                <select
+                  bind:value={form.styleBg}
+                  class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-1.5 text-xs"
+                >
+                  <option value="">Padrão da seção</option>
+                  <option value="bg">bg</option>
+                  <option value="primary_color">primary_color</option>
+                  <option value="secondary_color">secondary_color</option>
+                  <option value="bg_dark">bg_dark</option>
+                  <option value="primary_color_dark">primary_color_dark</option>
+                  <option value="secondary_color_dark">secondary_color_dark</option>
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-zinc-600">Cor do Título (title_color)</span>
+                <select
+                  bind:value={form.styleTitle}
+                  class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-1.5 text-xs"
+                >
+                  <option value="">Padrão da seção</option>
+                  <option value="text">text</option>
+                  <option value="text_muted">text_muted</option>
+                  <option value="primary_color">primary_color</option>
+                  <option value="secondary_color">secondary_color</option>
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-zinc-600">Cor do Preço (price_color)</span>
+                <select
+                  bind:value={form.stylePrice}
+                  class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-1.5 text-xs"
+                >
+                  <option value="">Padrão da seção</option>
+                  <option value="primary_color">primary_color</option>
+                  <option value="secondary_color">secondary_color</option>
+                  <option value="text">text</option>
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-zinc-600">Tema do Card (dark)</span>
+                <select
+                  bind:value={form.styleDark}
+                  class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-1.5 text-xs"
+                >
+                  <option value={null}>Herdar da seção</option>
+                  <option value={false}>Forçar Claro</option>
+                  <option value={true}>Forçar Escuro</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-6 pt-1">
+            <label class="flex items-center gap-2 text-sm text-zinc-700">
+              <input type="checkbox" bind:checked={form.isCombo} class="h-4 w-4 accent-yellow-400" />
+              É um Combo / Pacote (is_combo)
+            </label>
+            <label class="flex items-center gap-2 text-sm text-zinc-700">
+              <input type="checkbox" bind:checked={form.available} class="h-4 w-4 accent-yellow-400" />
+              Disponível
+            </label>
+            <label class="flex items-center gap-2 text-sm text-zinc-700">
+              <input type="checkbox" bind:checked={form.popular} class="h-4 w-4 accent-yellow-400" />
+              Mais pedido (destaque)
             </label>
           </div>
 
