@@ -213,6 +213,9 @@ CREATE INDEX IF NOT EXISTS idx_order_account_id_created_at ON "order"(account_id
 ALTER TABLE "order" ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE "order" ADD COLUMN IF NOT EXISTS guest_token_hash BYTEA;
 ALTER TABLE "order" ADD COLUMN IF NOT EXISTS qr_id BIGINT REFERENCES order_qr(id);
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS display_code VARCHAR(3) CHECK (display_code ~ '^[0-9]{3}$');
+CREATE UNIQUE INDEX IF NOT EXISTS order_active_display_code_unique ON "order"(physical_restaurant_id,display_code)
+    WHERE display_code IS NOT NULL AND order_type='local' AND status IN ('pending','preparing','ready');
 CREATE TABLE IF NOT EXISTS order_draft_item (
     id SERIAL PRIMARY KEY, order_id INT NOT NULL REFERENCES "order"(id),
     item_id INT NOT NULL REFERENCES menu_item(id), selection JSONB NOT NULL, snapshot JSONB NOT NULL,

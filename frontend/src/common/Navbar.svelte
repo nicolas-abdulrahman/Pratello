@@ -70,7 +70,7 @@
   class="w-full border-b border-navbar-border bg-navbar-bg shadow-xs relative z-10 transition-colors"
   style={showNavLinks && $restaurantNavbar ? $restaurantCssVars : undefined}
   style:--navbar-item-bg={$brandDark ? 'var(--lighter_primary_color)' : 'var(--lighter_primary_color)'}
-  style:--navbar-item-text="var(--bg)"
+  style:--navbar-item-text="#000000"
   style:background-color={$brandDark ? 'var(--darker_primary_color_dark, var(--color-primary))' : 'var(--lighter_primary_color, var(--color-primary))'}
   style:border-bottom-style={showNavLinks ? $restaurantNavbar?.borderStyle : undefined}
   style:border-bottom-color={showNavLinks ? $restaurantNavbar?.borderColor : undefined}

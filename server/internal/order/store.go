@@ -126,7 +126,8 @@ func (u session) open(ctx context.Context, x command, kind string, table, number
 	return id, dbErr(err)
 }
 
-const summary = `o.id,o.physical_restaurant_id AS branch_id,o.account_id AS user_id,o.order_type,o.status,o.subtotal_cents,o.discount_cents,o.freight_cents,o.total_cents,o.created_at,o.updated_at,o.submitted_at,o.qr_id`
+const summary = `o.id,o.physical_restaurant_id AS branch_id,o.account_id AS user_id,o.order_type,o.status,o.subtotal_cents,o.discount_cents,o.freight_cents,o.total_cents,o.created_at,o.updated_at,o.submitted_at,o.qr_id,
+	o.display_code`
 const itemFields = `i.id,i.order_id,i.item_id,i.item_name,i.unit_price_cents,i.line_total_cents,i.quantity,i.notes,i.selected_options,i.parent_order_item_id,i.voided_at,i.voided_reason`
 const draftFields = `d.snapshot - 'options' || jsonb_build_object('id',d.id,'order_id',d.order_id,'selected_options',d.snapshot->'options','voided_at',d.voided_at,'voided_reason',d.voided_reason)`
 
@@ -145,7 +146,7 @@ func (u session) view(ctx context.Context, id int) (json.RawMessage, error) {
 	FROM "order" o WHERE o.id=$1) s`, id)
 }
 func (u session) list(ctx context.Context, x command) (json.RawMessage, error) {
-	return u.raw(ctx, `WITH found AS (SELECT `+summary+` FROM "order" o WHERE o.physical_restaurant_id=$1 AND submitted_at IS NOT NULL AND ($2='' OR status::text=$2)), pg AS (SELECT * FROM found ORDER BY id DESC LIMIT $3 OFFSET $4) SELECT jsonb_build_object('data',COALESCE((SELECT jsonb_agg(pg ORDER BY id DESC) FROM pg),'[]'),'page',$5::int,'page_size',$3::int,'total',(SELECT count(*) FROM found))`, u.branch, x.status.Status, x.size, int64(x.page-1)*int64(x.size), x.page)
+	return u.raw(ctx, `WITH found AS (SELECT `+summary+`, (SELECT jsonb_build_object('table_id',table_id,'table_number',table_number) FROM local_order WHERE id=o.id) AS local_info FROM "order" o WHERE o.physical_restaurant_id=$1 AND submitted_at IS NOT NULL AND ($2='' OR status::text=$2)), pg AS (SELECT * FROM found ORDER BY id DESC LIMIT $3 OFFSET $4) SELECT jsonb_build_object('data',COALESCE((SELECT jsonb_agg(pg ORDER BY id DESC) FROM pg),'[]'),'page',$5::int,'page_size',$3::int,'total',(SELECT count(*) FROM found))`, u.branch, x.status.Status, x.size, int64(x.page-1)*int64(x.size), x.page)
 }
 func (u session) lines(ctx context.Context, id int) ([]draftItem, error) {
 	rows, err := u.tx.QueryContext(ctx, `SELECT id,item_id,selection,snapshot FROM order_draft_item WHERE order_id=$1 AND voided_at IS NULL ORDER BY id`, id)
@@ -208,7 +209,25 @@ func (u session) finalize(ctx context.Context, id, actor int, c sales.Cart, at t
 	if _, err := sales.FinalizeCheckout(ctx, u.tx, u.org, u.slug, u.branch, id, actor, c, at, freight); err != nil {
 		return sales.MapCheckoutError(err, errInvalid, errMissing, errForbidden, errConflict)
 	}
-	_, err := u.tx.ExecContext(ctx, `UPDATE "order" SET submitted_at=$2 WHERE id=$1`, id, at)
+	var updated int
+	err := u.tx.QueryRowContext(ctx, `UPDATE "order" o SET submitted_at=$2,
+		display_code=CASE WHEN o.order_type='local' THEN
+			(SELECT lpad(n::text,3,'0') FROM generate_series(0,999) n
+			 WHERE NOT EXISTS (SELECT 1 FROM "order" existing
+				WHERE existing.physical_restaurant_id=o.physical_restaurant_id
+				AND existing.order_type='local' AND existing.status IN ('pending','preparing','ready')
+				AND existing.display_code=lpad(n::text,3,'0'))
+			 ORDER BY random() LIMIT 1)
+			ELSE NULL END
+		WHERE o.id=$1 AND (o.order_type<>'local' OR EXISTS
+			(SELECT 1 FROM generate_series(0,999) n WHERE NOT EXISTS
+				(SELECT 1 FROM "order" existing WHERE existing.physical_restaurant_id=o.physical_restaurant_id
+				AND existing.order_type='local' AND existing.status IN ('pending','preparing','ready')
+				AND existing.display_code=lpad(n::text,3,'0'))))
+		RETURNING o.id`, id, at).Scan(&updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errConflict
+	}
 	return dbErr(err)
 }
 func (u session) status(ctx context.Context, id int, status string) error {

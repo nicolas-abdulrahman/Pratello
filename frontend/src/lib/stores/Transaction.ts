@@ -14,6 +14,7 @@ export interface OrderLine {
 export interface OrderDetail {
   id: number;
   status: string;
+  display_code?: string | null;
   total_cents: number;
   submitted_at?: string | null;
   created_at: string;
@@ -155,7 +156,18 @@ export async function confirmPayment(saved: SavedOrder): Promise<SavedOrder> {
   const response = await request(`/transactions/${saved.transactionId}/pix/confirm`, { method: 'POST' }, saved);
   const transaction = await response.json();
   if (transaction.status !== 'paid') throw new Error('O pagamento ainda não foi confirmado.');
-  return refreshOrder(saved);
+  const order = {
+    ...saved.order,
+    transactions: [...(saved.order.transactions ?? []).filter((entry) => entry.id !== transaction.id), transaction],
+  };
+  updateOrder(saved.order.id, { order });
+  const paid = { ...saved, order };
+  try {
+    return await refreshOrder(paid);
+  } catch {
+    // Confirmation succeeded; keep it visible even if refreshing the order fails.
+    return paid;
+  }
 }
 
 export async function submitReview(saved: SavedOrder, itemId: number | null, rating: number, comment: string) {

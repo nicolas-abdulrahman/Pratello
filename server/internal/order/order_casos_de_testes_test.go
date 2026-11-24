@@ -226,11 +226,12 @@ func TestOrderQRCodeCheckoutAndAnalyticsPostgres(t *testing.T) {
 		t.Fatalf("landing GET created an order: %d %v", count, e)
 	}
 	type detail struct {
-		ID        int
-		QR        int64      `json:"qr_id"`
-		Total     int64      `json:"total_cents"`
-		Submitted *time.Time `json:"submitted_at"`
-		Local     struct {
+		ID          int
+		QR          int64      `json:"qr_id"`
+		Total       int64      `json:"total_cents"`
+		Submitted   *time.Time `json:"submitted_at"`
+		DisplayCode *string    `json:"display_code"`
+		Local       struct {
 			Number *int `json:"table_number"`
 		} `json:"local_info"`
 		Items []struct {
@@ -278,6 +279,14 @@ func TestOrderQRCodeCheckoutAndAnalyticsPostgres(t *testing.T) {
 	if first.Total != 1200 || first.Submitted == nil || len(first.Items) != 1 || first.Items[0].Name != "Burger" {
 		t.Fatalf("bad finalized order: %+v", first)
 	}
+	if first.DisplayCode == nil || len(*first.DisplayCode) != 3 || strings.Trim(*first.DisplayCode, "0123456789") != "" || first.Local.Number == nil || *first.Local.Number != 7 {
+		t.Fatalf("missing display code or table number: %+v", first)
+	}
+	var fetched detail
+	read(call("GET", path, key, "", 200), &fetched)
+	if fetched.DisplayCode == nil || *fetched.DisplayCode != *first.DisplayCode || fetched.Local.Number == nil || *fetched.Local.Number != 7 {
+		t.Fatalf("inconsistent order detail: %+v", fetched)
+	}
 	call("POST", path+"/submit", key, `{}`, 409)
 	call("POST", path+"/items", key, itemBody, 409)
 	call("DELETE", fmt.Sprintf("%s/items/%d", path, first.Items[0].ID), key, "", 409)
@@ -295,10 +304,13 @@ func TestOrderQRCodeCheckoutAndAnalyticsPostgres(t *testing.T) {
 	call("PATCH", path+"/status", "customer", `{"status":"preparing"}`, 403)
 	call("PATCH", path+"/status", "staff", `{"status":"preparing"}`, 200)
 	call("PATCH", path+"/status", "staff", `{"status":"ready"}`, 200)
-	var ready struct{ Total int }
+	var ready struct {
+		Total int
+		Data  []detail
+	}
 	read(call("GET", branch+"/orders?status=ready", "staff", "", 200), &ready)
-	if ready.Total != 1 {
-		t.Fatalf("wrong ready queue: %d", ready.Total)
+	if ready.Total != 1 || len(ready.Data) != 1 || ready.Data[0].DisplayCode == nil || *ready.Data[0].DisplayCode != *first.DisplayCode || ready.Data[0].Local.Number == nil || *ready.Data[0].Local.Number != 7 {
+		t.Fatalf("wrong ready queue: %+v", ready)
 	}
 	call("PATCH", path+"/status", "staff", `{"status":"delivered"}`, 200)
 	call("PATCH", path+"/status", "staff", `{"status":"cancelled"}`, 409)
@@ -369,6 +381,31 @@ func TestOrderQRCodeCheckoutAndAnalyticsPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	call("POST", link.Path+"/open", "", "", 404)
+}
+
+func TestLocalDisplayCodeUniquenessAndReuse(t *testing.T) {
+	c, _, mux := orderFixture(t)
+	call := orderCall(t, mux)
+	const path = "/api/restaurants/cafe/branches/1/orders/local"
+	type orderCode struct {
+		ID   int    `json:"id"`
+		Code string `json:"display_code"`
+	}
+	var first, second orderCode
+	decodeOrderResponse(t, call("POST", path, "customer", `{"items":[{"item_id":1,"quantity":1}]}`, 201), &first)
+	decodeOrderResponse(t, call("POST", path, "customer", `{"items":[{"item_id":1,"quantity":1}]}`, 201), &second)
+	if len(first.Code) != 3 || strings.Trim(first.Code, "0123456789") != "" || len(second.Code) != 3 || strings.Trim(second.Code, "0123456789") != "" || first.Code == second.Code {
+		t.Fatalf("invalid or duplicate active codes: %+v %+v", first, second)
+	}
+	if _, err := c.Exec(`UPDATE "order" SET display_code=$1 WHERE id=$2`, first.Code, second.ID); err == nil {
+		t.Fatal("database allowed duplicate active display codes")
+	}
+	if _, err := c.Exec(`UPDATE "order" SET status='delivered' WHERE id=$1`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Exec(`UPDATE "order" SET display_code=$1 WHERE id=$2`, first.Code, second.ID); err != nil {
+		t.Fatalf("delivered order code could not be reused: %v", err)
+	}
 }
 
 func TestOrderCheckoutRevalidatesAndFreezesSnapshot(t *testing.T) {

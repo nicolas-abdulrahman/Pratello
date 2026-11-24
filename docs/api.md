@@ -84,6 +84,7 @@ Base URL: `http://localhost:8080/api`
 | `GET` | `/restaurants/{slug}/branches/{branch_id}/orders` | — | Listar comandas e pedidos da filial (`order`) |
 | `GET` | `/orders/{order_id}` | — | Obter detalhes completos do pedido |
 | `POST` | `/restaurants/{slug}/branches/{branch_id}/orders/local` | `{ user_cpf, table_number, items: [{ item_id, quantity, notes, sides }] }` | Abrir pedido presencial no salão (`local_order` + `order_item`) |
+| `POST` | `/orders/{order_id}/submit` | `{ coupon_codes, saved_coupon_ids, coins }` | Finalizar um pedido aberto |
 | `POST` | `/restaurants/{slug}/branches/{branch_id}/orders/remote` | `{ user_cpf, delivery_address, phone, freight_fee, items: [...] }` | Criar pedido delivery (`remote_order` + `order_item`) |
 | `PATCH` | `/orders/{order_id}/status` | `{ status }` | Atualizar status do pedido (recebido, preparo, pronto, entregue) |
 | `POST` | `/orders/{order_id}/items` | `{ item_id, quantity, notes, sides, parent_order_item_id }` | Adicionar item a um pedido aberto |
@@ -101,6 +102,21 @@ Base URL: `http://localhost:8080/api`
 | `POST` | `/staff-sessions/check-in` | `{ qr_token, account_id }` | Bater ponto de entrada no turno ativo (`staff_session`) |
 | `POST` | `/staff-sessions/{id}/check-out` | — | Registrar saída do turno (`staff_session`) |
 | `GET` | `/staff-sessions/active` | — | Listar equipe ativa em turno no momento |
+
+### Código de exibição e mesa
+
+As respostas de criação, finalização, consulta e atualização de pedido incluem
+`display_code`. Para pedidos locais finalizados, é uma sequência aleatória
+de três dígitos (por exemplo, `"015"`); para rascunhos e pedidos remotos,
+é `null`. O código é persistido e único entre pedidos locais ativos da mesma
+filial. Após entrega ou cancelamento, ele pode ser reutilizado. Se os 1.000
+códigos estiverem em uso por pedidos ativos, a finalização retorna `409`.
+
+Para pedidos locais, `local_info` inclui `table_id` e `table_number`; ambos
+serão `null` quando nenhuma mesa for informada. Para pedidos remotos,
+`local_info` é `null`. A lista de pedidos da filial também inclui esses campos
+em cada elemento de `data`. Na criação de um pedido local, envie opcionalmente
+`table_id` ou `table_number` (não ambos); a mesa deve estar ativa na filial.
 
 ---
 

@@ -134,7 +134,10 @@
   let pickupOrder = $derived(currentView === 'order-review' ? undefined : availableOrders.find((o) =>
     (o.order.status === 'ready' || o.order.status === 'delivered') && !o.pickupAcknowledgedAt && !o.popupDismissed
   ));
-  let popupOrder = $derived(currentView === 'order-review' || pickupOrder ? undefined : availableOrders.find((o) =>
+  let preparingOrder = $derived(availableOrders.find((o) =>
+    isPaid(o.order) && (o.order.status === 'pending' || o.order.status === 'preparing')
+  ));
+  let popupOrder = $derived(currentView === 'order-review' || pickupOrder || preparingOrder ? undefined : availableOrders.find((o) =>
     o.order.status === 'delivered' && isPaid(o.order) && !o.popupDismissed &&
     !!o.pickupAcknowledgedAt && notificationTime >= o.pickupAcknowledgedAt + 20000
   ));
@@ -334,7 +337,18 @@
   {#if currentView === 'home' || currentView === 'restaurantes'}
     <Footer />
   {/if}
-  {#if pickupOrder}
+  {#if preparingOrder}
+    <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-8">
+      <div role="dialog" aria-modal="true" aria-labelledby="preparing-title" class="w-full max-w-md rounded-3xl bg-surface p-8 text-center shadow-xl space-y-4">
+        <h2 id="preparing-title" class="text-xl font-bold">Transação realizada código:</h2>
+        {#if preparingOrder.order.display_code}
+          <p class="text-5xl font-black tracking-widest">{preparingOrder.order.display_code}</p>
+        {:else}
+          <p class="text-text-muted" role="status">Aguardando código do pedido…</p>
+        {/if}
+      </div>
+    </div>
+  {:else if pickupOrder}
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="pickup-title" class="w-full max-w-md rounded-3xl bg-surface p-8 shadow-xl space-y-4">
         <h2 id="pickup-title" class="text-2xl font-bold">Seu pedido está pronto!</h2>
