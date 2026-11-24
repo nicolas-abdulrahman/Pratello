@@ -7,7 +7,8 @@
     onClose = () => {},
     onGoLogin = () => {},
     onGoHome = () => {},
-    onGoAccount = undefined as (() => void) | undefined
+    onGoAccount = undefined as (() => void) | undefined,
+    onGoOrders = undefined as (() => void) | undefined
   } = $props();
 
   const close = () => onClose();
@@ -20,6 +21,18 @@
   function handleLogout() {
     account.logout();
     onClose();
+  }
+
+  function handleGoOrders(event: MouseEvent) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    close();
+    if (onGoOrders) {
+      onGoOrders();
+    } else {
+      window.history.pushState({}, '', '/me/pedidos');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
   }
 </script>
 
@@ -154,8 +167,8 @@
           Promoções
         </a>
         <a
-          href="#"
-          onclick={close}
+          href="/me/pedidos"
+          onclick={handleGoOrders}
           class="flex items-center gap-3.5 px-4 py-3 rounded-2xl hover:bg-[#F2EADC] text-stone-600 hover:text-stone-900 transition"
         >
           <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -243,16 +256,15 @@
       <h3 class="text-xs font-bold text-stone-400 uppercase tracking-wider mb-3">Mais opções</h3>
 
       <a
-        href="#history"
-        onclick={close}
+        href="/me/pedidos"
+        onclick={handleGoOrders}
         class="flex items-center gap-3 p-3 text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors font-medium"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-          <path d="M3 3v5h5"></path>
-          <path d="M12 7v5l4 2"></path>
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
-        Histórico de Pedidos
+        Pedidos
       </a>
 
       <a

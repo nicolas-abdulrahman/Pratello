@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/lib/pq"
@@ -27,7 +28,26 @@ func NewService(db *sql.DB, provider Provider) *Service {
 }
 
 func NewServiceWithLoyaltyCache(db *sql.DB, provider Provider, cache sales.CompletionCache) *Service {
-	return &Service{postgres{db, cache}, provider, time.Now}
+	return &Service{store: postgres{db, cache}, provider: provider, now: time.Now}
+}
+
+// EnableMockOrderReady simulates preparation after a successful PIX payment.
+// It is intended only for local development and test environments.
+func (s *Service) EnableMockOrderReady(db *sql.DB, delay time.Duration) {
+	s.mockReady = func(orderID int) {
+		time.AfterFunc(delay, func() {
+			if db == nil {
+				return
+			}
+			_, err := db.ExecContext(context.Background(), `UPDATE "order" o SET status='ready'
+				WHERE o.id=$1 AND o.status IN ('pending','preparing')
+				AND o.total_cents <= (SELECT COALESCE(SUM(t.amount_cents-t.refunded_cents),0)
+					FROM transaction t WHERE t.order_id=o.id AND t.status IN ('paid','partially_refunded'))`, orderID)
+			if err != nil {
+				slog.Error("mock order ready update failed", "order_id", orderID, "error", err)
+			}
+		})
+	}
 }
 
 func dbError(err error) error {

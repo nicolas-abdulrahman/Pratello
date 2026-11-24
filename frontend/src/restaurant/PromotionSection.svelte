@@ -19,22 +19,35 @@
   const CARD_WIDTH = 280;
   const CARD_HEIGHT = 185;
   const MAX_GAP = 16;
+  const MAX_PADDING = 32;
+  const BORDER_WIDTH = 4;
 
-  let containerWidth = $state(0);
+  let sectionWidth = $state(0);
+
+  let availableWidth = $derived(
+    Math.max(0, sectionWidth - BORDER_WIDTH * 2)
+  );
 
   let columns = $derived(
-    containerWidth >= CARD_WIDTH * 4 ? 4 :
-    containerWidth >= CARD_WIDTH * 3 ? 3 : 2
+    availableWidth >= CARD_WIDTH * 4 ? 4 :
+    availableWidth >= CARD_WIDTH * 3 ? 3 : 2
   );
 
   let availableSpace = $derived(
-    containerWidth - CARD_WIDTH * columns
+    Math.max(0, availableWidth - CARD_WIDTH * columns)
+  );
+
+  let pagePadding = $derived(
+    Math.min(MAX_PADDING, availableSpace / 2)
   );
 
   let gap = $derived(
     Math.max(
       0,
-      Math.min(MAX_GAP, availableSpace / (columns - 1))
+      Math.min(
+        MAX_GAP,
+        (availableSpace - pagePadding * 2) / (columns - 1)
+      )
     )
   );
 
@@ -43,7 +56,11 @@
       CARD_WIDTH,
       Math.max(
         0,
-        (containerWidth - gap * (columns - 1)) / columns
+        (
+          availableWidth -
+          pagePadding * 2 -
+          gap * (columns - 1)
+        ) / columns
       )
     )
   );
@@ -53,7 +70,9 @@
 
 <section
   class="section-container mx-auto w-full min-w-0 max-w-7xl py-space-lg"
+  bind:clientWidth={sectionWidth}
   style={palette}
+  style:padding-inline={`${pagePadding}px`}
   style:background-color={styles.background}
 >
   <h2 class="mb-space-lg text-3xl font-black tracking-tight md:text-4xl">
@@ -83,7 +102,6 @@
     {:else}
       <div
         class="items-grid"
-        bind:clientWidth={containerWidth}
         style:grid-template-columns={`repeat(${columns}, ${cardWidth}px)`}
         style:column-gap={`${gap}px`}
       >
@@ -131,7 +149,6 @@
 <style>
   .section-container {
     box-sizing: border-box;
-    padding-inline: 0;
   }
 
   .section-content {

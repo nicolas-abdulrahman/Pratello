@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"pratello/server/internal/auth"
 	"pratello/server/internal/db"
@@ -97,7 +98,11 @@ func main() {
 			loyaltyCache = cache
 		}
 	}
-	transaction.NewHandler(transaction.NewServiceWithLoyaltyCache(database, transaction.MockProvider{}, loyaltyCache), authSvc.Identify).Routes(mux)
+	transactionSvc := transaction.NewServiceWithLoyaltyCache(database, transaction.MockProvider{}, loyaltyCache)
+	if os.Getenv("AUTH_FIXED_CODE") == "1" {
+		transactionSvc.EnableMockOrderReady(database, 5*time.Second)
+	}
+	transaction.NewHandler(transactionSvc, authSvc.Identify).Routes(mux)
 	handler := registerRoutes(mux, authHandler, restHandler)
 	if *reset {
 		fixture, err := seedDemo(ctx, database, handler)

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { transactions, visibleOrders, refreshOrder, updateOrder, isPaid, type SavedOrder } from './lib/stores/Transaction';
+  import OrderPopup from './order/order_review/OrderPopup.svelte';
   import Footer from './common/Footer.svelte';
   import { restaurantDark, restaurantThemeVars, setRestaurantDisplayConfig } from './lib/stores/restaurant_style';
   import { brandDark } from './lib/stores/brand_theme';
@@ -18,6 +21,9 @@
   import ProfilePage from './user/ProfilePage.svelte';
   import MyRestaurants from './user/MyRestaurants.svelte';
   import Admin from './admin/Admin.svelte';
+  import OrderPage from './order/orders_page/OrderPage.svelte';
+  import ReviewPage from './order/order_review/ReviewPage.svelte';
+  import type { HistoricalOrder } from './order/orders_page/HistoryOrderSection.svelte';
 
   // --- CART (derived store from cart.ts) ---
   // $cart_count already sums `quantity` across lines.
@@ -28,6 +34,8 @@
     if (path === '/login') return { view: 'login', slug: '' };
     if (path === '/account' || path === '/account/') return { view: 'account', slug: '' };
     if (path === '/me/my-restaurant' || path === '/me/my-restaurant/') return { view: 'my-restaurants', slug: '' };
+    if (path === '/me/pedidos' || path === '/me/pedidos/') return { view: 'orders', slug: '' };
+    if (/^\/me\/pedidos\/[^/]+\/review\/?$/.test(path) || path === '/me/pedidos/review' || path === '/me/pedidos/review/' || path === '/order/review' || path === '/order/review/') return { view: 'order-review', slug: '' };
     if (path === '/order') return { view: 'order', slug: '' };
     if (path === '/checkout') return { view: 'checkout', slug: '' };
     if (path === '/restaurantes') return { view: 'restaurantes', slug: '' };
@@ -119,12 +127,72 @@
     window.history.pushState({}, '', '/checkout');
   }
 
+  let selectedOrderForReview = $state<HistoricalOrder | null>(null);
+  let reviewPathId = $state(window.location.pathname.match(/^\/me\/pedidos\/([^/]+)\/review\/?$/)?.[1] ?? '');
+  let notificationTime = $state(Date.now());
+  let availableOrders = $derived($transactions.filter((o) => $account.isLoggedIn ? o.userId === $account.id : o.userId === null));
+  let pickupOrder = $derived(currentView === 'order-review' ? undefined : availableOrders.find((o) =>
+    (o.order.status === 'ready' || o.order.status === 'delivered') && !o.pickupAcknowledgedAt && !o.popupDismissed
+  ));
+  let popupOrder = $derived(currentView === 'order-review' || pickupOrder ? undefined : availableOrders.find((o) =>
+    o.order.status === 'delivered' && isPaid(o.order) && !o.popupDismissed &&
+    !!o.pickupAcknowledgedAt && notificationTime >= o.pickupAcknowledgedAt + 20000
+  ));
+
+  function historical(saved: SavedOrder): HistoricalOrder {
+    return {
+      id: String(saved.order.id), orderNumber: `#${saved.order.id}`,
+      date: new Date(saved.order.created_at).toLocaleString('pt-BR'),
+      restaurantName: saved.restaurantName,
+      status: saved.order.status === 'delivered' ? 'Entregue' : saved.order.status === 'cancelled' ? 'Cancelado' : 'Em andamento',
+      total: saved.order.total_cents / 100,
+      items: (saved.order.items || []).filter((item) => !item.voided_at).map((item) => ({
+        id: String(item.id), name: item.item_name, quantity: item.quantity,
+        price: item.unit_price_cents / 100, imageUrl: '',
+      })),
+    };
+  }
+  let reviewOrder = $derived.by(() => {
+    const match = availableOrders.find((o) => String(o.order.id) === reviewPathId);
+    return match ? historical(match) : null;
+  });
+
+  onMount(() => {
+    let running = false;
+    const poll = async () => {
+      if (running) return;
+      running = true;
+      try {
+        await Promise.allSettled(visibleOrders().filter((o) => o.order.status !== 'cancelled' && (o.order.status !== 'delivered' || !isPaid(o.order))).map(refreshOrder));
+      } finally { running = false; }
+    };
+    void poll();
+    const timer = window.setInterval(poll, import.meta.env.TEST_ENV === 'true' || import.meta.env.TEST_ENV === '1' ? 15000 : 30000);
+    const notificationTimer = window.setInterval(() => { notificationTime = Date.now(); }, 1000);
+    return () => { window.clearInterval(timer); window.clearInterval(notificationTimer); };
+  });
+
+  function goToOrders() {
+    currentView = 'orders';
+    window.history.pushState({}, '', '/me/pedidos');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  function goToOrderReview(order: HistoricalOrder) {
+    selectedOrderForReview = order;
+    reviewPathId = order.id;
+    currentView = 'order-review';
+    window.history.pushState({}, '', `/me/pedidos/${encodeURIComponent(order.id)}/review`);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
   // --- Browser back/forward ---
   if (typeof window !== 'undefined') {
     window.addEventListener('popstate', () => {
       const parsed = parseRoute(window.location.pathname);
       currentView = parsed.view;
       slug = parsed.slug;
+      reviewPathId = window.location.pathname.match(/^\/me\/pedidos\/([^/]+)\/review\/?$/)?.[1] ?? '';
     });
   }
 
@@ -181,6 +249,8 @@
     currentView === 'account' ||
     currentView === 'my-restaurants' ||
     currentView === 'admin' ||
+    currentView === 'orders' ||
+    currentView === 'order-review' ||
     currentView === 'order' ||
     currentView === 'checkout'
   );
@@ -209,6 +279,7 @@
       onGoHome={goToHome}
       onGoLogin={goToLogin}
       onGoAccount={goToAccount}
+      onGoOrders={goToOrders}
       onGoRestaurantes={goToRestaurantes}
       {showNavLinks}
       brand={brandTheme}
@@ -235,13 +306,17 @@
         {:else if currentView === 'order'}
           <OrderSection goToCheckout={goToCheckout} onCancel={goToHome} />
         {:else if currentView === 'checkout'}
-          <CheckoutSection onCancel={goToOrder} total={$cart_total} />
+          <CheckoutSection onCancel={goToOrder} total={$cart_total} {slug} />
         {:else if currentView === 'login'}
           <Login onGoHome={() => { if (!$account.isLoggedIn) goToHome(); }} />
         {:else if currentView === 'account'}
           <ProfilePage onBack={goBackFromAccount} onGoLogin={goToAccountLogin} />
         {:else if currentView === 'my-restaurants'}
           <MyRestaurants />
+        {:else if currentView === 'orders'}
+          <OrderPage onOpenReview={goToOrderReview} />
+        {:else if currentView === 'order-review'}
+          <ReviewPage order={reviewOrder} onBack={goToOrders} />
         {:else if currentView === 'admin'}
           {#if $account.isLoggedIn}
             <Admin {slug} session={{ name: $account.name, role: 'admin' }} onLogout={() => { account.logout(); window.location.href = '/'; }} />
@@ -258,6 +333,19 @@
 
   {#if currentView === 'home' || currentView === 'restaurantes'}
     <Footer />
+  {/if}
+  {#if pickupOrder}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="pickup-title" class="w-full max-w-md rounded-3xl bg-surface p-8 shadow-xl space-y-4">
+        <h2 id="pickup-title" class="text-2xl font-bold">Seu pedido está pronto!</h2>
+        <p>Vá buscar seu pedido em {pickupOrder.restaurantName}.</p>
+        <button type="button" onclick={() => updateOrder(pickupOrder!.order.id, { pickupAcknowledgedAt: Date.now() })} class="rounded-xl bg-primary px-5 py-3 font-bold text-white">OK</button>
+      </div>
+    </div>
+  {:else if popupOrder}
+    <OrderPopup restaurantName={popupOrder.restaurantName}
+      onDismiss={() => updateOrder(popupOrder!.order.id, { popupDismissed: true })}
+      onContinue={() => { const target = popupOrder!; updateOrder(target.order.id, { popupDismissed: true }); goToOrderReview(historical(target)); }} />
   {/if}
 </div>
 

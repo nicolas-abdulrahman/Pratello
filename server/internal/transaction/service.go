@@ -96,9 +96,10 @@ type repository interface {
 	transact(context.Context, request, bool, func(unit, orderScope) (any, error)) (any, error)
 }
 type Service struct {
-	store    repository
-	provider Provider
-	now      func() time.Time
+	store     repository
+	provider  Provider
+	now       func() time.Time
+	mockReady func(int)
 }
 
 func (s *Service) execute(ctx context.Context, r request) (any, error) {
@@ -112,7 +113,8 @@ func (s *Service) execute(ctx context.Context, r request) (any, error) {
 	if r.op == "refund" && (r.refund.Amount != nil && *r.refund.Amount <= 0 || len(r.refund.Reason) > 1000) {
 		return nil, errInvalid
 	}
-	return s.store.transact(ctx, r, write, func(u unit, o orderScope) (any, error) {
+	confirmed := false
+	result, err := s.store.transact(ctx, r, write, func(u unit, o orderScope) (any, error) {
 		digest := sha256.Sum256([]byte(r.guest))
 		guest := r.actor == 0 && o.customer == 0 && len(r.guest) == 43 && subtle.ConstantTimeCompare(o.guestHash, digest[:]) == 1
 		if !guest && (!o.staff && (r.actor <= 0 || o.customer != r.actor)) {
@@ -220,6 +222,7 @@ func (s *Service) execute(ctx context.Context, r request) (any, error) {
 			if err == nil {
 				err = u.award(ctx)
 			}
+			confirmed = err == nil
 			return t, err
 		case "refund":
 			old, err := u.refundByKey(ctx, t.ID, r.key)
@@ -249,6 +252,10 @@ func (s *Service) execute(ctx context.Context, r request) (any, error) {
 		}
 		return nil, errInvalid
 	})
+	if err == nil && confirmed && s.mockReady != nil {
+		s.mockReady(result.(Transaction).Order)
+	}
+	return result, err
 }
 
 func validKey(v string) bool {
