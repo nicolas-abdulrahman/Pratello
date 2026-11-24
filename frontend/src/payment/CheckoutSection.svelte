@@ -3,7 +3,16 @@
   import { visibleOrders, createOrder, preparePayment, confirmPayment, type SavedOrder } from '../lib/stores/Transaction';
   import { get } from 'svelte/store';
 
-  let { onCancel = () => {}, slug = '' }: { onCancel?: () => void; slug?: string; total?: number } = $props();
+  let {
+    onCancel = () => {},
+    slug = '',
+    onOrderConfirmed = undefined as ((restaurantId: string | number, orderId: string | number) => void) | undefined
+  }: {
+    onCancel?: () => void;
+    slug?: string;
+    total?: number;
+    onOrderConfirmed?: (restaurantId: string | number, orderId: string | number) => void;
+  } = $props();
   const resumeId = new URLSearchParams(window.location.search).get('resume');
   let saved = $state<SavedOrder | null>(visibleOrders().find((entry) => String(entry.order.id) === resumeId) ?? null);
   let busy = $state(false);
@@ -31,6 +40,14 @@
       saved = await confirmPayment(saved);
       paid = true;
       if (!resumeId) clear_cart();
+      const restId = saved.restaurantId || saved.slug || slug || 'restaurante';
+      const orderId = saved.order.id;
+      if (onOrderConfirmed) {
+        onOrderConfirmed(restId, orderId);
+      } else {
+        window.history.pushState({}, '', `/me/pedidos/${restId}/${orderId}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Não foi possível confirmar o pagamento.';
     } finally { busy = false; }

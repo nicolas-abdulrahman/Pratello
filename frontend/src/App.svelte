@@ -9,6 +9,8 @@
   import OrderCart from './order/OrderCart.svelte';
   import OrderSection from './order/OrderSection.svelte';
   import CheckoutSection from './payment/CheckoutSection.svelte';
+  import CheckoutPage from './payment/CheckoutPage.svelte';
+  import OrderStatusPage from './order/orders_page/OrderStatusPage.svelte';
 
   import { cart, cart_count, cart_total } from './lib/stores/Cart';
   import { account } from './lib/stores/account';
@@ -36,6 +38,10 @@
     if (path === '/me/my-restaurant' || path === '/me/my-restaurant/') return { view: 'my-restaurants', slug: '' };
     if (path === '/me/pedidos' || path === '/me/pedidos/') return { view: 'orders', slug: '' };
     if (/^\/me\/pedidos\/[^/]+\/review\/?$/.test(path) || path === '/me/pedidos/review' || path === '/me/pedidos/review/' || path === '/order/review' || path === '/order/review/') return { view: 'order-review', slug: '' };
+    const orderStatusMatch = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/?$/);
+    if (orderStatusMatch && orderStatusMatch[2] !== 'review') {
+      return { view: 'order-status', slug: '', restaurantId: orderStatusMatch[1], orderId: orderStatusMatch[2] };
+    }
     if (path === '/order') return { view: 'order', slug: '' };
     if (path === '/checkout') return { view: 'checkout', slug: '' };
     if (path === '/restaurantes') return { view: 'restaurantes', slug: '' };
@@ -58,6 +64,8 @@
   const initial = parseRoute(path);
   let currentView = $state(initial.view);
   let slug = $state(initial.slug);
+  let activeRestaurantId = $state(initial.restaurantId ?? '');
+  let activeOrderId = $state(initial.orderId ?? '');
 
   // --- NAVIGATION ---
   function goToHome() {
@@ -143,12 +151,14 @@
   ));
 
   function historical(saved: SavedOrder): HistoricalOrder {
+    const isDone = saved.order.status === 'delivered' || saved.order.status === 'ready' || !!saved.pickupAcknowledgedAt || isPaid(saved.order);
     return {
       id: String(saved.order.id), orderNumber: `#${saved.order.id}`,
       date: new Date(saved.order.created_at).toLocaleString('pt-BR'),
       restaurantName: saved.restaurantName,
-      status: saved.order.status === 'delivered' ? 'Entregue' : saved.order.status === 'cancelled' ? 'Cancelado' : 'Em andamento',
+      status: saved.order.status === 'cancelled' ? 'Cancelado' : isDone ? 'Entregue' : '',
       total: saved.order.total_cents / 100,
+      isReviewed: !!saved.isReviewed || !!saved.serviceReviewed,
       items: (saved.order.items || []).filter((item) => !item.voided_at).map((item) => ({
         id: String(item.id), name: item.item_name, quantity: item.quantity,
         price: item.unit_price_cents / 100, imageUrl: '',
@@ -189,12 +199,22 @@
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
+  function goToOrderStatus(restaurantId: string | number, orderId: string | number) {
+    activeRestaurantId = String(restaurantId);
+    activeOrderId = String(orderId);
+    currentView = 'order-status';
+    window.history.pushState({}, '', `/me/pedidos/${restaurantId}/${orderId}`);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
   // --- Browser back/forward ---
   if (typeof window !== 'undefined') {
     window.addEventListener('popstate', () => {
       const parsed = parseRoute(window.location.pathname);
       currentView = parsed.view;
       slug = parsed.slug;
+      if (parsed.restaurantId) activeRestaurantId = parsed.restaurantId;
+      if (parsed.orderId) activeOrderId = parsed.orderId;
       reviewPathId = window.location.pathname.match(/^\/me\/pedidos\/([^/]+)\/review\/?$/)?.[1] ?? '';
     });
   }
@@ -254,6 +274,7 @@
     currentView === 'admin' ||
     currentView === 'orders' ||
     currentView === 'order-review' ||
+    currentView === 'order-status' ||
     currentView === 'order' ||
     currentView === 'checkout'
   );
@@ -309,7 +330,7 @@
         {:else if currentView === 'order'}
           <OrderSection goToCheckout={goToCheckout} onCancel={goToHome} />
         {:else if currentView === 'checkout'}
-          <CheckoutSection onCancel={goToOrder} total={$cart_total} {slug} />
+          <CheckoutPage onCancel={goToOrder} total={$cart_total} {slug} onOrderConfirmed={goToOrderStatus} />
         {:else if currentView === 'login'}
           <Login onGoHome={() => { if (!$account.isLoggedIn) goToHome(); }} />
         {:else if currentView === 'account'}
@@ -318,6 +339,13 @@
           <MyRestaurants />
         {:else if currentView === 'orders'}
           <OrderPage onOpenReview={goToOrderReview} />
+        {:else if currentView === 'order-status'}
+          <OrderStatusPage
+            restaurantId={activeRestaurantId}
+            orderId={activeOrderId}
+            onGoOrders={goToOrders}
+            onGoHome={goToHome}
+          />
         {:else if currentView === 'order-review'}
           <ReviewPage order={reviewOrder} onBack={goToOrders} />
         {:else if currentView === 'admin'}
@@ -337,23 +365,32 @@
   {#if currentView === 'home' || currentView === 'restaurantes'}
     <Footer />
   {/if}
-  {#if preparingOrder}
-    <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-8">
-      <div role="dialog" aria-modal="true" aria-labelledby="preparing-title" class="w-full max-w-md rounded-3xl bg-surface p-8 text-center shadow-xl space-y-4">
-        <h2 id="preparing-title" class="text-xl font-bold">Transação realizada código:</h2>
-        {#if preparingOrder.order.display_code}
-          <p class="text-5xl font-black tracking-widest">{preparingOrder.order.display_code}</p>
-        {:else}
-          <p class="text-text-muted" role="status">Aguardando código do pedido…</p>
-        {/if}
-      </div>
-    </div>
-  {:else if pickupOrder}
+  {#if pickupOrder}
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="pickup-title" class="w-full max-w-md rounded-3xl bg-surface p-8 shadow-xl space-y-4">
         <h2 id="pickup-title" class="text-2xl font-bold">Seu pedido está pronto!</h2>
+        {#if pickupOrder.order.display_code}
+          <div class="bg-surface-hover border border-border rounded-2xl py-3 px-4 text-center">
+            <span class="text-xs uppercase tracking-wider text-text-muted font-bold block">Código de retirada</span>
+            <span class="text-3xl font-black text-primary tracking-widest font-mono">{pickupOrder.order.display_code}</span>
+          </div>
+        {:else}
+          <div class="bg-surface-hover border border-border rounded-2xl py-3 px-4 text-center">
+            <span class="text-xs uppercase tracking-wider text-text-muted font-bold block">Código de retirada</span>
+            <span class="text-2xl font-black text-primary font-mono">#{pickupOrder.order.id}</span>
+          </div>
+        {/if}
         <p>Vá buscar seu pedido em {pickupOrder.restaurantName}.</p>
-        <button type="button" onclick={() => updateOrder(pickupOrder!.order.id, { pickupAcknowledgedAt: Date.now() })} class="rounded-xl bg-primary px-5 py-3 font-bold text-white">OK</button>
+        <button
+          type="button"
+          onclick={() => {
+            updateOrder(pickupOrder!.order.id, { pickupAcknowledgedAt: Date.now() });
+            goToOrders();
+          }}
+          class="w-full rounded-xl bg-primary hover:bg-primary-hover px-5 py-3 font-bold text-white transition cursor-pointer"
+        >
+          OK
+        </button>
       </div>
     </div>
   {:else if popupOrder}

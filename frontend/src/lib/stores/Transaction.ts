@@ -25,6 +25,7 @@ export interface OrderDetail {
 export interface SavedOrder {
   order: OrderDetail;
   slug: string;
+  restaurantId?: number | string;
   restaurantName: string;
   branchId: number;
   userId: number | null;
@@ -35,6 +36,7 @@ export interface SavedOrder {
   pix?: { copy_paste_code: string; qr_code_base64: string };
   reviewedItems: number[];
   serviceReviewed: boolean;
+  isReviewed?: boolean;
   popupDismissed: boolean;
   pickupAcknowledgedAt?: number;
 }
@@ -111,6 +113,7 @@ export async function createOrder(slug: string, lines: CartItem[]): Promise<Save
   const user = get(account);
   const saved: SavedOrder = {
     order, slug, restaurantName: restaurant.name, branchId: branch.id,
+    restaurantId: restaurant.id ?? branch.restaurant_id ?? slug,
     userId: user.isLoggedIn ? user.id ?? null : null,
     guestToken: response.headers.get('X-Order-Token'),
     paymentKey: crypto.randomUUID(), pixKey: crypto.randomUUID(),

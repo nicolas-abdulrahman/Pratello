@@ -16,9 +16,10 @@
     orderNumber: string;
     date: string;
     restaurantName: string;
-    status: 'Entregue' | 'Cancelado' | 'Em andamento';
+    status: 'Entregue' | 'Cancelado' | 'Em andamento' | '';
     items: OrderItem[];
     total: number;
+    isReviewed?: boolean;
   }
 
   let {
@@ -113,13 +114,16 @@
   let mockOrders = $derived(visible.map(toHistoricalOrder));
 
   export function toHistoricalOrder(saved: SavedOrder): HistoricalOrder {
+    const isDone = saved.order.status === 'delivered' || saved.order.status === 'ready' || !!saved.pickupAcknowledgedAt || isPaid(saved.order);
+    const isReviewed = !!saved.isReviewed || !!saved.serviceReviewed;
     return {
       id: String(saved.order.id),
       orderNumber: `#${saved.order.id}`,
       date: new Date(saved.order.created_at).toLocaleString('pt-BR'),
       restaurantName: saved.restaurantName,
-      status: saved.order.status === 'delivered' ? 'Entregue' : saved.order.status === 'cancelled' ? 'Cancelado' : 'Em andamento',
+      status: saved.order.status === 'cancelled' ? 'Cancelado' : isDone ? 'Entregue' : '',
       total: saved.order.total_cents / 100,
+      isReviewed,
       items: (saved.order.items || []).filter((item) => !item.voided_at).map((item) => ({
         id: String(item.id), name: item.item_name, quantity: item.quantity,
         price: item.unit_price_cents / 100, imageUrl: '',
@@ -173,10 +177,18 @@
           </div>
 
           <div class="flex items-center gap-3">
-            <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-surface-hover text-primary border border-border">
-              <span class="w-1.5 h-1.5 rounded-full bg-surface-hover0"></span>
-              {order.status}
-            </span>
+            {#if order.status === 'Cancelado'}
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                Cancelado
+              </span>
+            {:else if order.isReviewed}
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Avaliado
+              </span>
+            {/if}
             <span class="font-bold text-text text-sm">{formatPrice(order.total)}</span>
           </div>
         </div>
@@ -209,21 +221,34 @@
         <!-- Ação: Avaliar Pedido -->
         <div class="px-4 sm:px-5 py-3.5 bg-surface-hover border-t border-border flex items-center justify-between">
           <span class="text-xs text-text-muted">
-            {order.status === 'Entregue' ? 'Avalie sua experiência e ajude a melhorar nosso serviço' : 'Aguardando entrega para liberar avaliações'}
+            {#if order.status === 'Cancelado'}
+              Pedido cancelado
+            {:else if order.isReviewed}
+              Pedido avaliado. Obrigado pelo seu feedback!
+            {:else}
+              Avalie sua experiência e ajude a melhorar nosso serviço
+            {/if}
           </span>
           {#if visible.find((entry) => String(entry.order.id) === order.id && !isPaid(entry.order) && entry.order.status !== 'cancelled')}
             <a href={`/checkout?resume=${order.id}`} class="text-primary font-bold text-xs">Continuar pagamento</a>
           {/if}
           <button
             type="button"
-            disabled={order.status !== 'Entregue' || !visible.some((entry) => String(entry.order.id) === order.id && isPaid(entry.order))}
+            disabled={order.status === 'Cancelado' || !!order.isReviewed}
             onclick={() => onSelectOrder(order)}
-            class="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white font-semibold text-xs rounded-xl shadow-xs transition group-hover:scale-102 disabled:opacity-50"
+            class="inline-flex items-center gap-2 px-4 py-2 {order.isReviewed ? 'bg-surface border border-border text-text-muted cursor-not-allowed opacity-80' : 'bg-primary hover:bg-primary-hover active:bg-primary-hover text-white shadow-xs cursor-pointer group-hover:scale-102'} font-semibold text-xs rounded-xl transition disabled:opacity-60"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-            </svg>
-            Avaliar Pedido
+            {#if order.isReviewed}
+              <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Avaliado</span>
+            {:else}
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+              <span>Avaliar Pedido</span>
+            {/if}
           </button>
         </div>
       </div>
