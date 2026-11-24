@@ -23,6 +23,45 @@
 
   let isSidebarOpen = $state(false);
   let isAddressOpen = $state(false);
+
+  // --- Floating cart state ---
+  let cartSlotEl = $state<HTMLDivElement | undefined>(undefined);
+  let cartFloatEl = $state<HTMLDivElement | undefined>(undefined);
+  let cartReady = $state(false);
+  let cartSize = $state({ width: 0, height: 0 });
+  let cartPos = $state({ top: 0, left: 0 });
+
+  $effect(() => {
+    if (!cartFloatEl || !cartSlotEl) {
+      cartReady = false;
+      return;
+    }
+
+    const update = () => {
+      if (!cartFloatEl || !cartSlotEl) return;
+      const w = cartFloatEl.offsetWidth;
+      const h = cartFloatEl.offsetHeight;
+      const slotRect = cartSlotEl.getBoundingClientRect();
+      // Document-space top of the slot (i.e. viewport top when scrollY = 0)
+      const docTop = slotRect.top + window.scrollY;
+
+      cartSize = { width: w, height: h };
+      cartPos = { top: docTop, left: slotRect.left };
+      cartReady = true;
+    };
+
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(cartFloatEl);
+    ro.observe(cartSlotEl);
+    window.addEventListener('resize', update);
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  });
 </script>
 
 <nav
@@ -131,11 +170,32 @@
             {/if}
           </svg>
         </button>
-        {@render cartControls?.()}
+
+        <!-- Placeholder that reserves the exact space the cart used to occupy -->
+        <div
+          bind:this={cartSlotEl}
+          aria-hidden="true"
+          class="shrink-0"
+          style:width="{cartSize.width}px"
+          style:height="{cartSize.height}px"
+        ></div>
       </div>
     {/if}
   </div>
 </nav>
+
+<!-- The actual cart: fixed so it floats on scroll, positioned over its navbar slot -->
+{#if cartControls && showNavLinks}
+  <div
+    bind:this={cartFloatEl}
+    class="fixed z-50"
+    style:top="{cartPos.top}px"
+    style:left="{cartPos.left}px"
+    style:visibility={cartReady ? 'visible' : 'hidden'}
+  >
+    {@render cartControls()}
+  </div>
+{/if}
 
 <LeftSidebarSection
   open={isSidebarOpen}

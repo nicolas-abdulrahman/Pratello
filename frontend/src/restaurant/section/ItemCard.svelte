@@ -83,54 +83,56 @@
     {/if}
   </div>
 
-  <div class="flex flex-col flex-1 p-3 pl-4 relative z-10">
-    <h3 class="font-extrabold text-[15px] leading-tight mb-1 pr-1" style:color={colors.title}>
+  <div class="flex flex-col flex-1 min-w-0 p-3 pl-4 relative z-10">
+    <h3 class="font-extrabold text-[15px] leading-tight mb-1 pr-1 line-clamp-2 shrink-0" style:color={colors.title}>
       {sectionText(item.name)}
     </h3>
 
-    <p class="text-[11px] leading-snug line-clamp-2 mb-2 flex-1 pr-1" style:color={colors.description}>
+    <p class="text-[11px] leading-snug line-clamp-2 mb-2 flex-1 min-h-0 overflow-hidden pr-1" style:color={colors.description}>
       {sectionText(item.description)}
     </p>
 
-    <div class="flex items-end justify-between mt-auto pr-1">
-      <div class="flex flex-col gap-1">
+    <div class="flex flex-col gap-1 mt-auto shrink-0">
+      <div class="min-w-0 overflow-hidden">
         <ReviewProp {rating} count={reviewCount} />
+      </div>
 
-        <div class="flex flex-col">
+      <div class="flex items-end justify-between gap-2 pr-1">
+        <div class="flex flex-col min-w-0">
           {#if oldPriceLabel}
             <span class="text-gray-400 text-[11px] line-through font-medium leading-none mb-0.5">
               {oldPriceLabel}
             </span>
           {/if}
-          <span class="font-black text-xl leading-none" style:color={colors.price}>
+          <span class="font-black text-xl leading-none truncate" style:color={colors.price}>
             {newPriceLabel}
           </span>
         </div>
-      </div>
 
-      <button
-        type="button"
-        onclick={handleAdd}
-        disabled={isPopping}
-        style:background-color={justAdded ? undefined : colors.addBackground}
-        style:color={justAdded ? undefined : colors.addForeground}
-        class="p-2 rounded-full flex items-center justify-center transition-all duration-300 group/btn shrink-0 mb-0.5 min-w-[36px] min-h-[36px]
-        {justAdded
-          ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)]'
-          : 'hover:brightness-95'}"
-        aria-label="Adicionar ao carrinho"
-      >
-        {#if justAdded}
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        {:else}
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover/btn:rotate-90 transition-transform duration-300">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        {/if}
-      </button>
+        <button
+          type="button"
+          onclick={handleAdd}
+          disabled={isPopping}
+          style:background-color={justAdded ? undefined : colors.addBackground}
+          style:color={justAdded ? undefined : colors.addForeground}
+          class="p-2 rounded-full flex items-center justify-center transition-all duration-300 group/btn shrink-0 min-w-[36px] min-h-[36px]
+          {justAdded
+            ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+            : 'hover:brightness-95'}"
+          aria-label="Adicionar ao carrinho"
+        >
+          {#if justAdded}
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          {:else}
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover/btn:rotate-90 transition-transform duration-300">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          {/if}
+        </button>
+      </div>
     </div>
   </div>
 </div>
