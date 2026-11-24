@@ -8,7 +8,7 @@ import (
 
 var joaoDisplay = json.RawMessage(`{
   "dark":false,
-  "colors":{"bg":"#FFF9DB","primary_color":"#EA580C","secondary_color":"#FDE68A","bg_dark":"#431407","primary_color_dark":"#FACC15","secondary_color_dark":"#9A3412"},
+  "colors":{"bg":"#FFF9DB","bg_dark":"#1C1410","primary_color":"#EA580C","primary_color_dark":"#FB923C","secondary_color":"#FDE68A","secondary_color_dark":"#3A2618"},
   "menu":{"container":"horizontal"},
   "navbar":{"bg_color":"primary_color","border":false,"border_style":"none"},
   "first_page":[

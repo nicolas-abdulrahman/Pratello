@@ -32,7 +32,7 @@
     { id: 'cardapio', label: 'Gerenciar Cardápio', icon: UtensilsCrossed },
     { id: 'funcionarios', label: 'Funcionários', icon: Users },
     { id: 'configuracoes', label: 'Configurações', icon: SettingsIcon },
-    { id: 'pedidos', label: 'Painel de Pedidos', icon: ClipboardList, to: '/pedidos' },
+    { id: 'pedidos', label: 'Painel de Pedidos', icon: ClipboardList },
   ];
 
   function handleReset() {

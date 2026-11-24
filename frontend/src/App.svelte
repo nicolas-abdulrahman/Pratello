@@ -1,6 +1,7 @@
 <script lang="ts">
   import Footer from './common/Footer.svelte';
   import { restaurantDark, restaurantThemeVars, setRestaurantDisplayConfig } from './lib/stores/restaurant_style';
+  import { brandDark } from './lib/stores/brand_theme';
   import Navbar from './common/Navbar.svelte';
   import OrderCart from './order/OrderCart.svelte';
   import OrderSection from './order/OrderSection.svelte';
@@ -15,6 +16,8 @@
   import RestaurantsPage from './marketplace/RestaurantsPage.svelte';
   import DeliverySection from './delivery/DeliverySection.svelte';
   import ProfilePage from './user/ProfilePage.svelte';
+  import MyRestaurants from './user/MyRestaurants.svelte';
+  import Admin from './admin/Admin.svelte';
 
   // --- CART (derived store from cart.ts) ---
   // $cart_count already sums `quantity` across lines.
@@ -24,6 +27,7 @@
   function parseRoute(path) {
     if (path === '/login') return { view: 'login', slug: '' };
     if (path === '/account' || path === '/account/') return { view: 'account', slug: '' };
+    if (path === '/me/my-restaurant' || path === '/me/my-restaurant/') return { view: 'my-restaurants', slug: '' };
     if (path === '/order') return { view: 'order', slug: '' };
     if (path === '/checkout') return { view: 'checkout', slug: '' };
     if (path === '/restaurantes') return { view: 'restaurantes', slug: '' };
@@ -32,6 +36,7 @@
     const rMatch = path.match(/^\/(?:r|restaurant)\/([^/]+)(?:\/([^/]+))?\/?$/);
     if (rMatch) {
       const [, rSlug, sub] = rMatch;
+      if (sub === 'admin') return { view: 'admin', slug: rSlug };
       if (sub === 'cardapio') return { view: 'cardapio', slug: rSlug };
       if (sub === 'delivery') return { view: 'delivery', slug: rSlug };
       return { view: 'restaurant', slug: rSlug };
@@ -174,6 +179,8 @@
   let hideGlobalUI = $derived(
     currentView === 'login' ||
     currentView === 'account' ||
+    currentView === 'my-restaurants' ||
+    currentView === 'admin' ||
     currentView === 'order' ||
     currentView === 'checkout'
   );
@@ -181,10 +188,11 @@
   // Return to the profile after signing in from /account.
   $effect(() => {
     if (currentView === 'login' && $account.isLoggedIn) {
-      if (new URLSearchParams(window.location.search).get('next') === '/account') {
+      const next = new URLSearchParams(window.location.search).get('next');
+      if (next === '/account' || next === '/me/my-restaurant') {
         slug = '';
-        currentView = 'account';
-        window.history.replaceState({}, '', '/account');
+        currentView = next === '/account' ? 'account' : 'my-restaurants';
+        window.history.replaceState({}, '', next);
       } else {
         goToHome();
       }
@@ -192,7 +200,7 @@
   });
 </script>
 
-<div data-theme={currentTheme} data-restaurant-dark={showNavLinks && $restaurantDark ? '' : undefined} style={showNavLinks ? $restaurantThemeVars : undefined} class="relative w-full min-h-screen bg-background text-text">
+<div data-theme={currentTheme} data-brand-dark={brandTheme && $brandDark ? '' : undefined} data-restaurant-dark={showNavLinks && $restaurantDark ? '' : undefined} style={showNavLinks ? $restaurantThemeVars : undefined} class="relative w-full min-h-screen bg-background text-text">
   {#if !hideGlobalUI}
     <Navbar
       {cartItemCount}
@@ -232,6 +240,17 @@
           <Login onGoHome={() => { if (!$account.isLoggedIn) goToHome(); }} />
         {:else if currentView === 'account'}
           <ProfilePage onBack={goBackFromAccount} onGoLogin={goToAccountLogin} />
+        {:else if currentView === 'my-restaurants'}
+          <MyRestaurants />
+        {:else if currentView === 'admin'}
+          {#if $account.isLoggedIn}
+            <Admin {slug} session={{ name: $account.name, role: 'admin' }} onLogout={() => { account.logout(); window.location.href = '/'; }} />
+          {:else}
+            <main class="mx-auto max-w-4xl px-6 py-12">
+              <p>Entre na sua conta para acessar o painel.</p>
+              <a href="/login" class="text-amber-700 underline">Entrar</a>
+            </main>
+          {/if}
         {/if}
       </div>
     {/key}

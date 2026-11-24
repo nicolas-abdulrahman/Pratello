@@ -3,7 +3,8 @@
   import AddressSection from './AddressSection.svelte';
   import { account } from '../lib/stores/account';
   import type { Snippet } from 'svelte';
-  import { restaurantCssVars, restaurantDark, restaurantNavbar, toggleRestaurantDark } from '../lib/stores/restaurant_style';
+  import { restaurantCssVars, restaurantNavbar } from '../lib/stores/restaurant_style';
+  import { brandDark, toggleBrandDark } from '../lib/stores/brand_theme';
   import AccountAvatar from './AccountAvatar.svelte';
   import { addressLabel } from '../lib/stores/address.js';
 
@@ -76,6 +77,7 @@
       {#if $account.isLoggedIn}
         <button
           onclick={() => (isSidebarOpen = true)}
+          style:background-color={showNavLinks ? `var(--lighter_primary_color${$brandDark ? '_dark' : ''}, white)` : undefined}
           class="flex items-center gap-2 p-1 pr-3 rounded-full border border-navbar-border bg-white/90 hover:bg-white transition shadow-2xs text-left"
         >
           <div class="relative">
@@ -95,6 +97,7 @@
       {:else}
         <button
           onclick={() => (isSidebarOpen = true)}
+          style:background-color={showNavLinks ? `var(--lighter_primary_color${$brandDark ? '_dark' : ''}, white)` : undefined}
           class={brand
             ? "flex items-center gap-2 font-bold transition px-4 py-2 rounded-full bg-primary-soft hover:bg-white text-primary border border-primary/25 shadow-2xs hover:shadow-xs"
             : "flex items-center gap-2 font-bold transition px-4 py-2 rounded-full bg-white hover:bg-white/90 text-[#f05a1f] border border-white/40 shadow-2xs hover:shadow-xs"}
@@ -160,10 +163,11 @@
           Delivery
         </a>
       </div>
+    {/if}
       <div class="ml-auto flex shrink-0 items-center gap-space-2xs">
-        <button type="button" onclick={toggleRestaurantDark} aria-label="Modo escuro" aria-pressed={$restaurantDark} title={$restaurantDark ? 'Ativar modo claro' : 'Ativar modo escuro'} class="grid size-10 place-items-center rounded-full border border-border bg-surface text-text shadow-sm hover:bg-surface-hover">
+        <button type="button" onclick={toggleBrandDark} aria-label={$brandDark ? 'Ativar modo claro' : 'Ativar modo escuro'} aria-pressed={$brandDark} title={$brandDark ? 'Ativar modo claro' : 'Ativar modo escuro'} class="grid size-10 place-items-center rounded-full border border-border bg-surface text-text shadow-sm hover:bg-surface-hover">
           <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            {#if $restaurantDark}
+            {#if $brandDark}
               <circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
             {:else}
               <path d="M20.9 13.35A9 9 0 0 1 10.65 3.1 9 9 0 1 0 20.9 13.35Z" />
@@ -172,15 +176,14 @@
         </button>
 
         <!-- Placeholder that reserves the exact space the cart used to occupy -->
-        <div
+        {#if showNavLinks}<div
           bind:this={cartSlotEl}
           aria-hidden="true"
           class="shrink-0"
           style:width="{cartSize.width}px"
           style:height="{cartSize.height}px"
-        ></div>
+        ></div>{/if}
       </div>
-    {/if}
   </div>
 </nav>
 

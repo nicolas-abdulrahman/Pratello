@@ -1,9 +1,12 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
+import { fileURLToPath } from 'node:url';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  envDir: fileURLToPath(new URL('..', import.meta.url)),
+  envPrefix: ['VITE_', 'TEST_ENV'],
   plugins: [
     tailwindcss(),
     svelte()

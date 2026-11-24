@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Pencil, Plus, Search, Trash2, X, ImageOff } from 'lucide-svelte';
+  import { Plus, Search, X } from 'lucide-svelte';
+  import MenuItemCard from './components/MenuItemCard.svelte';
   import {
     discountPercent,
     formatPrice,
@@ -198,78 +199,7 @@
     {:else}
       <ul class="divide-y divide-zinc-100">
         {#each filteredList as p (p.id)}
-          <li class={`flex flex-wrap items-center gap-4 p-4 sm:flex-nowrap ${p.available ? '' : 'bg-zinc-50'}`}>
-            {#if p.image}
-              <img
-                src={p.image}
-                alt={p.name}
-                class={`h-16 w-16 shrink-0 rounded-xl object-cover ${p.available ? '' : 'opacity-50 grayscale'}`}
-              />
-            {:else}
-              <div class="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-zinc-200 text-zinc-400">
-                <ImageOff size={24} />
-              </div>
-            {/if}
-
-            <div class="min-w-0 flex-1">
-              <p class="flex items-center gap-2 font-semibold text-zinc-900">
-                <span class="truncate">{p.name}</span>
-                {#if p.popular}
-                  <span class="shrink-0 rounded-full bg-yellow-400 px-2 py-0.5 text-[10px] font-bold uppercase">
-                    Destaque
-                  </span>
-                {/if}
-                {#if discountPercent(p.price, p.originalPrice) > 0}
-                  <span class="shrink-0 rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-bold uppercase text-yellow-400">
-                    -{discountPercent(p.price, p.originalPrice)}%
-                  </span>
-                {/if}
-              </p>
-              <p class="text-sm text-zinc-500">
-                {catName(p.category)} · <b class="text-zinc-800">{formatPrice(p.price)}</b>
-              </p>
-            </div>
-
-            <div class="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
-              <!-- Switch de disponibilidade -->
-              <label class="flex cursor-pointer items-center gap-2 text-sm text-zinc-600">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={p.available}
-                  on:click={() => onToggleAvailability(p.id)}
-                  class={`relative h-6 w-11 rounded-full transition-colors ${
-                    p.available ? 'bg-yellow-400' : 'bg-zinc-300'
-                  }`}
-                >
-                  <span
-                    class={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-                      p.available ? 'left-[22px]' : 'left-0.5'
-                    }`}
-                  />
-                </button>
-                <span class="w-20">{p.available ? 'Disponível' : 'Indisponível'}</span>
-              </label>
-
-              <!-- Ações -->
-              <div class="flex gap-1">
-                <button
-                  on:click={() => openModal(p)}
-                  class="rounded-lg p-2 text-zinc-600 hover:bg-zinc-100"
-                  aria-label={`Editar ${p.name}`}
-                >
-                  <Pencil size={16} />
-                </button>
-                <button
-                  on:click={() => handleRemove(p)}
-                  class="rounded-lg p-2 text-red-600 hover:bg-red-50"
-                  aria-label={`Excluir ${p.name}`}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          </li>
+          <MenuItemCard product={p} categoryName={catName(p.category)} onToggleAvailability={onToggleAvailability} onEdit={openModal} onDelete={handleRemove} />
         {/each}
       </ul>
     {/if}

@@ -117,14 +117,17 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 	a := fixtureAPI{client, strings.TrimRight(baseURL, "/")}
 	f := JoaoBurger{ItemIDs: map[string]int{}, Password: "password"}
 	for _, p := range []struct {
-		account   *FixtureAccount
-		name, key string
+		account        *FixtureAccount
+		name, key, img string
 	}{
-		{&f.Owner, "Geraldo do Rio", "geraldo-do-rio"}, {&f.Administrator, "Mr Puzzles", "mr-puzzles"},
-		{&f.Analyst, "Meg", "meg-from-splatoon"}, {&f.Manager, "Petros", "petros-barreto"}, {&f.Employee, "Bob", "bob"},
-		{&f.Rogerio, "Rogério", "rogerio"},
+		{&f.Owner, "Geraldo do Rio", "geraldo-do-rio", "https://static.independent.co.uk/s3fs-public/thumbnails/image/2018/09/26/15/man-working-bored.jpg"},
+		{&f.Administrator, "Mr Puzzles", "mr-puzzles", "https://i.redd.it/qj5ozbyqtpvc1.png"},
+		{&f.Analyst, "Meg", "meg-from-splatoon", "https://static.wikia.nocookie.net/supermarioglitchy4/images/2/2f/Meggy_re-redesign_official_render.png"},
+		{&f.Manager, "Petros", "petros-barreto", "https://hrnews.co.uk/wp-content/uploads/2024/03/Image-582-x-420-px-2024-03-14T094701.910.png"},
+		{&f.Employee, "Bob", "bob", "https://thumbs.dreamstime.com/b/average-construction-worker-6828347.jpg"},
+		{&f.Rogerio, "Rogério", "rogerio", "https://thumbs.dreamstime.com/b/average-construction-worker-6828347.jpg"},
 	} {
-		p.account.Name, p.account.Email, p.account.AvatarURL = p.name, p.key+"@joao-burger.test", "/media/account/"+p.key+".png"
+		p.account.Name, p.account.Email, p.account.AvatarURL = p.name, p.key+"@joao-burger.test", p.img
 		var tokens struct {
 			Access string `json:"access_token"`
 		}
@@ -155,7 +158,8 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 	if err := post("/api/administrators", f.Administrator.AccessToken, map[string]int{"account_id": f.Rogerio.ID}, nil); err != nil {
 		return f, err
 	}
-	if err := post("/api/restaurants", owner, map[string]any{"name": "João Burger", "slug": JoaoBurgerSlug, "description": "Smash burgers, fritas crocantes e combos para dividir.", "icon_url": restaurantMedia + "brand/icon.png", "cover_url": restaurantMedia + "brand/cover.png", "favicon_url": restaurantMedia + "brand/favicon.svg"}, nil); err != nil {
+	const joaoLogo = "https://static.vecteezy.com/system/resources/previews/048/115/352/non_2x/hamburger-food-icon-illustration-vector.jpg"
+	if err := post("/api/restaurants", owner, map[string]any{"name": "João Burger", "slug": JoaoBurgerSlug, "description": "Smash burgers, fritas crocantes e combos para dividir.", "icon_url": joaoLogo, "cover_url": restaurantMedia + "brand/cover.png", "favicon_url": restaurantMedia + "brand/favicon.svg"}, nil); err != nil {
 		return f, err
 	}
 	root := "/api/restaurants/" + JoaoBurgerSlug
@@ -233,14 +237,14 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 		return f, err
 	}
 	for _, v := range []struct {
-		code, title, description, scope, target, kind string
-		value, minimum                                int
+		code, title, description, scope, target, kind, banner string
+		value, minimum                                        int
 	}{
-		{"SMASH15", "DIA DO SMASH", "15% de desconto no Hambúrguer Duplo Especial.", "item", "smash-classico", "percent", 15, 0},
-		{"DUPLA8", "BORA DIVIDIR?", "R$ 8,00 de desconto no Combo Casal.", "combo", "combo-pra-dois", "fixed_cents", 800, 0},
-		{"CHAPA10", "PEDIDO GRANDE, DESCONTO JUNTO", "R$ 10,00 de desconto a partir de R$ 80,00.", "order", "", "fixed_cents", 1000, 8000},
+		{"SMASH15", "DIA DO SMASH", "15% de desconto no Hambúrguer Duplo Especial.", "item", "smash-classico", "percent", "https://img.cdndsgni.com/preview/10705484-m.jpg", 15, 0},
+		{"DUPLA8", "BORA DIVIDIR?", "R$ 8,00 de desconto no Combo Casal.", "combo", "combo-pra-dois", "fixed_cents", "https://t3.ftcdn.net/jpg/02/94/30/58/360_F_294305868_QTSSjWvyGvUCPfuH7bPuq6tBqF08hT0x.jpg", 800, 0},
+		{"CHAPA10", "PEDIDO GRANDE, DESCONTO JUNTO", "R$ 10,00 de desconto a partir de R$ 80,00.", "order", "", "fixed_cents", "https://img.cdndsgni.com/preview/10024884.jpg", 1000, 8000},
 	} {
-		body := map[string]any{"code": v.code, "name": v.title, "title": v.title, "description": v.description, "target_scope": v.scope, "discount_type": v.kind, "discount_value": v.value, "min_order_cents": v.minimum, "is_banner": true, "background_image_url": restaurantMedia + "sales/" + strings.ToLower(v.code) + ".png"}
+		body := map[string]any{"code": v.code, "name": v.title, "title": v.title, "description": v.description, "target_scope": v.scope, "discount_type": v.kind, "discount_value": v.value, "min_order_cents": v.minimum, "is_banner": true, "background_image_url": v.banner}
 		if v.target != "" {
 			body["target_item_id"] = f.ItemIDs[v.target]
 		}

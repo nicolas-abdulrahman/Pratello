@@ -97,7 +97,7 @@
       {/if}
     </section>
 
-    <section class="flex min-h-0 min-w-0 flex-col gap-space-2xs rounded-xl border border-border bg-white p-space-sm">
+    <section class="flex min-h-0 min-w-0 flex-col gap-space-2xs rounded-xl border border-border bg-background p-space-sm">
       <h3 id="restaurant-reviews-title" class="font-bold">Comentários recentes</h3>
       <div role="region" aria-labelledby="restaurant-reviews-title" tabindex="0" class="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-space-2xs">
       {#if comments.length}

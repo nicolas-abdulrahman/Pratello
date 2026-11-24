@@ -139,7 +139,7 @@
   <title>Pratello - Delivery de Comida</title>
 </svelte:head>
 
-<main data-theme="brand" class="min-h-screen bg-background py-space-md text-text antialiased">
+<main class="min-h-screen bg-background py-space-md text-text antialiased">
   <!-- Hero + search band -->
   <div class="page-container flex flex-col gap-space-xl">
     <!-- Hero -->
@@ -299,6 +299,12 @@
   .hero-banner {
     @apply relative overflow-hidden rounded-3xl border border-border p-8 shadow-sm;
     background-image: linear-gradient(to right, #F6EDE0, #FAF4EA, #F7EFE2);
+  }
+  :global([data-brand-dark]) .hero-banner {
+    background-image: linear-gradient(to right, var(--color-background), var(--color-surface), var(--color-surface-hover));
+  }
+  :global([data-brand-dark]) .cta-primary {
+    color: var(--color-brand-dark-bg);
   }
   @media (min-width: 1024px) {
     .hero-banner { @apply p-10; }

@@ -1,6 +1,7 @@
 <script>
   import { cart } from '../lib/stores/Cart';
   import OrderSidebar from './OrderSidebar.svelte';
+  import { restaurantDark } from '../lib/stores/restaurant_style';
 
   // Accept the function from App.svelte
   let { goToOrder = () => {} } = $props();
@@ -15,6 +16,7 @@
   type="button"
   aria-label="Carrinho"
   onclick={() => isCartOpen = true}
+  style:background-color={`var(--lighter_primary_color${$restaurantDark ? '_dark' : ''}, var(--color-surface))`}
   class="relative flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-2.5 font-bold text-text shadow-lg transition-all hover:scale-105 hover:bg-surface-hover sm:px-4"
 >
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -4,31 +4,161 @@
   import { resolveItemColors, resolveSection } from './section/section';
   import { restaurantDarkOverride } from '../lib/stores/restaurant_style';
 
-  let { items, loading, failed, onOpenDetails, block, dark = false, palette = '' } = $props();
+  let {
+    items,
+    loading,
+    failed,
+    onOpenDetails,
+    block,
+    dark = false,
+    palette = ''
+  } = $props();
+
   let styles = $derived(resolveSection(block ?? {}, { dark }));
+
+  const CARD_WIDTH = 280;
+  const CARD_HEIGHT = 185;
+  const MAX_GAP = 16;
+
+  let containerWidth = $state(0);
+
+  let columns = $derived(
+    containerWidth >= CARD_WIDTH * 4 ? 4 :
+    containerWidth >= CARD_WIDTH * 3 ? 3 : 2
+  );
+
+  let availableSpace = $derived(
+    containerWidth - CARD_WIDTH * columns
+  );
+
+  let gap = $derived(
+    Math.max(
+      0,
+      Math.min(MAX_GAP, availableSpace / (columns - 1))
+    )
+  );
+
+  let cardWidth = $derived(
+    Math.min(
+      CARD_WIDTH,
+      Math.max(
+        0,
+        (containerWidth - gap * (columns - 1)) / columns
+      )
+    )
+  );
+
+  let scale = $derived(cardWidth / CARD_WIDTH);
 </script>
 
-<section class="mx-auto w-full max-w-7xl px-page-x py-space-lg" style={palette} style:background-color={styles.background}>
-  <h2 class="mb-space-lg text-3xl font-black tracking-tight md:text-4xl"><SectionTitle title={styles.title} /></h2>
-  <div class="rounded-[3rem] border-4 p-space-md shadow-xl md:p-space-lg" style:border-style={styles.border} style:border-color={styles.borderColor}>
+<section
+  class="section-container mx-auto w-full min-w-0 max-w-7xl py-space-lg"
+  style={palette}
+  style:background-color={styles.background}
+>
+  <h2 class="mb-space-lg text-3xl font-black tracking-tight md:text-4xl">
+    <SectionTitle title={styles.title} />
+  </h2>
+
+  <div
+    class="section-content w-full min-w-0 rounded-[2rem] border-4 shadow-xl sm:rounded-[3rem]"
+    style:border-style={styles.border}
+    style:border-color={styles.borderColor}
+  >
     {#if loading}
-      <p role="status" class="text-text-muted">Carregando ofertas…</p>
+      <p role="status" class="text-text-muted">
+        Carregando ofertas…
+      </p>
+
     {:else if failed}
-      <p role="alert" class="text-error">Não foi possível carregar as ofertas.</p>
+      <p role="alert" class="text-error">
+        Não foi possível carregar as ofertas.
+      </p>
+
     {:else if !items.length}
-      <p class="text-text-muted">Nenhuma oferta disponível no momento.</p>
+      <p class="text-text-muted">
+        Nenhuma oferta disponível no momento.
+      </p>
+
     {:else}
-      <div class="flex snap-x gap-space-sm overflow-x-auto pb-space-xs md:grid md:grid-cols-3 lg:grid-cols-4">
+      <div
+        class="items-grid"
+        bind:clientWidth={containerWidth}
+        style:grid-template-columns={`repeat(${columns}, ${cardWidth}px)`}
+        style:column-gap={`${gap}px`}
+      >
         {#each items as item (item.id)}
-          <div class="w-70 shrink-0 snap-start md:w-auto">
-            <ItemCard colors={resolveItemColors({ ...block?.item_style, ...item.style, dark: $restaurantDarkOverride ?? item.style?.dark ?? block?.item_style?.dark }, styles.isDark, block?.bg ?? 'bg')}
-              item={{ id: item.id, name: item.title, description: item.description,
-              imageUrl: item.image, basePrice: item.basePrice, originalPrice: item.originalPrice,
-              type: item.combo ? 'combo' : 'simple', ingredients: [], extras: [], rating: item.rating,
-              reviewCount: item.count }} onOpenDetails={() => onOpenDetails(item.id)} />
+          <div
+            class="item-wrapper"
+            style:width={`${cardWidth}px`}
+            style:height={`${CARD_HEIGHT * scale}px`}
+          >
+            <div
+              class="item-scale"
+              style:transform={`scale(${scale})`}
+            >
+              <ItemCard
+                colors={resolveItemColors({
+                  ...block?.item_style,
+                  ...item.style,
+                  dark: $restaurantDarkOverride
+                    ?? item.style?.dark
+                    ?? block?.item_style?.dark
+                }, styles.isDark, block?.bg ?? 'bg')}
+                item={{
+                  id: item.id,
+                  name: item.title,
+                  description: item.description,
+                  imageUrl: item.image,
+                  basePrice: item.basePrice,
+                  originalPrice: item.originalPrice,
+                  type: item.combo ? 'combo' : 'simple',
+                  ingredients: [],
+                  extras: [],
+                  rating: item.rating,
+                  reviewCount: item.count
+                }}
+                onOpenDetails={() => onOpenDetails(item.id)}
+              />
+            </div>
           </div>
         {/each}
       </div>
     {/if}
   </div>
 </section>
+
+<style>
+  .section-container {
+    box-sizing: border-box;
+    padding-inline: 0;
+  }
+
+  .section-content {
+    box-sizing: border-box;
+    padding-inline: 0;
+    padding-block: 16px;
+  }
+
+  .items-grid {
+    display: grid;
+    justify-content: center;
+    row-gap: 16px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .item-wrapper {
+    position: relative;
+    min-width: 0;
+  }
+
+  .item-scale {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 280px;
+    height: 185px;
+    transform-origin: top left;
+  }
+</style>

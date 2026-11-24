@@ -105,6 +105,16 @@
           Início
         </a>
         <a
+          href="/me/my-restaurant"
+          onclick={close}
+          class="flex items-center gap-3.5 px-4 py-3 rounded-2xl hover:bg-[#F2EADC] text-stone-600 hover:text-stone-900 transition"
+        >
+          <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M3 10h18M5 10v10h14V10M4 10l1-6h14l1 6M9 20v-6h6v6" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          Meus restaurantes
+        </a>
+        <a
           href="#restaurantes-proximos"
           onclick={close}
           class="flex items-center gap-3.5 px-4 py-3 rounded-2xl hover:bg-[#F2EADC] text-stone-600 hover:text-stone-900 transition"

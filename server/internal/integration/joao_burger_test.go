@@ -192,7 +192,8 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		Favicon string `json:"favicon_url"`
 	}
 	get(base, "", &org)
-	if org.Name != "João Burger" || org.Icon != restaurantMedia+"brand/icon.png" || org.Cover != restaurantMedia+"brand/cover.png" {
+	const joaoLogo = "https://static.vecteezy.com/system/resources/previews/048/115/352/non_2x/hamburger-food-icon-illustration-vector.jpg"
+	if org.Name != "João Burger" || org.Icon != joaoLogo || org.Cover != restaurantMedia+"brand/cover.png" {
 		t.Fatalf("wrong branding: %+v", org)
 	}
 	if org.Favicon != restaurantMedia+"brand/favicon.svg" {
@@ -306,7 +307,7 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		assets = append(assets, b.Image)
 	}
 	for _, asset := range assets {
-		if strings.HasPrefix(asset, "https://images.unsplash.com/") {
+		if strings.HasPrefix(asset, "http://") || strings.HasPrefix(asset, "https://") {
 			continue
 		}
 		if !strings.HasPrefix(asset, "/media/") {

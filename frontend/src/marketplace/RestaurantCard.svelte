@@ -206,6 +206,15 @@
     background-color: var(--rc-cream-dark);
     box-shadow: 0 20px 45px -15px rgba(60, 40, 20, 0.35);
   }
+  :global([data-brand-dark]) .restaurant-card {
+    --rc-cream: var(--color-brand-dark-surface-hover);
+    --rc-cream-dark: var(--color-brand-dark-surface);
+    --rc-brown: var(--color-brand-dark-text);
+    --rc-brown-mid: var(--color-brand-dark-text);
+    --rc-orange: var(--color-brand-dark-primary-soft);
+    --rc-orange-dark: var(--color-brand-dark-surface-hover);
+    --rc-tag-bg: var(--color-brand-dark-primary-soft);
+  }
 
   .logo-frame {
     @apply rounded-[1.75rem] p-2.5;

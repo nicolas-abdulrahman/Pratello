@@ -80,6 +80,17 @@
   --color-brand-text:          #2A2017;
   --color-brand-text-muted:    #78716c;
   --color-brand-border:        #EDE2D2;
+  --color-brand-dark-primary:       #FBBF24;
+  --color-brand-dark-primary-hover: #FCD34D;
+  --color-brand-dark-primary-soft:  #3A2B10;
+  --color-brand-dark-bg:            #1A1510;
+  --color-brand-dark-surface:       #241D15;
+  --color-brand-dark-surface-hover: #2E251B;
+  --color-brand-dark-text:          #F5EDE0;
+  --color-brand-dark-text-muted:    #A8998A;
+  --color-brand-dark-border:        #3A2F22;
+  --color-brand-dark-navbar-bg:     #1F1812;
+  --color-brand-dark-navbar-border: #3A2F22;
 
   /* Restaurant (white + orange) */
   --color-restaurant-primary:       #f05a1f;
@@ -127,6 +138,24 @@
   --color-navbar-border: var(--color-brand-navbar-border);
 }
 
+[data-theme="brand"][data-brand-dark] {
+  color-scheme: dark;
+  --color-primary: var(--color-brand-dark-primary);
+  --color-primary-hover: var(--color-brand-dark-primary-hover);
+  --color-primary-soft: var(--color-brand-dark-primary-soft);
+  --color-background: var(--color-brand-dark-bg);
+  --color-surface: var(--color-brand-dark-surface);
+  --color-surface-hover: var(--color-brand-dark-surface-hover);
+  --color-text: var(--color-brand-dark-text);
+  --color-text-muted: var(--color-brand-dark-text-muted);
+  --color-border: var(--color-brand-dark-border);
+  --color-navbar-bg: var(--color-brand-dark-navbar-bg);
+  --color-navbar-border: var(--color-brand-dark-navbar-border);
+  --color-brand-accent: var(--color-brand-dark-primary);
+  --color-brand-accent-hover: var(--color-brand-dark-primary-hover);
+  --color-brand-on-accent: var(--color-brand-dark-bg);
+}
+
 [data-theme="restaurantTheme"] {
   --restaurant-default-bg: var(--color-restaurant-bg);
   --restaurant-default-primary: var(--color-restaurant-primary);
@@ -153,6 +182,18 @@
 
 /* Legacy storefront components still use fixed light utility classes. */
 @layer utilities {
+  [data-brand-dark] :is(.bg-white, [class~="bg-white/90"]) {
+    background-color: var(--color-surface);
+  }
+  [data-brand-dark] :is([class~="hover:bg-white"]):hover {
+    background-color: var(--color-surface-hover);
+  }
+  [data-brand-dark] :is(.text-stone-900, .text-stone-800, .text-stone-700) {
+    color: var(--color-text);
+  }
+  [data-brand-dark] :is(.text-stone-600, .text-stone-500) {
+    color: var(--color-text-muted);
+  }
   [data-restaurant-dark] :is(.bg-white, .bg-gray-50, .bg-gray-100, .bg-stone-50, .bg-orange-50, [class~="bg-[#fff9f5]"]) {
     background-color: var(--color-surface);
   }

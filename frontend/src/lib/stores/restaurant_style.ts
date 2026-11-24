@@ -1,4 +1,5 @@
-import { derived, get, writable } from 'svelte/store';
+import { derived, writable } from 'svelte/store';
+import { brandDark } from './brand_theme';
 
 const baseColors = ['bg', 'primary_color', 'secondary_color', 'bg_dark', 'primary_color_dark', 'secondary_color_dark'] as const;
 export type BaseColorKey = typeof baseColors[number];
@@ -97,14 +98,8 @@ export function resolveText(node: StyledText | undefined, isDark: boolean, fallb
 }
 
 const rawDisplayConfig = writable<DisplayConfig | null>(null);
-const darkOverride = writable<boolean | null>(null);
-export const restaurantDarkOverride = { subscribe: darkOverride.subscribe };
-
-export const restaurantDark = derived([rawDisplayConfig, darkOverride], ([config, override]) => override ?? config?.dark ?? false);
-
-export function toggleRestaurantDark() {
-  darkOverride.set(!get(restaurantDark));
-}
+export const restaurantDarkOverride = { subscribe: brandDark.subscribe };
+export const restaurantDark = brandDark;
 
 export function setRestaurantDisplayConfig(config: DisplayConfig | null) {
   rawDisplayConfig.set(config);
@@ -117,8 +112,8 @@ function overrideDarkFlags<T>(value: T, dark: boolean): T {
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, key === 'dark' ? dark : overrideDarkFlags(entry, dark)])) as T;
 }
 
-export const restaurantDisplayConfig = derived([rawDisplayConfig, darkOverride], ([config, override]) =>
-  config && override !== null ? overrideDarkFlags(config, override) : config,
+export const restaurantDisplayConfig = derived([rawDisplayConfig, brandDark], ([config, dark]) =>
+  config ? overrideDarkFlags(config, dark) : config,
 );
 
 export const restaurantCssVars = derived(rawDisplayConfig, (config) => {

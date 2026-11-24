@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "TEST_ENV=true vite",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "lucide-svelte": "^1.0.1"
   }
 }

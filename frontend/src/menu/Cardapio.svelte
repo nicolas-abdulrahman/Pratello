@@ -2,7 +2,9 @@
   import { untrack } from 'svelte';
   import { get_description } from '../lib/stores/Item';
   import MenuCategoryCard from './MenuCategoryCard.svelte';
-  import MenuDishCard from './MenuDishCard.svelte';
+  import ItemCard from '../restaurant/section/ItemCard.svelte';
+  import { resolveItemColors } from '../restaurant/section/section';
+  import { restaurantDark } from '../lib/stores/restaurant_style';
   import ItemModal from '../dish/ItemModal.svelte';
 
   let { slug = '' } = $props();
@@ -64,6 +66,7 @@
       const dishes = await Promise.all(items.filter((item) => item.is_available).map(async (item) => ({
           id: item.id, title: item.name, description: await get_description(slug, item, signal).catch(() => item.description),
           image: item.photo_url || fallbackImage, combo: item.is_combo,
+          basePrice: (item.effective_price_cents ?? item.base_price_cents) / 100,
           price: money.format((item.effective_price_cents ?? item.base_price_cents) / 100)
       })));
       if (!signal.aborted) categories = categories.map((group) => group.id === categoryId ? { ...group, dishes } : group);
@@ -90,7 +93,7 @@
 
 <main class="min-h-screen bg-background text-text">
   <section class="mx-auto max-w-7xl px-space-sm py-space-xl sm:px-space-lg">
-    <h1 class="mb-space-lg text-center text-4xl font-black text-primary">Cardápio</h1>
+    <h1 style:color={`var(--darker_primary_color${$restaurantDark ? '_dark' : ''}, var(--color-primary))`} class="mb-space-lg text-center text-4xl font-black text-primary">Cardápio</h1>
     {#if !slug}
       <p class="text-center text-text-muted">Escolha um restaurante para ver o cardápio. <a href="/restaurantes" class="font-bold text-primary underline">Ver restaurantes</a></p>
     {:else if loading}
@@ -123,10 +126,10 @@
           {:else}
           <div class="flex flex-nowrap gap-space-md overflow-x-auto pb-space-xs">
             {#each selectedCategory.dishes as dish (dish.id)}
-               <div class={container === 'grid' ? 'h-40 min-w-0' : 'h-40 w-80 shrink-0'}>
-                <MenuDishCard title={dish.title} description={dish.description} image={dish.image} price={dish.price}
-                rating={reviews[dish.id]?.summary.average_rating ?? null} count={reviews[dish.id]?.summary.review_count ?? null}
-                onopen={() => { selectedId = dish.id; }} />
+               <div class="w-80 shrink-0">
+                <ItemCard colors={resolveItemColors({}, $restaurantDark, 'bg')}
+                  item={{ id: dish.id, name: dish.title, description: dish.description, imageUrl: dish.image, basePrice: dish.basePrice, type: dish.combo ? 'combo' : 'simple', ingredients: [], extras: [], rating: reviews[dish.id]?.summary.average_rating, reviewCount: reviews[dish.id]?.summary.review_count }}
+                  onOpenDetails={() => { selectedId = dish.id; }} />
               </div>
             {/each}
           </div>

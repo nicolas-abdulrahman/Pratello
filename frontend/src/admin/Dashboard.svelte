@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { DollarSign, Receipt, ShoppingBag, Trophy } from 'lucide-react';
+  import { DollarSign, Receipt, ShoppingBag, Trophy } from 'lucide-svelte';
   import { formatPrice, formatTime, isToday, type Order, type Product, type Category } from './admin';
 
   // --- Abstracted State & Dependencies ---
