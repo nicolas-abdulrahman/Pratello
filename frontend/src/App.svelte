@@ -8,7 +8,6 @@
   import Navbar from './common/Navbar.svelte';
   import OrderCart from './order/OrderCart.svelte';
   import OrderSection from './order/OrderSection.svelte';
-  import CheckoutSection from './payment/CheckoutSection.svelte';
   import CheckoutPage from './payment/CheckoutPage.svelte';
   import OrderStatusPage from './order/orders_page/OrderStatusPage.svelte';
 
@@ -48,6 +47,8 @@
     }
     if (path === '/order') return { view: 'order', slug: '' };
     if (path === '/checkout') return { view: 'checkout', slug: '' };
+    const whatsappMatch = path.match(/^\/pedido-whatsapp\/([^/]+)\/?$/);
+    if (whatsappMatch) return { view: 'checkout', slug: '', orderId: whatsappMatch[1] };
     if (path === '/restaurantes') return { view: 'restaurantes', slug: '' };
     if (path === '/cardapio') return { view: 'cardapio', slug: '' };
 
