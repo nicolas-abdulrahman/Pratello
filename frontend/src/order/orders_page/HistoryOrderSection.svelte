@@ -229,27 +229,40 @@
               Avalie sua experiência e ajude a melhorar nosso serviço
             {/if}
           </span>
-          {#if visible.find((entry) => String(entry.order.id) === order.id && !isPaid(entry.order) && entry.order.status !== 'cancelled')}
-            <a href={`/checkout?resume=${order.id}`} class="text-primary font-bold text-xs">Continuar pagamento</a>
-          {/if}
-          <button
-            type="button"
-            disabled={order.status === 'Cancelado' || !!order.isReviewed}
-            onclick={() => onSelectOrder(order)}
-            class="inline-flex items-center gap-2 px-4 py-2 {order.isReviewed ? 'bg-surface border border-border text-text-muted cursor-not-allowed opacity-80' : 'bg-primary hover:bg-primary-hover active:bg-primary-hover text-white shadow-xs cursor-pointer group-hover:scale-102'} font-semibold text-xs rounded-xl transition disabled:opacity-60"
-          >
-            {#if order.isReviewed}
-              <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              <span>Avaliado</span>
+          <div class="flex items-center gap-3">
+            {#if visible.find((entry) => String(entry.order.id) === order.id && !isPaid(entry.order) && entry.order.status !== 'cancelled')}
+              <a href={`/checkout?resume=${order.id}`} class="text-primary font-bold text-xs">Continuar pagamento</a>
             {:else}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-              </svg>
-              <span>Avaliar Pedido</span>
+              {@const savedEntry = visible.find((entry) => String(entry.order.id) === order.id)}
+              <a
+                href={`/me/pedidos/${savedEntry?.restaurantId || savedEntry?.slug || 'restaurante'}/${order.id}`}
+                class="text-primary hover:text-primary-hover font-bold text-xs flex items-center gap-1"
+              >
+                Acompanhar pedido
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </a>
             {/if}
-          </button>
+            <button
+              type="button"
+              disabled={order.status === 'Cancelado' || !!order.isReviewed}
+              onclick={() => onSelectOrder(order)}
+              class="inline-flex items-center gap-2 px-4 py-2 {order.isReviewed ? 'bg-surface border border-border text-text-muted cursor-not-allowed opacity-80' : 'bg-primary hover:bg-primary-hover active:bg-primary-hover text-white shadow-xs cursor-pointer group-hover:scale-102'} font-semibold text-xs rounded-xl transition disabled:opacity-60"
+            >
+              {#if order.isReviewed}
+                <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Avaliado</span>
+              {:else}
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+                <span>Avaliar Pedido</span>
+              {/if}
+            </button>
+          </div>
         </div>
       </div>
     {/each}

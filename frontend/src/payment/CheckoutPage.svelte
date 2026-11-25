@@ -33,6 +33,13 @@
   });
 
   let whatsappOrder = $state<WhatsAppOrder | null>(null);
+  let confirmedOrder = $state<{
+    orderId: string;
+    orderNumber: number;
+    restaurantId: string;
+    restaurantName: string;
+    displayCode: string;
+  } | null>(null);
 
   $effect(() => {
     if (slug) {
@@ -132,6 +139,7 @@
       const orderId = String(prepared.order.id);
       const orderNumber = prepared.order.id;
       const restId = String(prepared.restaurantId || prepared.slug || slug || 'restaurante');
+      const displayCode = prepared.order.display_code || `#${orderId}`;
 
       if (isWhatsapp) {
         whatsappOrder = {
@@ -171,12 +179,13 @@
       clear_cart();
 
       if (!isWhatsapp) {
-        if (onOrderConfirmed) {
-          onOrderConfirmed(restId, orderId);
-        } else {
-          window.history.pushState({}, '', `/me/pedidos/${restId}/${orderId}`);
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        }
+        confirmedOrder = {
+          orderId,
+          orderNumber,
+          restaurantId: restId,
+          restaurantName: prepared.restaurantName || restaurantInfo.name,
+          displayCode,
+        };
       }
 
       return { id: orderId, number: orderNumber };
@@ -186,7 +195,23 @@
     }
   }
 
+  function handleConfirmPopupOk() {
+    if (!confirmedOrder) return;
+    const { restaurantId: restId, orderId } = confirmedOrder;
+    confirmedOrder = null;
+    if (onOrderConfirmed) {
+      onOrderConfirmed(restId, orderId);
+    } else {
+      window.history.pushState({}, '', `/me/pedidos/${restId}/${orderId}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  }
+
   function handleNavigate(path: string) {
+    if (confirmedOrder) {
+      // Keep confirmation popup open so user can read the code and click OK
+      return;
+    }
     if (path === '/cardapio' || path === '/order' || path === '/') {
       onCancel();
     } else {
@@ -211,4 +236,34 @@
     onPlaceOrder={handlePlaceOrder}
     onNavigate={handleNavigate}
   />
+{/if}
+
+{#if confirmedOrder}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+    <div role="dialog" aria-modal="true" aria-labelledby="order-confirmed-title" class="w-full max-w-md rounded-3xl bg-surface p-8 shadow-2xl space-y-5 border border-border">
+      <div class="text-center space-y-2">
+        <div class="mx-auto w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mb-3">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h2 id="order-confirmed-title" class="text-2xl font-bold text-text">Pedido confirmado!</h2>
+        <p class="text-sm text-text-muted">Seu pagamento foi confirmado com sucesso em {confirmedOrder.restaurantName}.</p>
+      </div>
+
+      <div class="bg-surface-hover border border-border rounded-2xl py-4 px-4 text-center space-y-1">
+        <span class="text-xs uppercase tracking-wider text-text-muted font-bold block">Código de retirada / identificação</span>
+        <span class="text-3xl font-black text-primary tracking-widest font-mono">{confirmedOrder.displayCode}</span>
+        <p class="text-[11px] text-text-muted mt-1">Guarde este código para acompanhar e retirar seu pedido</p>
+      </div>
+
+      <button
+        type="button"
+        onclick={handleConfirmPopupOk}
+        class="w-full rounded-xl bg-primary hover:bg-primary-hover px-5 py-3.5 font-bold text-white transition cursor-pointer shadow-lg shadow-primary/20 text-base"
+      >
+        OK
+      </button>
+    </div>
+  </div>
 {/if}
