@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,8 +23,13 @@ import (
 	"pratello/server/internal/user"
 )
 
+func isAuthFixedCode(val string) bool {
+	v := strings.TrimSpace(val)
+	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+}
+
 func main() {
-	reset := flag.Bool("reset-demo", false, "wipe the development database and media, then seed João Burger")
+	reset := flag.Bool("reset-demo", false, "wipe the development database and media, then seed João Burger and Tanoshii Sushi")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -34,26 +40,35 @@ func main() {
 	}
 	addr := ":" + port
 
-	dbURL := os.Getenv("DATABASE_URL")
-	if *reset && (os.Getenv("AUTH_FIXED_CODE") != "1" || os.Getenv("REDIS_URL") == "") {
-		log.Fatal("-reset-demo requires AUTH_FIXED_CODE=1 and REDIS_URL")
+	fixedAuth := isAuthFixedCode(os.Getenv("AUTH_FIXED_CODE"))
+	if fixedAuth {
+		os.Setenv("AUTH_FIXED_CODE", "1")
+		if os.Getenv("REDIS_URL") == "" {
+			os.Setenv("REDIS_URL", "redis://localhost:6379/0")
+		}
 	}
-	if *reset && dbURL == "" {
-		log.Fatal("DATABASE_URL is required for npm run server")
+	shouldReset := *reset || fixedAuth
+
+	dbURL := os.Getenv("DATABASE_URL")
+	if shouldReset && (os.Getenv("AUTH_FIXED_CODE") != "1" || os.Getenv("REDIS_URL") == "") {
+		log.Fatal("database reset requires AUTH_FIXED_CODE=1 and REDIS_URL")
+	}
+	if shouldReset && dbURL == "" {
+		log.Fatal("DATABASE_URL is required to reset and seed the database")
 	}
 	var database *sql.DB
 	if dbURL != "" {
 		var err error
 		database, err = db.Open(dbURL)
 		if err != nil {
-			if *reset {
+			if shouldReset {
 				log.Fatalf("Cannot connect to development database: %v", err)
 			}
 			log.Printf("Warning: failed to connect to database (%v); only in-memory authentication is available", err)
 			database = nil
 		} else {
 			defer database.Close()
-			if !*reset {
+			if !shouldReset {
 				if err := db.Migrate(database); err != nil {
 					log.Fatalf("Database migration failed: %v", err)
 				}
@@ -63,8 +78,8 @@ func main() {
 	} else {
 		log.Println("DATABASE_URL not set; only in-memory authentication is available")
 	}
-	if *reset {
-		log.Println("Resetting the active PostgreSQL schema and /media for the João Burger demo")
+	if shouldReset {
+		log.Println("Resetting the active PostgreSQL schema and /media for the demo (João Burger & Tanoshii Sushi)")
 		if err := resetDemo(ctx, database, mediaDirectory()); err != nil {
 			log.Fatalf("Development reset failed: %v", err)
 		}
@@ -104,12 +119,12 @@ func main() {
 	}
 	transaction.NewHandler(transactionSvc, authSvc.Identify).Routes(mux)
 	handler := registerRoutes(mux, authHandler, restHandler)
-	if *reset {
+	if shouldReset {
 		fixture, err := seedDemo(ctx, database, handler)
 		if err != nil {
-			log.Fatalf("João Burger seed failed: %v", err)
+			log.Fatalf("Demo seed failed: %v", err)
 		}
-		log.Printf("João Burger demo ready. Owner: %s; Administrator: %s; shared demo password: %s", fixture.Owner.Email, fixture.Administrator.Email, fixture.Password)
+		log.Printf("Demo data ready (João Burger & Tanoshii Sushi). Owner: %s; Administrator: %s; shared demo password: %s", fixture.Owner.Email, fixture.Administrator.Email, fixture.Password)
 	}
 
 	// Create and launch server

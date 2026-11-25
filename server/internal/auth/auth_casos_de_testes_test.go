@@ -66,7 +66,10 @@ func TestIDP001RegistrationHashAndTokens(t *testing.T) {
 func TestIDP028RedisVerification(t *testing.T) {
 	url := os.Getenv("AUTH_TEST_REDIS_URL")
 	if url == "" {
-		t.Skip("set AUTH_TEST_REDIS_URL for Redis integration")
+		url = os.Getenv("REDIS_URL")
+	}
+	if url == "" {
+		t.Skip("set AUTH_TEST_REDIS_URL or REDIS_URL for Redis integration")
 	}
 	store, svc, mux := idpSetup()
 	closeRedis, err := svc.EnableFixedCodeVerification(url)

@@ -24,6 +24,13 @@ for (const [, module, ranges, evidence] of docs.matchAll(/^\| (CAT|ORD|FIN) \| (
   }
 }
 
+if (!process.env.AUTH_TEST_DATABASE_URL && process.env.DATABASE_URL) {
+  process.env.AUTH_TEST_DATABASE_URL = process.env.DATABASE_URL;
+}
+if (!process.env.AUTH_TEST_REDIS_URL && process.env.REDIS_URL) {
+  process.env.AUTH_TEST_REDIS_URL = process.env.REDIS_URL;
+}
+
 const child = spawn('go', ['test', '-json', '-count=1', './server/...'], { stdio: ['ignore', 'pipe', 'inherit'] });
 const exit = new Promise(resolve => {
   child.on('close', resolve);

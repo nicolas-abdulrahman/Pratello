@@ -59,11 +59,15 @@ func writableDemoMedia(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	source, err := filepath.Abs(filepath.Join("server", "internal", "integration", "media"))
+	source1, err := filepath.Abs(filepath.Join("server", "internal", "integration", "media"))
 	if err != nil {
 		return "", err
 	}
-	if resolved != absolute || strings.HasSuffix(resolved, string(filepath.Separator)+"integration"+string(filepath.Separator)+"media") || resolved == source {
+	source2, err := filepath.Abs(filepath.Join("internal", "integration", "media"))
+	if err != nil {
+		return "", err
+	}
+	if resolved != absolute || strings.HasSuffix(resolved, string(filepath.Separator)+"integration"+string(filepath.Separator)+"media") || resolved == source1 || resolved == source2 {
 		return "", fmt.Errorf("refusing to reset fixture media or a symlink: %s", absolute)
 	}
 	return resolved, nil

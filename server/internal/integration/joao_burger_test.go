@@ -181,6 +181,7 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		map[string]string{"avatar_url": "/account/bob.png"}, nil, 200); err != nil {
 		t.Fatal(err)
 	}
+	f.Employee.AvatarURL = "/media/account/bob.png"
 	if err := api.request(ctx, "PUT", "/api/me/avatar", f.Employee.AccessToken,
 		map[string]string{"avatar_url": "/media/../secret.png"}, nil, 400); err != nil {
 		t.Fatal(err)

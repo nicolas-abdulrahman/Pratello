@@ -36,6 +36,12 @@ func mediaDirectory() string {
 	if dir := os.Getenv("MEDIA_DIR"); dir != "" {
 		return dir
 	}
+	if _, err := os.Stat("./media"); err == nil {
+		return "./media"
+	}
+	if _, err := os.Stat("../media"); err == nil {
+		return "../media"
+	}
 	return "./media"
 }
 

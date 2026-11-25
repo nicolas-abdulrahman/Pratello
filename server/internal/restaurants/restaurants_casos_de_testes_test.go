@@ -23,7 +23,10 @@ func openTENDB(t *testing.T) *sql.DB {
 	t.Helper()
 	url := os.Getenv("AUTH_TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("set AUTH_TEST_DATABASE_URL for PostgreSQL integration")
+		url = os.Getenv("DATABASE_URL")
+	}
+	if url == "" {
+		t.Skip("set AUTH_TEST_DATABASE_URL or DATABASE_URL for PostgreSQL integration")
 	}
 	control, err := sql.Open("postgres", url)
 	if err != nil {

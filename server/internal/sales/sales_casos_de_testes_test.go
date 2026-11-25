@@ -19,7 +19,10 @@ func openSalesTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("AUTH_TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("set AUTH_TEST_DATABASE_URL for PostgreSQL")
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		t.Skip("set AUTH_TEST_DATABASE_URL or DATABASE_URL for PostgreSQL")
 	}
 	root, err := sql.Open("postgres", dsn)
 	if err != nil {

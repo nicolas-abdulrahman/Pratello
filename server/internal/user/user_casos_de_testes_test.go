@@ -29,7 +29,10 @@ func setup(t *testing.T) fixture {
 	t.Helper()
 	dsn := os.Getenv("AUTH_TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("set AUTH_TEST_DATABASE_URL for PostgreSQL integration")
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		t.Skip("set AUTH_TEST_DATABASE_URL or DATABASE_URL for PostgreSQL integration")
 	}
 	c, err := sql.Open("postgres", dsn)
 	if err != nil {
