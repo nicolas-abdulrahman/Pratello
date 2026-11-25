@@ -65,6 +65,7 @@
     if (whatsappMatch) return { view: 'checkout', slug: '', orderId: whatsappMatch[1] };
     if (path === '/restaurantes') return { view: 'restaurantes', slug: '' };
     if (path === '/cardapio') return { view: 'cardapio', slug: '' };
+    if (path === '/delivery') return { view: 'delivery', slug: '' };
 
     const rMatch = path.match(/^\/(?:r|restaurant)\/([^/]+)(?:\/([^/]+))?\/?$/);
     if (rMatch) {
@@ -299,6 +300,7 @@ $effect(() => { if (slug) rememberSlug(slug); });
   let hideGlobalUI = $derived(
     currentView === 'login' ||
     currentView === 'cardapio' ||
+    currentView === 'delivery' ||
     currentView === 'account' ||
     currentView === 'my-restaurants' ||
     currentView === 'admin' ||
@@ -357,7 +359,7 @@ $effect(() => { if (slug) rememberSlug(slug); });
         {:else if currentView === 'cardapio'}
               <MenuPage {slug} onBack={goToHome} />
         {:else if currentView === 'delivery'}
-          <DeliverySection />
+          <DeliverySection {slug} onBack={goToHome} />
         {:else if currentView === 'order'}
           <OrderSection goToCheckout={goToCheckout} onCancel={goToHome} />
         {:else if currentView === 'checkout'}

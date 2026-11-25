@@ -6,6 +6,8 @@
   import DeliveryForm from './DeliveryForm.svelte';
   import Restaurants from '../common/Restaurants.svelte'; // Imported the new component
 
+  let { slug = '', onBack = () => {} } = $props();
+
   // State to toggle the checkout form under the map
   let showCheckoutForm = $state(false);
   
@@ -27,15 +29,41 @@
   }
 </script>
 
-<section class="min-h-screen bg-[#fff9f5] py-12 px-4 md:px-8">
+<section class="min-h-screen bg-background text-text py-12 px-4 md:px-8">
   
   <div class="max-w-7xl mx-auto">
     
     <!-- Page Header -->
-    <div class="mb-6">
-      <h1 class="text-3xl font-black text-gray-900 mb-2">Área de Delivery</h1>
-      <p class="text-gray-500">Selecione a unidade mais próxima e confira a área de cobertura.</p>
-    </div>
+    <header class="relative mb-8 flex min-h-12 items-center justify-center">
+      <!-- Back button -->
+      <button
+        type="button"
+        aria-label="Voltar"
+        onclick={onBack}
+        class="absolute left-0 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-text shadow-sm transition-all hover:bg-surface-hover active:scale-95 cursor-pointer"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m12 19-7-7 7-7" />
+          <path d="M19 12H5" />
+        </svg>
+      </button>
+
+      <div class="text-center px-12">
+        <h1 class="text-2xl sm:text-3xl font-black text-text mb-1">Área de Delivery</h1>
+        <p class="text-sm text-text-muted">Selecione a unidade mais próxima e confira a área de cobertura.</p>
+      </div>
+    </header>
 
     <!-- NEW: Restaurant Selection -->
     <Restaurants 
