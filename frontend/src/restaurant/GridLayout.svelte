@@ -134,11 +134,20 @@
                     : (typeof item.price === 'number' && Number.isFinite(item.price))
                       ? item.price
                       : (item.base_price_cents ? item.base_price_cents / 100 : 0),
-                  originalPrice: typeof item.originalPrice === 'number' && Number.isFinite(item.originalPrice)
-                    ? item.originalPrice
-                    : (item.base_price_cents && item.effective_price_cents && item.effective_price_cents < item.base_price_cents
-                      ? item.base_price_cents / 100
-                      : undefined),
+                  originalPrice: (() => {
+                    const activeP = (typeof item.basePrice === 'number' && Number.isFinite(item.basePrice))
+                      ? item.basePrice
+                      : (typeof item.price === 'number' && Number.isFinite(item.price))
+                        ? item.price
+                        : (item.base_price_cents ? item.base_price_cents / 100 : 0);
+                    if (typeof item.originalPrice === 'number' && Number.isFinite(item.originalPrice) && item.originalPrice > activeP) {
+                      return item.originalPrice;
+                    }
+                    if (item.base_price_cents && item.effective_price_cents && item.effective_price_cents < item.base_price_cents) {
+                      return item.base_price_cents / 100;
+                    }
+                    return undefined;
+                  })(),
                   type: item.type || (item.combo || item.is_combo ? 'combo' : 'simple'),
                   ingredients: item.ingredients || [],
                   extras: item.extras || [],

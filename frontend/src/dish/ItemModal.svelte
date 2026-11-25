@@ -52,13 +52,16 @@
     if (isAdding) return;
     isAdding = true;
 
+    const itemPrice = parsePrice(item.newPrice ?? item.price ?? item.basePrice);
     add_item({
-      name: item.title,
-      icon: item.image,
-      price: parsePrice(item.newPrice),
+      id: item.id,
+      name: item.title || item.name,
+      icon: item.image || item.imageUrl,
+      basePrice: itemPrice,
+      price: itemPrice,
       combo: item.combo,
-      ingredients: [],
-      extras: [],
+      ingredients: item.ingredients || [],
+      extras: item.extras || [],
     });
 
     setTimeout(() => {

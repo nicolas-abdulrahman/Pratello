@@ -70,15 +70,24 @@ const USE_MOCK_FALLBACK = true;
 // ─────────────────────────────────────────────────────────────
 
 export function calc_price(item: Item): number {
-  const ingredientsTotal = item.ingredients
-    .filter((i) => i.selected && typeof i.price === 'number')
-    .reduce((sum, i) => sum + (i.price as number), 0);
+  const rawBase = typeof item?.basePrice === 'number' && !isNaN(item.basePrice)
+    ? item.basePrice
+    : (typeof (item as any)?.price === 'number' && !isNaN((item as any).price) ? (item as any).price : 0);
 
-  const extrasTotal = item.extras
-    .filter((e) => e.selected)
-    .reduce((sum, e) => sum + e.price, 0);
+  const ingredientsTotal = Array.isArray(item?.ingredients)
+    ? item.ingredients
+        .filter((i) => i.selected && typeof i.price === 'number' && !isNaN(i.price))
+        .reduce((sum, i) => sum + (i.price as number), 0)
+    : 0;
 
-  return item.basePrice + ingredientsTotal + extrasTotal;
+  const extrasTotal = Array.isArray(item?.extras)
+    ? item.extras
+        .filter((e) => e.selected && typeof e.price === 'number' && !isNaN(e.price))
+        .reduce((sum, e) => sum + e.price, 0)
+    : 0;
+
+  const total = rawBase + ingredientsTotal + extrasTotal;
+  return isNaN(total) ? 0 : total;
 }
 
 // ─────────────────────────────────────────────────────────────

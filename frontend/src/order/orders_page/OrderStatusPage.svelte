@@ -19,16 +19,16 @@
 
   // Poll current order status
   onMount(() => {
-    if (!saved) return;
-    const interval = setInterval(async () => {
-      try {
-        if (saved && saved.order.status !== 'cancelled' && saved.order.status !== 'delivered') {
-          await refreshOrder(saved);
-        }
-      } catch {
-        // Ignore polling errors in test env
+    const poll = async () => {
+      const current = $transactions.find((entry) => String(entry.order.id) === String(orderId));
+      if (current && current.order.status !== 'cancelled' && current.order.status !== 'delivered') {
+        try {
+          await refreshOrder(current);
+        } catch {}
       }
-    }, 10000);
+    };
+    void poll();
+    const interval = setInterval(poll, import.meta.env.TEST_ENV === 'true' || import.meta.env.TEST_ENV === '1' ? 3000 : 10000);
 
     return () => clearInterval(interval);
   });

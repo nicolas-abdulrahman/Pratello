@@ -44,9 +44,13 @@
   let failed = $state(false);
   let selectedId = $state(null);
   let sales = $derived(
-    items.filter((item) => item.oldPrice != null || item.originalPrice != null).length > 0
-      ? items.filter((item) => item.oldPrice != null || item.originalPrice != null)
-      : items
+    items.filter(
+      (item) =>
+        item.oldPrice != null ||
+        (typeof item.originalPrice === 'number' &&
+          typeof item.basePrice === 'number' &&
+          item.originalPrice > item.basePrice)
+    )
   );
   const withReviews = (item) => ({ ...item, ...reviews[item.id] });
   let reviewedCombos = $derived(combos.map(withReviews));
@@ -61,33 +65,30 @@
 
     if (filter.by === 'category') {
       if (normalizedVal === 'sales') {
-        return reviewedSales.length > 0 ? reviewedSales : items.map(withReviews);
+        return reviewedSales;
       }
       if (normalizedVal === 'combos') {
-        return reviewedCombos.length > 0 ? reviewedCombos : items.map(withReviews);
+        return reviewedCombos;
       }
       if (normalizedVal === 'all' || !normalizedVal) {
         return items.map(withReviews);
       }
-      const matched = items.map(withReviews).filter((item) => {
+      return items.map(withReviews).filter((item) => {
         const cat = String(item.category || item.category_name || '').toLowerCase();
         return cat === normalizedVal;
       });
-      return matched.length > 0 ? matched : items.map(withReviews);
     }
 
     if (filter.by === 'tag') {
-      const matched = items.map(withReviews).filter((item) =>
+      return items.map(withReviews).filter((item) =>
         item.tags?.some((t) => String(t).toLowerCase() === normalizedVal)
       );
-      return matched.length > 0 ? matched : items.map(withReviews);
     }
 
     if (filter.by === 'collection') {
-      const matched = items.map(withReviews).filter((item) =>
+      return items.map(withReviews).filter((item) =>
         item.collections?.some((c) => String(c).toLowerCase() === normalizedVal)
       );
-      return matched.length > 0 ? matched : items.map(withReviews);
     }
 
     return items.map(withReviews);
@@ -141,6 +142,7 @@
       return Promise.all(catalog.map(async (item) => {
         const effective = item.effective_price_cents ?? item.base_price_cents ?? item.base_cost_cents ?? item.price_cents ?? ((item.price ?? item.basePrice ?? 0) * 100);
         const basePriceCents = item.base_price_cents ?? item.base_cost_cents ?? item.price_cents ?? ((item.originalPrice ?? item.price ?? item.basePrice ?? 0) * 100);
+        const isOnSale = typeof effective === 'number' && typeof basePriceCents === 'number' && effective < basePriceCents;
         if (!descriptions.has(item.id)) {
           descriptions.set(item.id, get_description(slug, item, signal).catch(() => item.description));
         }
@@ -157,9 +159,9 @@
           image: item.photo_url || item.image_url || item.image || '/media/default.png',
           combo: item.is_combo || item.combo,
           basePrice: effective / 100,
-          originalPrice: basePriceCents / 100,
+          originalPrice: isOnSale ? basePriceCents / 100 : undefined,
           newPrice: money.format(effective / 100),
-          oldPrice: effective < basePriceCents ? money.format(basePriceCents / 100) : null
+          oldPrice: isOnSale ? money.format(basePriceCents / 100) : null
         };
       }));
     }
@@ -185,75 +187,18 @@
         items = formatted;
         loadReviews(items);
       } catch {
-        // Fallback to local preview products if API fails or in preview/test mode
+        // Fallback to local preview products only if saved by admin preview
         try {
           const previewKey = `pratello-menu-preview:${slug}`;
           const previewData = JSON.parse(localStorage.getItem(previewKey) || 'null');
           if (previewData?.products && Array.isArray(previewData.products) && previewData.products.length > 0) {
             items = await formatItems(previewData.products.filter((p) => p.available ?? p.is_available ?? true));
           } else {
-            // Check other preview keys or fallback to default sample items
-            let foundProducts = null;
-            for (let i = 0; i < localStorage.length; i++) {
-              const k = localStorage.key(i);
-              if (k && k.startsWith('pratello-menu-preview:')) {
-                try {
-                  const d = JSON.parse(localStorage.getItem(k) || 'null');
-                  if (d?.products && Array.isArray(d.products) && d.products.length > 0) {
-                    foundProducts = d.products;
-                    break;
-                  }
-                } catch {}
-              }
-            }
-            if (foundProducts) {
-              items = await formatItems(foundProducts);
-            } else {
-              items = await formatItems([
-                {
-                  id: 'preview-item-1',
-                  name: 'João Burger Clássico',
-                  title: 'João Burger Clássico',
-                  description: 'Pão brioche tostado na manteiga, burger 180g de costela, queijo cheddar derretido e maionese artesanal.',
-                  price: 34.90,
-                  basePrice: 34.90,
-                  is_available: true,
-                  image_url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600'
-                },
-                {
-                  id: 'preview-item-2',
-                  name: 'Smash Bacon Crispy',
-                  title: 'Smash Bacon Crispy',
-                  description: 'Duplo smash 90g, fatias crocantes de bacon, queijo prato e barbecue especial.',
-                  price: 29.90,
-                  basePrice: 29.90,
-                  is_available: true,
-                  image_url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=600'
-                },
-                {
-                  id: 'preview-item-3',
-                  name: 'Batata Rústica da Casa',
-                  title: 'Batata Rústica da Casa',
-                  description: 'Batatas rústicas douradas temperadas com alecrim fresco e sal grosso, acompanha aioli.',
-                  price: 18.00,
-                  basePrice: 18.00,
-                  is_available: true,
-                  image_url: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=600'
-                },
-                {
-                  id: 'preview-item-4',
-                  name: 'Milkshake de Frutas Vermelhas',
-                  title: 'Milkshake de Frutas Vermelhas',
-                  description: 'Sorvete artesanal de baunilha batido com calda de morangos, amoras e framboesas.',
-                  price: 22.00,
-                  basePrice: 22.00,
-                  is_available: true,
-                  image_url: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=600'
-                }
-              ]);
-            }
+            items = [];
+            if (!signal.aborted) failed = true;
           }
         } catch {
+          items = [];
           if (!signal.aborted) failed = true;
         }
       } finally {

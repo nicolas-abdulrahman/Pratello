@@ -24,20 +24,24 @@
   let isPopping = $state(false);
   let justAdded = $state(false);
 
-  const newPriceLabel = $derived(
+  const currentPrice = $derived(
     Number.isFinite(item.basePrice)
-      ? formatBRL(item.basePrice)
+      ? item.basePrice
       : (typeof (item as any).price === 'number' && Number.isFinite((item as any).price))
-        ? formatBRL((item as any).price)
+        ? (item as any).price
         : (typeof (item as any).price_cents === 'number' && Number.isFinite((item as any).price_cents))
-          ? formatBRL((item as any).price_cents / 100)
+          ? (item as any).price_cents / 100
           : (typeof (item as any).base_cost_cents === 'number' && Number.isFinite((item as any).base_cost_cents))
-            ? formatBRL((item as any).base_cost_cents / 100)
-            : ''
+            ? (item as any).base_cost_cents / 100
+            : 0
   );
 
+  const newPriceLabel = $derived(formatBRL(currentPrice));
+
   const oldPriceLabel = $derived(
-    typeof item.originalPrice === 'number'
+    typeof item.originalPrice === 'number' &&
+      Number.isFinite(item.originalPrice) &&
+      item.originalPrice > currentPrice
       ? formatBRL(item.originalPrice)
       : null
   );

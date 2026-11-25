@@ -29,11 +29,19 @@ export const cart_count = derived(cart, ($c) =>
 // ─────────────────────────────────────────────────────────────
 
 export function calc_line_price(line: CartItem): number {
-  return calc_item_unit_price(line.item) * line.quantity;
+  if (!line || !line.item) return 0;
+  const unit = calc_item_unit_price(line.item);
+  const qty = typeof line.quantity === 'number' && !isNaN(line.quantity) && line.quantity > 0 ? line.quantity : 1;
+  const total = (isNaN(unit) ? 0 : unit) * qty;
+  return isNaN(total) ? 0 : total;
 }
 
 export function calc_price(items: CartItem[]): number {
-  return items.reduce((sum, line) => sum + calc_line_price(line), 0);
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((sum, line) => {
+    const val = calc_line_price(line);
+    return sum + (isNaN(val) ? 0 : val);
+  }, 0);
 }
 
 export const cart_total = derived(cart, ($c) => calc_price($c));

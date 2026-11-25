@@ -33,42 +33,44 @@
     type RestaurantDependencies
   } from './checkout';
 
-  // --- Abstracted State & Dependencies ---
   interface Props {
     cartLines?: CartLine[];
     subtotal?: number;
-    clientSession?: { clientId?: string; name?: string; phone?: string; location?: ServiceLocation } | null;
-    restaurantInfo?: {
-      name: string;
-      pixKey: string;
-      pixMerchant: string;
-      tableCount: number;
-      phone: string;
-    };
+    clientSession?: {
+      clientId?: string;
+      name?: string;
+      phone?: string;
+      location?: ServiceLocation;
+    } | null;
+    /** Exactly what the API returns for the restaurant. null until loaded. */
+    restaurantInfo?: Record<string, any> | null;
     dependencies?: Partial<RestaurantDependencies>;
-    onPlaceOrder?: (payload: any) => Promise<{ id: string; number: number } | null>;
+    /** Parent creates the order / payment. Throws with a readable message on failure. */
+    onPlaceOrder: (payload: any) => Promise<{ id: string; number: number } | null>;
     onNavigate?: (path: string, state?: any) => void;
+    onCancel?: () => void;
   }
 
   let {
     cartLines = [],
     subtotal = 0,
     clientSession = null,
-    restaurantInfo = {
-      name: 'Pratello Restaurante',
-      pixKey: '12.345.678/0001-90',
-      pixMerchant: 'PRATELLO RESTAURANTE LTDA',
-      tableCount: 15,
-      phone: '(11) 98765-4321',
-    },
+    restaurantInfo = null,
     dependencies = {},
-    onPlaceOrder = dependencies.placeOrder ?? (async () => null),
-    onNavigate = dependencies.navigateTo ?? ((p) => (window.location.href = p)),
+    onPlaceOrder,
+    onNavigate = dependencies.navigateTo ?? ((p: string) => (window.location.href = p)),
+    onCancel = () => onNavigate('/cardapio')
   }: Props = $props();
 
-  // --- Internal Page State ---
+  // --- UI state ---
+  let busy = $state(false);
+  /** True after the parent accepted the order (the parent clears the cart). */
+  let placed = $state(false);
+
   let mode: CheckoutMode = $state(clientSession?.location?.mode ?? 'mesa');
-  let table: string = $state(clientSession?.location?.mode === 'mesa' ? clientSession.location.table : '01');
+  let table: string = $state(
+    clientSession?.location?.mode === 'mesa' ? clientSession.location.table : '01'
+  );
   let address: Address = $state(
     clientSession?.location?.mode === 'delivery'
       ? { ...clientSession.location.address }
@@ -87,7 +89,7 @@
     installments: 1,
     needsMachine: true,
     changeFor: '',
-    pixPaid: false,
+    pixPaid: false
   });
 
   let isShipped = $derived(mode !== 'mesa');
@@ -100,7 +102,7 @@
       payment: payment.method,
       cep: address.cep,
       shipping,
-      couponCodes,
+      couponCodes
     })
   );
 
@@ -108,7 +110,9 @@
   let availableCouponsCount = $derived(COUPONS.filter((c) => !couponProblem(c, ctx)).length);
   let appliedProduct = $derived(summary.applied.find((c) => c.kind === 'desconto'));
   let appliedShipping = $derived(summary.applied.find((c) => c.kind === 'frete'));
-  let submitLabel = $derived(mode === 'whatsapp' ? 'Enviar pelo WhatsApp' : 'Fazer pedido');
+  let submitLabel = $derived(
+    busy ? 'Preparando pedido…' : mode === 'whatsapp' ? 'Enviar pelo WhatsApp' : 'Fazer pedido'
+  );
 
   function clearError() {
     error = '';
@@ -124,6 +128,8 @@
   }
 
   async function submit() {
+    if (busy) return;
+
     if (mode === 'mesa' && !table) {
       error = 'Selecione o número da mesa.';
       return;
@@ -151,35 +157,84 @@
       return;
     }
 
-    const location: ServiceLocation =
-      mode === 'mesa' ? { mode: 'mesa', table } : { mode: 'delivery', address };
+    const location: any =
+      mode === 'mesa' ? { mode: 'mesa', table } : { mode, address: { ...address } };
 
     const payload = {
+      channel: mode === 'whatsapp' ? 'whatsapp' : 'app',
       location,
-      channel: mode === 'whatsapp' ? ('whatsapp' as const) : ('app' as const),
       phone,
       notes,
-      payment,
+      payment: { ...payment },
       shipping,
-      couponCodes,
-      summary,
+      couponCodes: [...couponCodes],
+      summary
     };
 
-    const order = await onPlaceOrder(payload);
-    if (!order) {
-      error = 'Não foi possível enviar o pedido. Tente novamente.';
-      return;
-    }
-
-    if (mode === 'whatsapp') {
-      onNavigate(`/pedido-whatsapp/${order.id}`);
-    } else {
-      onNavigate('/cardapio', { placedOrderId: order.id });
+    busy = true;
+    error = '';
+    try {
+      const result = await onPlaceOrder(payload);
+      if (result) {
+        placed = true;
+      } else {
+        error = 'Não foi possível criar o pedido. Tente novamente.';
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Não foi possível criar o pedido.';
+    } finally {
+      busy = false;
     }
   }
 </script>
 
-{#if cartLines.length === 0}
+{#snippet summaryRows()}
+  <div class="space-y-2 text-sm">
+    <div class="flex justify-between gap-3">
+      <span class="text-zinc-600">Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'itens'})</span>
+      <span class="text-zinc-900">{formatPrice(summary.subtotal)}</span>
+    </div>
+    {#if isShipped}
+      <div class="flex justify-between gap-3">
+        <span class="text-zinc-600">Frete</span>
+        {#if summary.km === 0}
+          <span class="text-zinc-400">informe o CEP</span>
+        {:else if summary.shippingFee === 0}
+          <b class="text-green-600">Grátis</b>
+        {:else}
+          <span class="text-zinc-900">{formatPrice(summary.shippingFee)}</span>
+        {/if}
+      </div>
+    {/if}
+    {#if summary.shippingDiscount > 0}
+      <div class="flex justify-between gap-3">
+        <span class="text-zinc-600">Cupom de frete ({appliedShipping?.code})</span>
+        <span class="font-semibold text-green-600">- {formatPrice(summary.shippingDiscount)}</span>
+      </div>
+    {/if}
+    {#if summary.discount > 0}
+      <div class="flex justify-between gap-3">
+        <span class="text-zinc-600">Cupom de desconto ({appliedProduct?.code})</span>
+        <span class="font-semibold text-green-600">- {formatPrice(summary.discount)}</span>
+      </div>
+    {/if}
+    <div class="flex items-baseline justify-between border-t border-zinc-100 pt-3">
+      <span class="font-semibold text-zinc-900">Total</span>
+      <span class="text-2xl font-extrabold text-zinc-900">{formatPrice(summary.total)}</span>
+    </div>
+    {#if summary.savings > 0}
+      <p class="flex items-center justify-end gap-1 text-xs font-semibold text-green-700">
+        <PiggyBank size={14} /> Você economizou {formatPrice(summary.savings)}
+      </p>
+    {/if}
+  </div>
+{/snippet}
+
+{#if placed}
+  <!-- Order accepted: the parent shows its confirmation popup / WhatsApp screen on top. -->
+  <div class="min-h-screen bg-zinc-100"></div>
+{:else if cartLines.length === 0}
+  <!-- Empty cart -->
   <div class="grid min-h-screen place-items-center bg-zinc-100 p-4">
     <div class="max-w-sm rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-zinc-200">
       <div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-zinc-500">
@@ -201,30 +256,34 @@
     <header class="sticky top-0 z-30 border-b border-zinc-200 bg-white/95 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
         <button
-          onclick={() => onNavigate('/cardapio')}
+          onclick={onCancel}
           class="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
           aria-label="Voltar ao cardápio"
         >
           <ArrowLeft size={20} />
         </button>
-        <div class="flex items-center gap-2">
-          <span class="grid h-8 w-8 place-items-center rounded-lg bg-yellow-400 font-extrabold text-zinc-900">P</span>
-          <span class="font-bold text-zinc-900">{restaurantInfo.name}</span>
-        </div>
-        <span class="h-6 w-px bg-zinc-200" />
+        {#if restaurantInfo?.name}
+          <div class="flex items-center gap-2">
+            <span class="grid h-8 w-8 place-items-center rounded-lg bg-yellow-400 font-extrabold text-zinc-900">
+              {restaurantInfo.name.charAt(0).toUpperCase()}
+            </span>
+            <span class="font-bold text-zinc-900">{restaurantInfo.name}</span>
+          </div>
+          <span class="h-6 w-px bg-zinc-200"></span>
+        {/if}
         <h1 class="text-lg font-bold text-zinc-900">Finalizar pedido</h1>
       </div>
     </header>
 
     <div class="mx-auto grid max-w-6xl gap-4 px-4 py-5 sm:px-6 lg:grid-cols-[1fr_360px] lg:items-start">
       <main class="min-w-0 space-y-4">
-        <!-- 1. Como receber (LocationSelector component) -->
+        <!-- 1. Como receber -->
         <LocationSelector
           bind:mode
           bind:table
           bind:address
           bind:phone
-          tableCount={restaurantInfo.tableCount}
+          tableCount={restaurantInfo?.table_count ?? 0}
           fetchAddressFromCep={dependencies.fetchAddressFromCep}
           onClearError={clearError}
         />
@@ -276,7 +335,7 @@
           </label>
         </section>
 
-        <!-- 3. Frete / Opções de entrega -->
+        <!-- 3. Opções de entrega -->
         {#if isShipped}
           <section class="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-zinc-200 sm:p-5">
             <h2 class="mb-3 flex items-center gap-2 font-bold text-zinc-900">
@@ -381,7 +440,7 @@
           {/if}
         </section>
 
-        <!-- 5. Forma de Pagamento (PaymentSelector component with PixCard) -->
+        <!-- 5. Forma de pagamento -->
         <section class="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-zinc-200 sm:p-5">
           <h2 class="mb-3 flex items-center gap-2 font-bold text-zinc-900">
             <span class="text-yellow-600"><PiggyBank size={18} /></span> Forma de pagamento
@@ -391,8 +450,8 @@
             bind:payment
             total={summary.total}
             isDelivery={isShipped}
-            pixKey={restaurantInfo.pixKey}
-            pixMerchant={restaurantInfo.pixMerchant}
+            pixKey={restaurantInfo?.pix_key ?? ''}
+            pixMerchant={restaurantInfo?.pix_merchant ?? ''}
             onPaymentChange={clearError}
           />
         </section>
@@ -400,99 +459,24 @@
         <!-- Resumo mobile -->
         <section class="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-zinc-200 lg:hidden">
           <h2 class="mb-3 font-bold text-zinc-900">Detalhes do pagamento</h2>
-          <div class="space-y-2 text-sm">
-            <div class="flex justify-between gap-3">
-              <span class="text-zinc-600">Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'itens'})</span>
-              <span class="text-zinc-900">{formatPrice(summary.subtotal)}</span>
-            </div>
-            {#if isShipped}
-              <div class="flex justify-between gap-3">
-                <span class="text-zinc-600">Frete</span>
-                {#if summary.km === 0}
-                  <span class="text-zinc-400">informe o CEP</span>
-                {:else if summary.shippingFee === 0}
-                  <b class="text-green-600">Grátis</b>
-                {:else}
-                  <span class="text-zinc-900">{formatPrice(summary.shippingFee)}</span>
-                {/if}
-              </div>
-            {/if}
-            {#if summary.shippingDiscount > 0}
-              <div class="flex justify-between gap-3">
-                <span class="text-zinc-600">Cupom de frete ({appliedShipping?.code})</span>
-                <span class="font-semibold text-green-600">- {formatPrice(summary.shippingDiscount)}</span>
-              </div>
-            {/if}
-            {#if summary.discount > 0}
-              <div class="flex justify-between gap-3">
-                <span class="text-zinc-600">Cupom de desconto ({appliedProduct?.code})</span>
-                <span class="font-semibold text-green-600">- {formatPrice(summary.discount)}</span>
-              </div>
-            {/if}
-            <div class="flex items-baseline justify-between border-t border-zinc-100 pt-3">
-              <span class="font-semibold text-zinc-900">Total</span>
-              <span class="text-2xl font-extrabold text-zinc-900">{formatPrice(summary.total)}</span>
-            </div>
-            {#if summary.savings > 0}
-              <p class="flex items-center justify-end gap-1 text-xs font-semibold text-green-700">
-                <PiggyBank size={14} /> Você economizou {formatPrice(summary.savings)}
-              </p>
-            {/if}
-          </div>
+          {@render summaryRows()}
         </section>
       </main>
 
       <!-- Resumo desktop -->
       <aside class="sticky top-20 hidden rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200 lg:block">
         <h2 class="mb-4 font-bold text-zinc-900">Detalhes do pagamento</h2>
-        <div class="space-y-2 text-sm">
-          <div class="flex justify-between gap-3">
-            <span class="text-zinc-600">Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'itens'})</span>
-            <span class="text-zinc-900">{formatPrice(summary.subtotal)}</span>
-          </div>
-          {#if isShipped}
-            <div class="flex justify-between gap-3">
-              <span class="text-zinc-600">Frete</span>
-              {#if summary.km === 0}
-                <span class="text-zinc-400">informe o CEP</span>
-              {:else if summary.shippingFee === 0}
-                <b class="text-green-600">Grátis</b>
-              {:else}
-                <span class="text-zinc-900">{formatPrice(summary.shippingFee)}</span>
-              {/if}
-            </div>
-          {/if}
-          {#if summary.shippingDiscount > 0}
-            <div class="flex justify-between gap-3">
-              <span class="text-zinc-600">Cupom de frete ({appliedShipping?.code})</span>
-              <span class="font-semibold text-green-600">- {formatPrice(summary.shippingDiscount)}</span>
-            </div>
-          {/if}
-          {#if summary.discount > 0}
-            <div class="flex justify-between gap-3">
-              <span class="text-zinc-600">Cupom de desconto ({appliedProduct?.code})</span>
-              <span class="font-semibold text-green-600">- {formatPrice(summary.discount)}</span>
-            </div>
-          {/if}
-          <div class="flex items-baseline justify-between border-t border-zinc-100 pt-3">
-            <span class="font-semibold text-zinc-900">Total</span>
-            <span class="text-2xl font-extrabold text-zinc-900">{formatPrice(summary.total)}</span>
-          </div>
-          {#if summary.savings > 0}
-            <p class="flex items-center justify-end gap-1 text-xs font-semibold text-green-700">
-              <PiggyBank size={14} /> Você economizou {formatPrice(summary.savings)}
-            </p>
-          {/if}
-        </div>
+        {@render summaryRows()}
 
         {#if error}
-          <p class="mt-3 text-sm font-medium text-red-600">{error}</p>
+          <p role="alert" class="mt-3 text-sm font-medium text-red-600">{error}</p>
         {/if}
 
         <button
           type="button"
           onclick={submit}
-          class={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors ${
+          disabled={busy}
+          class={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors disabled:opacity-50 ${
             mode === 'whatsapp'
               ? 'bg-green-600 text-white hover:bg-green-700'
               : 'bg-yellow-400 text-zinc-900 hover:bg-yellow-500'
@@ -509,7 +493,7 @@
     <!-- Barra inferior mobile -->
     <div class="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white lg:hidden">
       {#if error}
-        <p class="bg-red-50 px-4 py-2 text-sm font-medium text-red-600">{error}</p>
+        <p role="alert" class="bg-red-50 px-4 py-2 text-sm font-medium text-red-600">{error}</p>
       {/if}
       <div class="flex items-center gap-3 p-3">
         <div class="min-w-0 flex-1 text-right leading-tight">
@@ -523,7 +507,8 @@
         <button
           type="button"
           onclick={submit}
-          class={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors ${
+          disabled={busy}
+          class={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors disabled:opacity-50 ${
             mode === 'whatsapp'
               ? 'bg-green-600 text-white hover:bg-green-700'
               : 'bg-yellow-400 text-zinc-900 hover:bg-yellow-500'
@@ -538,7 +523,6 @@
     </div>
   </div>
 
-  <!-- Coupon Selection Modal -->
   <CouponModal
     open={couponsOpen}
     selectedCodes={couponCodes}

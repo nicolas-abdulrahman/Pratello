@@ -31,10 +31,13 @@
     isPopping = true;
     justAdded = true;
 
+    const comboPrice = parsePrice(price);
     add_item({
+      id: combo?.id ?? Date.now(),
       name: title,
       icon: image,
-      price: parsePrice(price),
+      basePrice: comboPrice,
+      price: comboPrice,
       combo: combo,
     });
 

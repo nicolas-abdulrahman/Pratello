@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { transactions, visibleOrders, refreshOrder, updateOrder, isPaid, type SavedOrder } from './lib/stores/Transaction';
+  import { transactions, visibleOrders, refreshOrder, rememberSlug, updateOrder, isPaid, type SavedOrder } from './lib/stores/Transaction';
   import OrderPopup from './order/order_review/OrderPopup.svelte';
+  import OrderSuccededPopup from './order/order_review/OrderSuccededPopup.svelte';
   import Footer from './common/Footer.svelte';
   import { restaurantDark, restaurantThemeVars, setRestaurantDisplayConfig } from './lib/stores/restaurant_style';
   import { brandDark } from './lib/stores/brand_theme';
@@ -31,6 +32,14 @@
   // $cart_count already sums `quantity` across lines.
   let cartItemCount = $derived($cart_count);
 
+  function extractReviewOrderId(path: string): string {
+    const match2 = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/review\/?$/);
+    if (match2) return match2[2];
+    const match1 = path.match(/^\/me\/pedidos\/([^/]+)\/review\/?$/);
+    if (match1) return match1[1];
+    return '';
+  }
+
   // --- ROUTE PARSER ---
   function parseRoute(path) {
     if (path === '/admin' || path === '/admin/') return { view: 'admin', slug: '' };
@@ -40,6 +49,10 @@
     if (path === '/account' || path === '/account/') return { view: 'account', slug: '' };
     if (path === '/me/my-restaurant' || path === '/me/my-restaurant/') return { view: 'my-restaurants', slug: '' };
     if (path === '/me/pedidos' || path === '/me/pedidos/') return { view: 'orders', slug: '' };
+    const reviewWithSlugMatch = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/review\/?$/);
+    if (reviewWithSlugMatch) {
+      return { view: 'order-review', slug: reviewWithSlugMatch[1], orderId: reviewWithSlugMatch[2] };
+    }
     if (/^\/me\/pedidos\/[^/]+\/review\/?$/.test(path) || path === '/me/pedidos/review' || path === '/me/pedidos/review/' || path === '/order/review' || path === '/order/review/') return { view: 'order-review', slug: '' };
     const orderStatusMatch = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/?$/);
     if (orderStatusMatch && orderStatusMatch[2] !== 'review') {
@@ -141,7 +154,7 @@
   }
 
   let selectedOrderForReview = $state<HistoricalOrder | null>(null);
-  let reviewPathId = $state(window.location.pathname.match(/^\/me\/pedidos\/([^/]+)\/review\/?$/)?.[1] ?? '');
+  let reviewPathId = $state(extractReviewOrderId(window.location.pathname));
   let notificationTime = $state(Date.now());
   let availableOrders = $derived($transactions.filter((o) => $account.isLoggedIn ? o.userId === $account.id : o.userId === null));
   let pickupOrder = $derived(currentView === 'order-review' ? undefined : availableOrders.find((o) =>
@@ -172,7 +185,7 @@
   }
   let reviewOrder = $derived.by(() => {
     const match = availableOrders.find((o) => String(o.order.id) === reviewPathId);
-    return match ? historical(match) : null;
+    return match ? historical(match) : selectedOrderForReview;
   });
 
   onMount(() => {
@@ -185,7 +198,7 @@
       } finally { running = false; }
     };
     void poll();
-    const timer = window.setInterval(poll, import.meta.env.TEST_ENV === 'true' || import.meta.env.TEST_ENV === '1' ? 15000 : 30000);
+    const timer = window.setInterval(poll, import.meta.env.TEST_ENV === 'true' || import.meta.env.TEST_ENV === '1' ? 4000 : 15000);
     const notificationTimer = window.setInterval(() => { notificationTime = Date.now(); }, 1000);
     return () => { window.clearInterval(timer); window.clearInterval(notificationTimer); };
   });
@@ -196,11 +209,12 @@
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
-  function goToOrderReview(order: HistoricalOrder) {
+  function goToOrderReview(order: HistoricalOrder, restaurantSlug?: string) {
     selectedOrderForReview = order;
     reviewPathId = order.id;
     currentView = 'order-review';
-    window.history.pushState({}, '', `/me/pedidos/${encodeURIComponent(order.id)}/review`);
+    const targetSlug = restaurantSlug || slug || 'restaurante';
+    window.history.pushState({}, '', `/me/pedidos/${encodeURIComponent(targetSlug)}/${encodeURIComponent(order.id)}/review`);
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
@@ -220,7 +234,7 @@
       slug = parsed.slug;
       if (parsed.restaurantId) activeRestaurantId = parsed.restaurantId;
       if (parsed.orderId) activeOrderId = parsed.orderId;
-      reviewPathId = window.location.pathname.match(/^\/me\/pedidos\/([^/]+)\/review\/?$/)?.[1] ?? '';
+      reviewPathId = extractReviewOrderId(window.location.pathname);
     });
   }
 
@@ -233,7 +247,7 @@
 
   type RestaurantBrand = { name: string; icon_url?: string | null; favicon_url?: string | null; cover_url?: string | null; description?: string | null };
   let restaurantBrand = $state<RestaurantBrand | null>(null);
-
+$effect(() => { if (slug) rememberSlug(slug); });
   $effect(() => {
     restaurantBrand = null;
     if (!showNavLinks) return;
@@ -374,33 +388,16 @@
     <Footer />
   {/if}
   {#if pickupOrder}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="pickup-title" class="w-full max-w-md rounded-3xl bg-surface p-8 shadow-xl space-y-4">
-        <h2 id="pickup-title" class="text-2xl font-bold">Seu pedido está pronto!</h2>
-        {#if pickupOrder.order.display_code}
-          <div class="bg-surface-hover border border-border rounded-2xl py-3 px-4 text-center">
-            <span class="text-xs uppercase tracking-wider text-text-muted font-bold block">Código de retirada</span>
-            <span class="text-3xl font-black text-primary tracking-widest font-mono">{pickupOrder.order.display_code}</span>
-          </div>
-        {:else}
-          <div class="bg-surface-hover border border-border rounded-2xl py-3 px-4 text-center">
-            <span class="text-xs uppercase tracking-wider text-text-muted font-bold block">Código de retirada</span>
-            <span class="text-2xl font-black text-primary font-mono">#{pickupOrder.order.id}</span>
-          </div>
-        {/if}
-        <p>Vá buscar seu pedido em {pickupOrder.restaurantName}.</p>
-        <button
-          type="button"
-          onclick={() => {
-            updateOrder(pickupOrder!.order.id, { pickupAcknowledgedAt: Date.now() });
-            goToOrders();
-          }}
-          class="w-full rounded-xl bg-primary hover:bg-primary-hover px-5 py-3 font-bold text-white transition cursor-pointer"
-        >
-          OK
-        </button>
-      </div>
-    </div>
+    <OrderSuccededPopup
+      orderCode={pickupOrder.order.display_code || `#${pickupOrder.order.id}`}
+      restaurantName={pickupOrder.restaurantName}
+      onConfirm={() => {
+        const target = pickupOrder!;
+        const slugOrRest = target.slug || target.restaurantId || 'restaurante';
+        updateOrder(target.order.id, { pickupAcknowledgedAt: Date.now() });
+        goToOrderReview(historical(target), slugOrRest);
+      }}
+    />
   {:else if popupOrder}
     <OrderPopup restaurantName={popupOrder.restaurantName}
       onDismiss={() => updateOrder(popupOrder!.order.id, { popupDismissed: true })}
