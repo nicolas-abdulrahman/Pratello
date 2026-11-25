@@ -11,6 +11,7 @@
   import OrderSection from './order/OrderSection.svelte';
   import CheckoutPage from './payment/CheckoutPage.svelte';
   import OrderStatusPage from './order/orders_page/OrderStatusPage.svelte';
+  import { dineSession, enterDineIn, leaveDineIn } from './lib/stores/session';
 
   import { cart, cart_count, cart_total } from './lib/stores/Cart';
   import { account } from './lib/stores/account';
@@ -69,6 +70,7 @@
     if (rMatch) {
       const [, rSlug, sub] = rMatch;
       if (sub === 'admin') return { view: 'admin', slug: rSlug };
+        if (sub === 'dine-in') return { view: 'restaurant', slug: rSlug, dineIn: true };   // NEW
       if (sub === 'cardapio') return { view: 'cardapio', slug: rSlug };
       if (sub === 'delivery') return { view: 'delivery', slug: rSlug };
       return { view: 'restaurant', slug: rSlug };
@@ -80,6 +82,7 @@
   // --- INITIAL ROUTING ---
   const path = typeof window !== 'undefined' ? window.location.pathname : '/';
   const initial = parseRoute(path);
+  if (initial.dineIn) enterDineIn(initial.slug);
   let currentView = $state(initial.view);
   let slug = $state(initial.slug);
   let activeRestaurantId = $state(initial.restaurantId ?? '');
@@ -107,6 +110,7 @@
   }
 
   function goToRestaurantes() {
+        leaveDineIn();   // NEW
     const path = slug ? `/r/${slug}/delivery` : '/restaurantes';
     if (window.location.pathname !== path) window.history.pushState({}, '', path);
     const route = parseRoute(path);
@@ -177,10 +181,15 @@
       status: saved.order.status === 'cancelled' ? 'Cancelado' : isDone ? 'Entregue' : '',
       total: saved.order.total_cents / 100,
       isReviewed: !!saved.isReviewed || !!saved.serviceReviewed,
-      items: (saved.order.items || []).filter((item) => !item.voided_at).map((item) => ({
-        id: String(item.id), name: item.item_name, quantity: item.quantity,
-        price: item.unit_price_cents / 100, imageUrl: '',
-      })),
+          items: (saved.order.items || [])
+  .filter((item) => !item.voided_at)
+  .map((item) => ({
+    id: String(item.id),
+    name: item.item_name,
+    quantity: item.quantity,
+    price: item.unit_price_cents / 100,
+    imageUrl: saved.itemImages?.[item.item_id] ?? '',
+  })),
     };
   }
   let reviewOrder = $derived.by(() => {
@@ -232,6 +241,7 @@
       const parsed = parseRoute(window.location.pathname);
       currentView = parsed.view;
       slug = parsed.slug;
+      if (parsed.dineIn) enterDineIn(parsed.slug);
       if (parsed.restaurantId) activeRestaurantId = parsed.restaurantId;
       if (parsed.orderId) activeOrderId = parsed.orderId;
       reviewPathId = extractReviewOrderId(window.location.pathname);
@@ -288,6 +298,7 @@ $effect(() => { if (slug) rememberSlug(slug); });
 
   let hideGlobalUI = $derived(
     currentView === 'login' ||
+    currentView === 'cardapio' ||
     currentView === 'account' ||
     currentView === 'my-restaurants' ||
     currentView === 'admin' ||
@@ -344,7 +355,7 @@ $effect(() => { if (slug) rememberSlug(slug); });
         {:else if currentView === 'restaurant'}
           <Restaurant {slug} name={restaurantBrand?.name} coverURL={restaurantBrand?.cover_url} description={restaurantBrand?.description} />
         {:else if currentView === 'cardapio'}
-          <MenuPage {slug} />
+              <MenuPage {slug} onBack={goToHome} />
         {:else if currentView === 'delivery'}
           <DeliverySection />
         {:else if currentView === 'order'}

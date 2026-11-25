@@ -192,12 +192,20 @@
                   </p>
                 {/if}
               </div>
-              <img
-                src={itemImages[item.id] || item.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&auto=format&fit=crop&q=80'}
-                alt={itemNames[item.id] || item.name}
-                class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border border-border shadow-sm flex-shrink-0 bg-surface-hover"
-                loading="lazy"
-              />
+                            {#if item.imageUrl || itemImages[item.id]}
+  <img
+    src={item.imageUrl || itemImages[item.id]}
+    alt={item.name}
+    class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border border-border shadow-sm flex-shrink-0 bg-surface-hover"
+    loading="lazy"
+  />
+{:else}
+  <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border border-border bg-surface-hover flex items-center justify-center flex-shrink-0">
+    <span class="text-xs text-text-muted">
+      Sem imagem
+    </span>
+  </div>
+{/if}
             </div>
 
             {#if saved?.reviewedItems.includes(Number(item.id))}

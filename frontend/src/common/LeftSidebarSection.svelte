@@ -207,8 +207,8 @@
               </svg>
             </div>
             <div>
-              <p class="font-bold text-stone-900">Cliente</p>
-              <p class="text-xs text-stone-500">Faça pedidos e veja seu histórico</p>
+              <p class="font-bold text-stone-900">Login</p>
+              <p class="text-xs text-stone-500">Açesse sua conta</p>
             </div>
           </div>
           <svg
@@ -222,32 +222,6 @@
           </svg>
         </button>
 
-        <button
-          onclick={handleLogin}
-          class="w-full flex items-center justify-between p-4 bg-white hover:bg-stone-50 border border-stone-200 rounded-xl transition group text-left"
-        >
-          <div class="flex items-center gap-3">
-            <div class="p-2 bg-stone-100 rounded-full text-stone-600 group-hover:text-amber-600 transition-colors">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <rect width="20" height="14" x="2" y="7" rx="2" ry="2"></rect>
-                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-              </svg>
-            </div>
-            <div>
-              <p class="font-bold text-stone-900">Funcionário</p>
-              <p class="text-xs text-stone-500">Acesse o painel de gestão</p>
-            </div>
-          </div>
-          <svg
-            class="w-5 h-5 text-stone-300 group-hover:text-amber-600 transition-colors"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
       </div>
     {/if}
 

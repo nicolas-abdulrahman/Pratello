@@ -24,6 +24,7 @@ export interface OrderDetail {
 
 export interface SavedOrder {
   order: OrderDetail;
+itemImages?: Record<number, string>;
   slug: string;
   restaurantId?: number | string;
   restaurantName: string;
@@ -175,6 +176,13 @@ export async function createOrder(
   if (!effectiveSlug) effectiveSlug = recallSlug();
   if (!effectiveSlug) throw new Error('Restaurante não identificado. Volte ao cardápio do restaurante e tente de novo.');
   rememberSlug(effectiveSlug);
+    const itemImages: Record<number, string> = {};
+
+for (const line of lines) {
+  if (line.item.imageUrl) {
+    itemImages[Number(line.item.id)] = line.item.imageUrl;
+  }
+}
 
   if (get(account).isLoggedIn && !get(account).id) throw new Error('Não foi possível identificar sua conta. Entre novamente.');
 
@@ -246,6 +254,7 @@ export async function createOrder(
 
     const saved: SavedOrder = {
       order,
+              itemImages,
       slug: effectiveSlug,
       restaurantName: restaurant?.name ?? effectiveSlug,
       branchId,
@@ -291,6 +300,7 @@ export async function createOrder(
     const user = get(account);
     const saved: SavedOrder = {
       order: mockOrder,
+              itemImages,
       mock: true,
       slug: effectiveSlug,
       restaurantName: effectiveSlug,

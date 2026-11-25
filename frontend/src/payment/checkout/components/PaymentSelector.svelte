@@ -36,9 +36,9 @@
 
   const ROWS: { id: RowId; label: string; sub: string; icon: any; badge?: string }[] = [
     { id: 'pix', label: 'Pix', sub: 'Aprovação na hora', icon: QrCode, badge: 'Cupom PIX7' },
-    { id: 'credito', label: 'Cartão de crédito', sub: 'Até 3x sem juros', icon: CreditCard },
-    { id: 'debito', label: 'Cartão de débito', sub: 'Na maquininha', icon: Wallet },
-    { id: 'dinheiro', label: 'Dinheiro', sub: 'Troco opcional', icon: Banknote },
+    // { id: 'credito', label: 'Cartão de crédito', sub: 'Até 3x sem juros', icon: CreditCard },
+    // { id: 'debito', label: 'Cartão de débito', sub: 'Na maquininha', icon: Wallet },
+    // { id: 'dinheiro', label: 'Dinheiro', sub: 'Troco opcional', icon: Banknote },
   ];
 
   let current = $derived(

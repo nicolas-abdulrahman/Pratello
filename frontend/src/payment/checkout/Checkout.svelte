@@ -1,16 +1,14 @@
 <script lang="ts">
+import { dineSession } from '../../lib/stores/session';
   import {
     AlertCircle,
     ArrowLeft,
-    Bike,
     ChevronRight,
     MessageCircle,
     PiggyBank,
     ShoppingBag,
     Ticket,
-    Truck,
-    X,
-    Zap
+    X
   } from 'lucide-svelte';
 
   import LocationSelector from './components/LocationSelector.svelte';
@@ -32,6 +30,9 @@
     type PaymentDraft,
     type RestaurantDependencies
   } from './checkout';
+
+  /** Tables go from 1 to TABLE_COUNT. Choosing a table is optional. */
+  const TABLE_COUNT = 15;
 
   interface Props {
     cartLines?: CartLine[];
@@ -68,8 +69,21 @@
   let placed = $state(false);
 
   let mode: CheckoutMode = $state(clientSession?.location?.mode ?? 'mesa');
+    /** Flip to true to make the table mandatory when ordering from /dine-in. */
+    const REQUIRE_TABLE_IN_DINE_IN = false;
+
+    let isDineIn = $derived($dineSession.active);
+    // Dine-in can never be delivery or WhatsApp.
+    $effect(() => {
+        if (isDineIn && REQUIRE_TABLE_IN_DINE_IN && !cleanTable(table)) {
+          error = 'Selecione o número da mesa.';
+          return;
+        }
+      if (isDineIn && mode !== 'mesa') mode = 'mesa';
+    });
+  // Empty string = no table chosen (allowed).
   let table: string = $state(
-    clientSession?.location?.mode === 'mesa' ? clientSession.location.table : '01'
+    clientSession?.location?.mode === 'mesa' ? (clientSession.location.table ?? '') : ''
   );
   let address: Address = $state(
     clientSession?.location?.mode === 'delivery'
@@ -77,6 +91,7 @@
       : { cep: '', street: '', number: '', district: '', complement: '' }
   );
   let phone: string = $state(clientSession?.phone ?? '');
+  // The "Opções de entrega" picker was removed: always the standard delivery option.
   let shipping: ShippingId = $state('padrao');
   let couponCodes: string[] = $state([]);
   let notes: string = $state('');
@@ -85,11 +100,23 @@
 
   let payment: PaymentDraft = $state({
     method: null,
+    // Card (credit/debit) is disabled for now. Kept only because PaymentDraft expects these fields.
     cardType: 'credito',
     installments: 1,
     needsMachine: true,
     changeFor: '',
     pixPaid: false
+  });
+
+  // Desktop: coupons + payment details live in the right column. Mobile: everything in the main flow.
+  // Only one PaymentSelector is ever rendered.
+  let isDesktop = $state(false);
+  $effect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const update = () => (isDesktop = mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
   });
 
   let isShipped = $derived(mode !== 'mesa');
@@ -127,13 +154,16 @@
     }
   }
 
+  /** Returns a valid table number string (1..TABLE_COUNT) or '' when none/invalid. */
+  function cleanTable(value: string): string {
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 1 && n <= TABLE_COUNT ? String(n) : '';
+  }
+
   async function submit() {
     if (busy) return;
 
-    if (mode === 'mesa' && !table) {
-      error = 'Selecione o número da mesa.';
-      return;
-    }
+    // No table validation: the table is optional.
     if (mode !== 'mesa') {
       if (address.cep.replace(/\D/g, '').length !== 8) {
         error = 'Informe um CEP válido.';
@@ -158,7 +188,9 @@
     }
 
     const location: any =
-      mode === 'mesa' ? { mode: 'mesa', table } : { mode, address: { ...address } };
+      mode === 'mesa'
+        ? { mode: 'mesa', table: cleanTable(table) }
+        : { mode, address: { ...address } };
 
     const payload = {
       channel: mode === 'whatsapp' ? 'whatsapp' : 'app',
@@ -189,7 +221,7 @@
 </script>
 
 {#snippet summaryRows()}
-  <div class="space-y-2 text-sm">
+  <div class="space-y-3 text-sm">
     <div class="flex justify-between gap-3">
       <span class="text-zinc-600">Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'itens'})</span>
       <span class="text-zinc-900">{formatPrice(summary.subtotal)}</span>
@@ -218,7 +250,7 @@
         <span class="font-semibold text-green-600">- {formatPrice(summary.discount)}</span>
       </div>
     {/if}
-    <div class="flex items-baseline justify-between border-t border-zinc-100 pt-3">
+    <div class="flex items-baseline justify-between border-t border-zinc-100 pt-4">
       <span class="font-semibold text-zinc-900">Total</span>
       <span class="text-2xl font-extrabold text-zinc-900">{formatPrice(summary.total)}</span>
     </div>
@@ -228,6 +260,69 @@
       </p>
     {/if}
   </div>
+{/snippet}
+
+{#snippet paymentPicker()}
+  <PaymentSelector
+    bind:payment
+    total={summary.total}
+    isDelivery={isShipped}
+    pixKey={restaurantInfo?.pix_key ?? ''}
+    pixMerchant={restaurantInfo?.pix_merchant ?? ''}
+    onPaymentChange={clearError}
+  />
+{/snippet}
+
+<!-- Cupons: its own section/card -->
+{#snippet couponsSection()}
+  <section class="rounded-2xl bg-white shadow-sm ring-1 ring-zinc-200">
+    <button
+      type="button"
+      onclick={() => (couponsOpen = true)}
+      class="flex w-full items-center gap-3 p-4 text-left sm:p-5"
+    >
+      <Ticket size={20} class="shrink-0 text-yellow-600" />
+      <span class="min-w-0 flex-1">
+        <span class="block font-bold text-zinc-900">Cupons Pratello</span>
+        {#if summary.applied.length === 0}
+          <span class="block text-xs text-zinc-500">{availableCouponsCount} cupons disponíveis para este pedido</span>
+        {:else}
+          <span class="mt-1 flex flex-wrap gap-1.5">
+            {#each summary.applied as c (c.code)}
+              <span class="rounded border border-dashed border-yellow-500 bg-yellow-50 px-1.5 py-0.5 text-[11px] font-bold text-yellow-800">
+                {c.code}
+              </span>
+            {/each}
+          </span>
+        {/if}
+      </span>
+      {#if summary.discount + summary.shippingDiscount > 0}
+        <span class="text-sm font-bold text-green-600">- {formatPrice(summary.discount + summary.shippingDiscount)}</span>
+      {:else}
+        <span class="text-sm text-zinc-500">Selecionar</span>
+      {/if}
+      <ChevronRight size={18} class="shrink-0 text-zinc-400" />
+    </button>
+
+    {#if summary.invalid.length > 0}
+      <div class="space-y-1.5 border-t border-zinc-100 px-4 py-3 sm:px-5">
+        {#each summary.invalid as { coupon, reason } (coupon.code)}
+          <p class="flex items-center gap-2 text-xs text-red-600">
+            <AlertCircle size={14} class="shrink-0" />
+            <span class="flex-1"><b>{coupon.code}</b> não vale agora: {reason.toLowerCase()}</span>
+            <button
+              type="button"
+              onclick={() => toggleCoupon(coupon)}
+              class="rounded p-0.5 hover:bg-red-50"
+              aria-label={`Remover ${coupon.code}`}
+            >
+              <X size={14} />
+            </button>
+          </p>
+        {/each}
+      </div>
+    {/if}
+  </section>
 {/snippet}
 
 {#if placed}
@@ -277,13 +372,14 @@
 
     <div class="mx-auto grid max-w-6xl gap-4 px-4 py-5 sm:px-6 lg:grid-cols-[1fr_360px] lg:items-start">
       <main class="min-w-0 space-y-4">
-        <!-- 1. Como receber -->
+        <!-- 1. Como receber (mesas 1 a 15, escolher mesa é opcional) -->
         <LocationSelector
           bind:mode
           bind:table
           bind:address
           bind:phone
-          tableCount={restaurantInfo?.table_count ?? 0}
+          dineIn={isDineIn}
+          tableCount={TABLE_COUNT}
           fetchAddressFromCep={dependencies.fetchAddressFromCep}
           onClearError={clearError}
         />
@@ -335,192 +431,99 @@
           </label>
         </section>
 
-        <!-- 3. Opções de entrega -->
-        {#if isShipped}
+        <!-- Mobile only: cupons (own section), pagamento, detalhes -->
+        {#if !isDesktop}
+          {@render couponsSection()}
+
           <section class="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-zinc-200 sm:p-5">
             <h2 class="mb-3 flex items-center gap-2 font-bold text-zinc-900">
-              <span class="text-yellow-600"><Truck size={18} /></span> Opções de entrega
+              <span class="text-yellow-600"><PiggyBank size={18} /></span> Forma de pagamento
             </h2>
-            {#if summary.km === 0}
-              <p class="rounded-xl bg-zinc-50 p-3 text-sm text-zinc-600 ring-1 ring-zinc-200">
-                Informe um CEP válido para calcular o frete.
-              </p>
-            {:else}
-              <p class="mb-3 text-xs text-zinc-500">
-                Distância estimada: <b class="text-zinc-700">{summary.km.toLocaleString('pt-BR')} km</b> do restaurante
-              </p>
-              <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Opção de entrega">
-                {#each summary.options as o (o.id)}
-                  {@const active = shipping === o.id}
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onclick={() => (shipping = o.id)}
-                    class={`flex items-center gap-3 rounded-xl border-2 p-3 text-left transition-colors ${
-                      active ? 'border-yellow-400 bg-yellow-50' : 'border-zinc-200 hover:border-zinc-300'
-                    }`}
-                  >
-                    <span
-                      class={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-                        active ? 'bg-yellow-400' : 'bg-zinc-100 text-zinc-500'
-                      }`}
-                    >
-                      {#if o.id === 'expressa'}
-                        <Zap size={18} />
-                      {:else}
-                        <Bike size={18} />
-                      {/if}
-                    </span>
-                    <span class="min-w-0 flex-1">
-                      <span class="block text-sm font-bold text-zinc-900">Entrega {o.name}</span>
-                      <span class="block text-xs text-zinc-500">Chega em {o.eta}</span>
-                    </span>
-                    <span class="text-right text-sm font-bold">
-                      {#if o.fee === 0}
-                        <span class="text-green-600">Grátis</span>
-                      {:else}
-                        {formatPrice(o.fee)}
-                      {/if}
-                    </span>
-                  </button>
-                {/each}
-              </div>
-            {/if}
+            {@render paymentPicker()}
+          </section>
+
+          <section class="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
+            <h2 class="mb-4 font-bold text-zinc-900">Detalhes do pagamento</h2>
+            {@render summaryRows()}
           </section>
         {/if}
-
-        <!-- 4. Cupons -->
-        <section class="rounded-2xl bg-white shadow-sm ring-1 ring-zinc-200">
-          <button
-            type="button"
-            onclick={() => (couponsOpen = true)}
-            class="flex w-full items-center gap-3 p-4 text-left sm:p-5"
-          >
-            <Ticket size={20} class="shrink-0 text-yellow-600" />
-            <span class="min-w-0 flex-1">
-              <span class="block font-bold text-zinc-900">Cupons Pratello</span>
-              {#if summary.applied.length === 0}
-                <span class="block text-xs text-zinc-500">{availableCouponsCount} cupons disponíveis para este pedido</span>
-              {:else}
-                <span class="mt-1 flex flex-wrap gap-1.5">
-                  {#each summary.applied as c (c.code)}
-                    <span class="rounded border border-dashed border-yellow-500 bg-yellow-50 px-1.5 py-0.5 text-[11px] font-bold text-yellow-800">
-                      {c.code}
-                    </span>
-                  {/each}
-                </span>
-              {/if}
-            </span>
-            {#if summary.discount + summary.shippingDiscount > 0}
-              <span class="text-sm font-bold text-green-600">- {formatPrice(summary.discount + summary.shippingDiscount)}</span>
-            {:else}
-              <span class="text-sm text-zinc-500">Selecionar</span>
-            {/if}
-            <ChevronRight size={18} class="shrink-0 text-zinc-400" />
-          </button>
-
-          {#if summary.invalid.length > 0}
-            <div class="space-y-1.5 border-t border-zinc-100 px-4 py-3 sm:px-5">
-              {#each summary.invalid as { coupon, reason } (coupon.code)}
-                <p class="flex items-center gap-2 text-xs text-red-600">
-                  <AlertCircle size={14} class="shrink-0" />
-                  <span class="flex-1"><b>{coupon.code}</b> não vale agora: {reason.toLowerCase()}</span>
-                  <button
-                    type="button"
-                    onclick={() => toggleCoupon(coupon)}
-                    class="rounded p-0.5 hover:bg-red-50"
-                    aria-label={`Remover ${coupon.code}`}
-                  >
-                    <X size={14} />
-                  </button>
-                </p>
-              {/each}
-            </div>
-          {/if}
-        </section>
-
-        <!-- 5. Forma de pagamento -->
-        <section class="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-zinc-200 sm:p-5">
-          <h2 class="mb-3 flex items-center gap-2 font-bold text-zinc-900">
-            <span class="text-yellow-600"><PiggyBank size={18} /></span> Forma de pagamento
-          </h2>
-
-          <PaymentSelector
-            bind:payment
-            total={summary.total}
-            isDelivery={isShipped}
-            pixKey={restaurantInfo?.pix_key ?? ''}
-            pixMerchant={restaurantInfo?.pix_merchant ?? ''}
-            onPaymentChange={clearError}
-          />
-        </section>
-
-        <!-- Resumo mobile -->
-        <section class="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-zinc-200 lg:hidden">
-          <h2 class="mb-3 font-bold text-zinc-900">Detalhes do pagamento</h2>
-          {@render summaryRows()}
-        </section>
       </main>
 
-      <!-- Resumo desktop -->
-      <aside class="sticky top-20 hidden rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200 lg:block">
-        <h2 class="mb-4 font-bold text-zinc-900">Detalhes do pagamento</h2>
-        {@render summaryRows()}
+      <!-- Desktop right column: cupons (own card) on top, then detalhes do pagamento (taller card) -->
+      {#if isDesktop}
+        <aside class="sticky top-20 max-h-[calc(100vh-6rem)] space-y-4 overflow-y-auto">
+          {@render couponsSection()}
 
-        {#if error}
-          <p role="alert" class="mt-3 text-sm font-medium text-red-600">{error}</p>
-        {/if}
+          <section class="flex min-h-[620px] flex-col rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
+            <h2 class="mb-5 font-bold text-zinc-900">Detalhes do pagamento</h2>
+            {@render summaryRows()}
 
-        <button
-          type="button"
-          onclick={submit}
-          disabled={busy}
-          class={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors disabled:opacity-50 ${
-            mode === 'whatsapp'
-              ? 'bg-green-600 text-white hover:bg-green-700'
-              : 'bg-yellow-400 text-zinc-900 hover:bg-yellow-500'
-          }`}
-        >
-          {#if mode === 'whatsapp'}
-            <MessageCircle size={18} />
-          {/if}
-          {submitLabel}
-        </button>
-      </aside>
+            <div class="mt-6 border-t border-zinc-100 pt-6">
+              <h2 class="mb-4 flex items-center gap-2 font-bold text-zinc-900">
+                <span class="text-yellow-600"><PiggyBank size={18} /></span> Forma de pagamento
+              </h2>
+              {@render paymentPicker()}
+            </div>
+
+            <div class="mt-auto pt-6">
+              {#if error}
+                <p role="alert" class="mb-3 text-sm font-medium text-red-600">{error}</p>
+              {/if}
+
+              <button
+                type="button"
+                onclick={submit}
+                disabled={busy}
+                class={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors disabled:opacity-50 ${
+                  mode === 'whatsapp'
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-yellow-400 text-zinc-900 hover:bg-yellow-500'
+                }`}
+              >
+                {#if mode === 'whatsapp'}
+                  <MessageCircle size={18} />
+                {/if}
+                {submitLabel}
+              </button>
+            </div>
+          </section>
+        </aside>
+      {/if}
     </div>
 
     <!-- Barra inferior mobile -->
-    <div class="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white lg:hidden">
-      {#if error}
-        <p role="alert" class="bg-red-50 px-4 py-2 text-sm font-medium text-red-600">{error}</p>
-      {/if}
-      <div class="flex items-center gap-3 p-3">
-        <div class="min-w-0 flex-1 text-right leading-tight">
-          <p class="text-xs text-zinc-500">
-            Total <b class="text-lg text-zinc-900">{formatPrice(summary.total)}</b>
-          </p>
-          {#if summary.savings > 0}
-            <p class="text-[11px] font-semibold text-green-700">Economia de {formatPrice(summary.savings)}</p>
-          {/if}
+    {#if !isDesktop}
+      <div class="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white">
+        {#if error}
+          <p role="alert" class="bg-red-50 px-4 py-2 text-sm font-medium text-red-600">{error}</p>
+        {/if}
+        <div class="flex items-center gap-3 p-3">
+          <div class="min-w-0 flex-1 text-right leading-tight">
+            <p class="text-xs text-zinc-500">
+              Total <b class="text-lg text-zinc-900">{formatPrice(summary.total)}</b>
+            </p>
+            {#if summary.savings > 0}
+              <p class="text-[11px] font-semibold text-green-700">Economia de {formatPrice(summary.savings)}</p>
+            {/if}
+          </div>
+          <button
+            type="button"
+            onclick={submit}
+            disabled={busy}
+            class={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors disabled:opacity-50 ${
+              mode === 'whatsapp'
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-yellow-400 text-zinc-900 hover:bg-yellow-500'
+            }`}
+          >
+            {#if mode === 'whatsapp'}
+              <MessageCircle size={18} />
+            {/if}
+            {submitLabel}
+          </button>
         </div>
-        <button
-          type="button"
-          onclick={submit}
-          disabled={busy}
-          class={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition-colors disabled:opacity-50 ${
-            mode === 'whatsapp'
-              ? 'bg-green-600 text-white hover:bg-green-700'
-              : 'bg-yellow-400 text-zinc-900 hover:bg-yellow-500'
-          }`}
-        >
-          {#if mode === 'whatsapp'}
-            <MessageCircle size={18} />
-          {/if}
-          {submitLabel}
-        </button>
       </div>
-    </div>
+    {/if}
   </div>
 
   <CouponModal

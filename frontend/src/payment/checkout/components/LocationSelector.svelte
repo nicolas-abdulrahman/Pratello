@@ -15,6 +15,8 @@
     address?: Address;
     phone?: string;
     tableCount?: number;
+    /** true when the customer came through /r/{slug}/dine-in: only the table is asked. */
+    dineIn?: boolean;
     fetchAddressFromCep?: (cep: string) => Promise<{ street?: string; district?: string } | null>;
     onModeChange?: (mode: CheckoutMode) => void;
     onAddressChange?: (address: Address) => void;
@@ -25,10 +27,11 @@
 
   let {
     mode = $bindable('mesa'),
-    table = $bindable('01'),
+    table = $bindable(''),
     address = $bindable({ cep: '', street: '', number: '', district: '', complement: '' }),
     phone = $bindable(''),
     tableCount = 15,
+    dineIn = false,
     fetchAddressFromCep,
     onModeChange = () => {},
     onAddressChange = () => {},
@@ -38,6 +41,9 @@
   }: Props = $props();
 
   let cepLoading = $state(false);
+
+  // Dine-in is always "na mesa", regardless of what the parent holds.
+  let effectiveMode = $derived<CheckoutMode>(dineIn ? 'mesa' : mode);
 
   const MODES: { id: CheckoutMode; label: string; sub: string; icon: any }[] = [
     { id: 'mesa', label: 'Na mesa', sub: 'Receba no salão', icon: Armchair },
@@ -106,44 +112,51 @@
   <div
     class="h-1.5"
     style="background-image: repeating-linear-gradient(-45deg, #facc15 0 14px, transparent 14px 20px, #27272a 20px 34px, transparent 34px 40px);"
-  />
+  ></div>
 
   <div class="p-4 sm:p-5">
-    <h2 class="mb-3 flex items-center gap-2 font-bold text-zinc-900">
-      <MapPin size={18} class="text-yellow-600" /> Como você quer pedir?
-    </h2>
+    {#if dineIn}
+      <!-- Dine-in: no mode options, only the table -->
+      <h2 class="mb-3 flex items-center gap-2 font-bold text-zinc-900">
+        <Armchair size={18} class="text-yellow-600" /> Qual é a sua mesa?
+      </h2>
+    {:else}
+      <h2 class="mb-3 flex items-center gap-2 font-bold text-zinc-900">
+        <MapPin size={18} class="text-yellow-600" /> Como você quer pedir?
+      </h2>
 
-    <!-- Mode Selector Cards -->
-    <div class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Forma de pedido">
-      {#each MODES as item (item.id)}
-        {@const active = mode === item.id}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={active}
-          onclick={() => {
-            mode = item.id;
-            onClearError();
-            onModeChange(mode);
-          }}
-          class={`relative flex flex-col items-center gap-1 rounded-xl border-2 px-2 py-3 text-center transition-colors ${
-            active ? 'border-yellow-400 bg-yellow-50' : 'border-zinc-200 hover:border-zinc-300'
-          }`}
-        >
-          {#if active}
-            <span class="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-yellow-400">
-              <Check size={10} strokeWidth={3} />
-            </span>
-          {/if}
-          <svelte:component this={item.icon} size={22} class={active ? 'text-zinc-900' : 'text-zinc-500'} />
-          <span class="text-sm font-bold text-zinc-900">{item.label}</span>
-          <span class="hidden text-[11px] leading-tight text-zinc-500 sm:block">{item.sub}</span>
-        </button>
-      {/each}
-    </div>
+      <!-- Mode Selector Cards -->
+      <div class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Forma de pedido">
+        {#each MODES as item (item.id)}
+          {@const active = mode === item.id}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onclick={() => {
+              mode = item.id;
+              onClearError();
+              onModeChange(mode);
+            }}
+            class={`relative flex flex-col items-center gap-1 rounded-xl border-2 px-2 py-3 text-center transition-colors ${
+              active ? 'border-yellow-400 bg-yellow-50' : 'border-zinc-200 hover:border-zinc-300'
+            }`}
+          >
+            {#if active}
+              <span class="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-yellow-400">
+                <Check size={10} strokeWidth={3} />
+              </span>
+            {/if}
+            <svelte:component this={item.icon} size={22} class={active ? 'text-zinc-900' : 'text-zinc-500'} />
+            <span class="text-sm font-bold text-zinc-900">{item.label}</span>
+            <span class="hidden text-[11px] leading-tight text-zinc-500 sm:block">{item.sub}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
 
-    <div class="mt-4">
-      {#if mode === 'mesa'}
+    <div class={dineIn ? '' : 'mt-4'}>
+      {#if effectiveMode === 'mesa'}
         <label class="block">
           <span class="mb-1.5 block text-sm font-medium text-zinc-700">Número da mesa</span>
           <select
@@ -154,7 +167,7 @@
             }}
             class="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
           >
-            <option value="">Selecione a mesa…</option>
+            <option value="">Sem mesa</option>
             {#each Array.from({ length: tableCount }, (_, i) => String(i + 1).padStart(2, '0')) as t}
               <option value={t}>Mesa {t}</option>
             {/each}
