@@ -84,7 +84,7 @@ function recallSlug(): string {
 
 export function visibleOrders(): SavedOrder[] {
   const user = get(account);
-  return get(transactions).filter((o) => user.isLoggedIn ? o.userId === user.id : o.userId === null);
+  return get(transactions).filter((o) => user.isLoggedIn ? (o.userId === user.id || o.userId == null) : true);
 }
 
 export function isPaid(order: OrderDetail): boolean {

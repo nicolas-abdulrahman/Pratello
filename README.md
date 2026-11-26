@@ -1,138 +1,160 @@
 # Pratello
 
-Banco de dados, caso de teste, e api esta definido em docs!
+O **Pratello** é uma plataforma de menu digital para múltiplos estabelecimentos (*multi-tenant*), totalmente customizável para atender à identidade e regras de negócio de cada restaurante, pizzaria ou lanchonete. Ele permite gerenciar cardápios, itens, pedidos e apresentação visual de forma independente por tenant, proporcionando uma experiência rápida, moderna e intuitiva tanto para os clientes quanto para a administração.
 
-A full-stack web application with a **Go (standard `net/http`) backend**, **Svelte frontend**, and **Tailwind CSS**, managed with **Nix flakes**.
+A aplicação conta com um backend robusto desenvolvido em **Go** (utilizando `net/http`), um frontend reativo em **Svelte** com **Tailwind CSS** e **Vite**, além de persistência em **PostgreSQL** e suporte a cache e sessões com **Redis**.
 
 ---
 
-## 📁 Project Structure
+## 📁 Estrutura do Projeto
 
 ```text
 pratello/
-├── flake.nix                # Nix environment (Go, Node.js, Docker, Java 21, Gradle)
-├── go.mod                   # Go 1.22 module definition
-├── package.json             # Root workspace scripts (npm run dev, test:e2e, server)
-├── README.md                # Project documentation
-├── server/
-│   └── main.go              # Go standard net/http server & API routes
-├── frontend/                # Svelte + Tailwind + Vite
-│   ├── index.html           # HTML template
-│   ├── package.json         # Frontend dependencies
-│   ├── vite.config.js       # Vite configuration with API proxy
-│   ├── tailwind.config.js   # Tailwind configuration
-│   ├── postcss.config.js    # PostCSS configuration
+├── flake.nix                  # Definição do ambiente de desenvolvimento Nix
+├── go.mod                     # Módulo Go 1.22
+├── package.json               # Scripts do monorepo (server, dev, test_e2e, test_backend)
+├── README.md                  # Documentação do projeto
+├── docs/                      # Especificações OpenAPI, casos de teste e arquitetura
+│   ├── Casos de teste.md      # Catálogo e descrição de casos de teste
+│   ├── openapi.yaml           # Especificação OpenAPI 3.0 dos endpoints
+│   └── diagrams/              # Diagramas de fluxo e arquitetura
+├── e2e/                       # Testes ponta a ponta (E2E) com Playwright
+│   ├── package.json           # Dependências do Playwright (@playwright/test)
+│   ├── playwright.config.cjs  # Configuração do Playwright (servidor e browser)
+│   └── module-7.spec.cjs      # Especificações e cenários dos testes E2E
+├── frontend/                  # Aplicação cliente em Svelte + Vite + Tailwind CSS
+│   ├── package.json           # Dependências do frontend
+│   ├── vite.config.js         # Configuração do Vite com proxy da API
 │   └── src/
-│       ├── app.css          # Tailwind CSS directives
-│       ├── main.js          # Svelte mount entrypoint
-│       ├── App.svelte       # Root component
-│       └── Home.svelte      # Main / restaurant page component
-└── e2e/                     # Java E2E test suite (Gradle + Playwright)
-    ├── settings.gradle.kts  # Gradle settings
-    ├── build.gradle.kts     # Playwright & JUnit 5 dependencies
-    └── src/test/java/org/pratello/
-        └── PratelloE2ETest.java
+│       ├── App.svelte         # Componente raiz e roteamento SPA
+│       ├── admin/             # Painel administrativo, gestão de cardápio e equipe
+│       ├── auth/              # Telas e fluxos de autenticação
+│       ├── common/            # Componentes reutilizáveis (Navbar, Footer, etc.)
+│       ├── delivery/          # Cálculo e gerenciamento de entrega
+│       ├── marketplace/       # Vitrine de restaurantes e geolocalização
+│       ├── menu/              # Exibição de cardápios, categorias e pratos
+│       ├── order/             # Carrinho, checkout e histórico de pedidos
+│       ├── payment/           # Fluxos e páginas de pagamento
+│       ├── restaurant/        # Páginas dinâmicas customizáveis por restaurante
+│       ├── review/            # Avaliações e notas dos clientes
+│       └── user/              # Perfil de usuário e restaurantes do proprietário
+├── scripts/                   # Scripts auxiliares de desenvolvimento e testes
+│   ├── start-dev-redis.mjs    # Inicializador do container Redis de desenvolvimento
+│   └── test-backend-cases.mjs # Executor dos casos de teste do backend
+└── server/                    # Backend RESTful em Go (net/http)
+    ├── cmd/api/               # Ponto de entrada do servidor (main.go)
+    └── internal/              # Módulos de domínio e regras de negócio
+        ├── auth/              # Autenticação, tokens e sessões
+        ├── common/            # Middlewares, utilitários e validações comuns
+        ├── db/                # Conexão PostgreSQL, migrações e fixtures
+        ├── integration/       # Testes de integração de fluxos completos
+        ├── media/             # Armazenamento e entrega de mídias e imagens
+        ├── menu/              # Gestão de cardápios, categorias e pratos
+        ├── order/             # Gestão de ciclo de vida e status de pedidos
+        ├── restaurants/       # Lógica multi-tenant de restaurantes
+        ├── review/            # Avaliações e comentários
+        ├── sales/             # Relatórios e estatísticas de vendas
+        ├── transaction/       # Processamento e registro de transações
+        └── user/              # Gestão de contas e perfis de usuários
 ```
 
 ---
 
-## 🚀 Getting Started with Nix
+## 🛠️ Ambiente de Desenvolvimento
 
-### 1. Enter the Nix Development Shell
+Para entrar no ambiente com todas as ferramentas e variáveis necessárias configuradas, execute:
+
 ```bash
-nix develop
+nix shell .
 ```
-This loads **Go**, **Node.js (v22)**, and **Docker** into your shell.
+
+### Dependências do Projeto
+
+O projeto utiliza as seguintes dependências e ferramentas (providas no ambiente):
+
+- **Go** (1.22+)
+- **Node.js** (v22) & **npm**
+- **PostgreSQL**
+- **Docker** & **Docker Compose**
+- **Git**
 
 ---
 
-### 2. Development Mode (Recommended)
+## 🚀 Como Executar o Projeto
 
-Run the backend and frontend concurrently for hot-reloading:
+### 1. Iniciar o Backend
 
-**Terminal 1 (Backend):**
+Para iniciar o servidor backend com banco de dados e Redis de desenvolvimento (carregando a base de demonstração do *João Burger*):
+
 ```bash
-go run ./server
+npm run server
 ```
-*(Runs at `http://localhost:8080`)*
 
-**Terminal 2 (Frontend with Vite + HMR):**
+> **Nota:** O comando acima inicia/reutiliza o container Redis local (`pratello-dev-redis`) na porta `6379` e roda a API Go com `AUTH_FIXED_CODE=1`. Para iniciar diretamente sem fixtures:
+> ```bash
+> go run ./server/cmd/api
+> ```
+
+### 2. Iniciar o Frontend
+
+Em outro terminal, execute o servidor de desenvolvimento do frontend (com *Hot Module Replacement*):
+
 ```bash
-cd frontend
-npm install
 npm run dev
 ```
-*(Runs at `http://localhost:5173` with live-reload and automatic proxying of `/api` requests to Go)*
+
+O frontend estará disponível em `http://localhost:5173`, com proxy automático para as rotas da API em `http://localhost:8080`.
 
 ---
 
-### 3. Run the João Burger development demo
+## 🧪 Comandos de Testes
 
-Point `DATABASE_URL` at a dedicated development PostgreSQL database. Every `npm run server` boot drops and recreates the active schema, resets the served `media/` directory, and loads the João Burger fixture. The database role needs permission to drop and create that schema. All demo accounts use the password `password`.
+### Testes do Backend (Go)
+
+Para executar os testes do backend:
 
 ```bash
-DATABASE_URL='postgres://localhost/pratello_dev?sslmode=disable' npm run server
+npm run test_backend
 ```
 
-`npm run server` reuses a running local Redis or starts the `pratello-dev-redis` container with Docker. It waits for Redis at `redis://localhost:6379/0` and starts the API with `AUTH_FIXED_CODE=1`. Request a code through the app, then enter `123456`; no email or WhatsApp message is sent. To stop the Redis container started by this command, run `docker stop pratello-dev-redis`.
+Ou diretamente via Go com as variáveis de ambiente:
 
-The API serves media from `./media` by default. Set `MEDIA_DIR` to a different directory named `media` to use that location for the demo. For a regular startup, run `go run ./server/cmd/api`.
+```bash
+AUTH_TEST_DATABASE_URL="postgres://nick@localhost:5432/pratello?sslmode=disable" AUTH_TEST_REDIS_URL="redis://localhost:6379/0" go test ./server/...
+```
+*(Para ver a saída detalhada de cada teste, adicione `-v -count=1`).*
+
+### Testes End-to-End (E2E) com Playwright
+
+Para rodar os testes ponta a ponta:
+
+```bash
+npm run test_e2e
+# ou simplesmente:
+npm test
+```
+*(O comando e parâmetros específicos podem ser consultados no `package.json`).*
 
 ---
 
-## 🌐 Routes Overview
+## 🌐 Visão Geral de Rotas
 
-| Route | Description |
+| Rota | Descrição |
 | :--- | :--- |
-| `/` | Pratello Homepage (rendered by [Home.svelte](file:///programs/codes/projects/pratello/frontend/src/Home.svelte)) |
-| `/{restaurant}` | Dynamic restaurant view (e.g. `/bobpizzeria`, `/deliciadeprazeres`) |
-| `/api/health` | Healthcheck endpoint (`{"status":"ok"}`) |
-| `/api/restaurants/{restaurant}` | JSON restaurant details served by Go `net/http` |
+| `/` | Página inicial do Pratello |
+| `/{restaurante}` | Visualização dinâmica do cardápio do estabelecimento (ex: `/bobpizzeria`, `/deliciadeprazeres`) |
+| `/api/health` | Verificação de integridade (*health check*) |
+| `/api/restaurants/{restaurant}` | Dados do restaurante e cardápio servidos pela API Go |
 
 ---
 
-## Backend tests (Go)
+## 📖 Documentação da API
 
-From the repository root, start PostgreSQL and Redis instances for testing and set their connection URLs:
-
-```bash
-export AUTH_TEST_DATABASE_URL='postgres://localhost/pratello_test?sslmode=disable'
-export AUTH_TEST_REDIS_URL='redis://127.0.0.1:6379/0'
-nix develop -c node scripts/test-backend-cases.mjs
-```
-
-The report groups case IDs by backend module. Planned and skipped cases appear separately from executed cases. The PostgreSQL role needs permission to create test schemas. Without the test URLs, some integration tests are skipped.
-
-`XFAIL` means a test reproduced a known failure. `XPASS` means the expected behavior now works; it fails the run so the test can be converted to a normal regression test.
-
-To see each Go test function and subtest in the terminal, use the same environment variables and run:
+Para rodar e visualizar a documentação interativa da API:
 
 ```bash
-nix develop -c go test -v -count=1 ./server/...
+npm run docs
 ```
 
-## OpenAPI reference
-
-Open [`docs/openapi.yaml`](docs/openapi.yaml) in your editor to read the source. To browse the same specification in Swagger UI, run this from the repository root and open <http://localhost:8081>:
-
-```bash
-docker run --rm -p 127.0.0.1:8081:8080 \
-  -v "$PWD/docs:/spec:ro" \
-  -e SWAGGER_JSON=/spec/openapi.yaml \
-  swaggerapi/swagger-ui
-```
-
-## 🧪 Running E2E Tests (Java + Playwright + Gradle)
-
-With the app running (e.g. `npm run dev` and `npm run server`):
-
-```bash
-# Run tests with Gradle
-gradle -p e2e test
-
-# Or via npm script from root
-npm run test:e2e
-
-# Run with browser window visible (headed mode)
-HEADLESS=false gradle -p e2e test
-```
+Acesse em seu navegador: <http://localhost:8081>
+*(O comando específico executado pode ser consultado no `package.json`).*

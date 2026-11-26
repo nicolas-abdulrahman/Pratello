@@ -3,13 +3,13 @@
   import type { HistoricalOrder } from './HistoryOrderSection.svelte';
 
   let {
-    onOpenReview = (order: HistoricalOrder) => {}
+    onOpenReview = (order: HistoricalOrder, restaurantSlug?: string) => {}
   }: {
-    onOpenReview?: (order: HistoricalOrder) => void;
+    onOpenReview?: (order: HistoricalOrder, restaurantSlug?: string) => void;
   } = $props();
 
   function handleSelectOrder(order: HistoricalOrder) {
-    onOpenReview(order);
+    onOpenReview(order, order.restaurantSlug);
   }
 </script>
 

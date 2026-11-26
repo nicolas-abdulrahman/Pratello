@@ -9,6 +9,9 @@
     "dev": "npm run dev --workspace=frontend",
     "build": "npm run build --workspace=frontend",
     "preview": "npm run preview --workspace=frontend",
-    "test:e2e": "gradle -p e2e test"
+    "test": "npm --prefix e2e test",
+    "test_e2e": "npm --prefix e2e test",
+    "test_backend": "AUTH_TEST_DATABASE_URL=\"postgres://nick@localhost:5432/pratello?sslmode=disable\" AUTH_TEST_REDIS_URL=\"redis://localhost:6379/0\" node scripts/test-backend-cases.mjs",
+    "docs": "npx swagger-ui-watcher docs/openapi.yaml --port 8081"
   }
 }

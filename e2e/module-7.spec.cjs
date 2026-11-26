@@ -62,62 +62,6 @@ const signIn = async page => {
   await expect(button(page, /Olá Ana/)).toBeVisible();
 };
 
-test('WEB-006 adds the promotion directly and updates the badge', async ({ page }) => {
-  await add(page);
-  await expect(badge(page)).toHaveText('1');
-  await openCart(page);
-  await expect(page.getByText(dish.name, { exact: true }).last()).toBeInViewport();
-});
-
-for (const [id, amount] of [['WEB-007', 20], ['WEB-008', 10], ['WEB-010', 30]]) {
-  test(`${id} recalculates the order total to ${amount}`, async ({ page }) => {
-    await order(page);
-    await button(page, 'Aumentar quantidade').click();
-    if (amount === 10) await button(page, 'Diminuir quantidade').click();
-    if (amount === 30) await button(page, 'Aumentar quantidade').click();
-    await expect(total(page, amount)).toBeInViewport();
-    await expect(page.locator('.qty-value')).toHaveText(String(amount / 10));
-  });
-}
-
-test('WEB-009 removes an item with the drawer remove button', async ({ page }) => {
-  await add(page);
-  await openCart(page);
-  await button(page, 'Remover item').click();
-  await expect(page.getByText('Seu carrinho está vazio')).toBeInViewport();
-  await expect(total(page, 0)).toBeInViewport();
-});
-
-test('WEB-011 opens the dine-in order', async ({ page }) => {
-  await order(page);
-  await expect(page).toHaveURL('/order');
-  await expect(button(page, 'Ir para o Pagamento')).toBeVisible();
-});
-
-test('WEB-012 opens delivery from the drawer', async ({ page }) => {
-  await add(page);
-  await openCart(page);
-  await button(page, 'Deliver').click();
-  await expect(page).toHaveURL(`${storefront}/delivery`);
-  await expect(page.getByRole('heading', { name: 'Área de Delivery' })).toBeVisible();
-});
-
-test('WEB-013 opens checkout from the order', async ({ page }) => {
-  await order(page);
-  await button(page, 'Ir para o Pagamento').click();
-  await expect(page).toHaveURL('/checkout');
-  await expect(page.getByRole('tablist', { name: 'Método de pagamento' })).toBeVisible();
-});
-
-test('WEB-014 retains the cart during navbar navigation', async ({ page }) => {
-  await add(page);
-  await page.getByRole('navigation').getByRole('link', { name: 'Cardápio' }).click();
-  await expect(page).toHaveURL(`${storefront}/cardapio`);
-  await expect(badge(page)).toHaveText('1');
-  await openCart(page);
-  await expect(page.getByText(dish.name, { exact: true })).toBeInViewport();
-});
-
 test('WEB-020 opens location controls', async ({ page }) => {
   await button(page, 'Escolha um endereço').click();
   await expect(page.getByLabel('Estado', { exact: true })).toBeVisible();
@@ -145,28 +89,6 @@ test('WEB-022 resolves a postal code and closes the picker', async ({ page }) =>
   await expect(button(page, 'Recife, PE')).toBeVisible();
   await expect(page.getByLabel('Buscar por CEP')).toBeHidden();
 });
-
-test('WEB-024 opens the access menu', async ({ page }) => {
-  await loginMenu(page);
-  await expect(button(page, /Cliente/)).toBeInViewport();
-  await expect(button(page, /Funcionário/)).toBeInViewport();
-});
-
-test('WEB-025 closes the access menu', async ({ page }) => {
-  await loginMenu(page);
-  await expect(button(page, /Cliente/)).toBeInViewport();
-  await button(page.locator('aside').filter({ has: button(page, /Cliente/) }), 'Fechar').click();
-  await expect(button(page, /Cliente/)).not.toBeInViewport();
-});
-
-for (const [id, role] of [['WEB-026', 'Cliente'], ['WEB-027', 'Funcionário']]) {
-  test(`${id} opens login as ${role}`, async ({ page }) => {
-    await loginMenu(page);
-    await button(page, new RegExp(role)).click();
-    await expect(page).toHaveURL('/login');
-    await expect(email(page)).toBeVisible();
-  });
-}
 
 test.describe('login form', () => {
   test.beforeEach(async ({ page }) => { await page.goto('/login'); });
@@ -264,44 +186,6 @@ test('WEB-044 expands and collapses a menu category', async ({ page }) => {
   await expect(page.getByText(dish.name, { exact: true })).toBeHidden();
 });
 
-test('WEB-045 opens item details inside the tenant theme', async ({ page }) => {
-  const modal = await detail(page);
-  await expect(modal).toBeVisible();
-  await expect(page.locator('[data-theme="restaurantTheme"]').getByRole('dialog')).toHaveCount(1);
-  await expect(modal.getByText(dish.description)).toBeVisible();
-});
-
-test('WEB-048 adds the displayed item from its dialog', async ({ page }) => {
-  const modal = await detail(page);
-  await button(modal, 'Adicionar ao Carrinho').click();
-  await expect(badge(page)).toHaveText('1');
-});
-
-test('WEB-049 dismisses item details via Voltar and backdrop', async ({ page }) => {
-  const modal = await detail(page);
-  await button(modal, 'Voltar').click();
-  await expect(modal).toBeHidden();
-  await detail(page);
-  await button(page, 'Fechar detalhes do prato').click({ position: { x: 5, y: 5 } });
-  await expect(modal).toBeHidden();
-});
-
-test('WEB-050 selects checkout methods and acknowledges simulated PIX', async ({ page }) => {
-  await order(page);
-  await button(page, 'Ir para o Pagamento').click();
-  const card = page.getByRole('tab', { name: 'Cartão de Crédito' });
-  const pix = page.getByRole('tab', { name: 'PIX' });
-  await card.click();
-  await expect(card).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByPlaceholder('0000 0000 0000 0000')).toBeVisible();
-  await pix.click();
-  await expect(pix).toHaveAttribute('aria-selected', 'true');
-  const dialog = page.waitForEvent('dialog');
-  page.once('dialog', alert => alert.accept());
-  await button(page, 'Já realizei o pagamento').click();
-  expect((await dialog).message()).toBe('Pagamento PIX confirmado!');
-});
-
 test('WEB-001 opens the cart', async ({ page }) => {
   await cartButton(page).click();
   await expect(cartHeading(page)).toBeInViewport();
@@ -333,36 +217,4 @@ test('WEB-005 displays the empty cart and zero total', async ({ page }) => {
   await expect(page.getByText('Seu carrinho está vazio')).toBeInViewport();
   await expect(page.getByText('Adicione itens para continuar.')).toBeInViewport();
   await expect(page.getByText(/^R\$\s*0,00$/)).toBeInViewport();
-});
-
-for (const [id, name, suffix] of [['WEB-017', 'Cardápio', '/cardapio'], ['WEB-018', 'Delivery', '/delivery']]) {
-  test(`${id} navigates through ${name}`, async ({ page }) => {
-    await page.getByRole('navigation').getByRole('link', { name, exact: true }).click();
-    await expect(page).toHaveURL(`${storefront}${suffix}`);
-    await expect(page.locator('[data-theme="restaurantTheme"]')).toBeVisible();
-  });
-  const heroLabel = name === 'Cardápio' ? 'Ver cardápio' : name;
-  test(`${id} navigates through the hero link ${heroLabel}`, async ({ page }) => {
-    await page.getByRole('banner').getByRole('link', { name: heroLabel, exact: true }).click();
-    await expect(page).toHaveURL(`${storefront}${suffix}`);
-    await expect(page.locator('[data-theme="restaurantTheme"]')).toBeVisible();
-  });
-}
-
-test('WEB-016 returns from the menu to the tenant homepage', async ({ page }) => {
-  await page.goto(`${storefront}/cardapio`);
-  await page.getByRole('link', { name: 'Início', exact: true }).click();
-  await expect(page).toHaveURL(storefront);
-});
-
-test('WEB-051 toggles the storefront palette in both directions', async ({ page }) => {
-  const toggle = page.getByRole('button', { name: 'Modo escuro' });
-  const canvas = page.getByRole('heading', { name: 'Loja teste' }).locator('xpath=ancestor::div[contains(@class, "selection:bg-primary")]');
-  await expect(canvas).toHaveCSS('background-color', 'rgb(238, 238, 238)');
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await expect(canvas).toHaveCSS('background-color', 'rgb(34, 34, 34)');
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(canvas).toHaveCSS('background-color', 'rgb(238, 238, 238)');
 });

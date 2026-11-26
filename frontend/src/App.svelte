@@ -34,7 +34,9 @@
   let cartItemCount = $derived($cart_count);
 
   function extractReviewOrderId(path: string): string {
-    const match2 = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/review\/?$/);
+    const matchStatus = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/status\/?$/);
+    if (matchStatus) return '';
+    const match2 = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)(?:\/review)?\/?$/);
     if (match2) return match2[2];
     const match1 = path.match(/^\/me\/pedidos\/([^/]+)\/review\/?$/);
     if (match1) return match1[1];
@@ -49,16 +51,16 @@
     if (path === '/login') return { view: 'login', slug: '' };
     if (path === '/account' || path === '/account/') return { view: 'account', slug: '' };
     if (path === '/me/my-restaurant' || path === '/me/my-restaurant/') return { view: 'my-restaurants', slug: '' };
-    if (path === '/me/pedidos' || path === '/me/pedidos/') return { view: 'orders', slug: '' };
-    const reviewWithSlugMatch = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/review\/?$/);
+    if (path === '/me/pedidos' || path === '/me/pedidos/' || path === '/pedidos' || path === '/pedidos/') return { view: 'orders', slug: '' };
+    const orderStatusMatch = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/status\/?$/);
+    if (orderStatusMatch) {
+      return { view: 'order-status', slug: '', restaurantId: orderStatusMatch[1], orderId: orderStatusMatch[2] };
+    }
+    const reviewWithSlugMatch = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)(?:\/review)?\/?$/);
     if (reviewWithSlugMatch) {
       return { view: 'order-review', slug: reviewWithSlugMatch[1], orderId: reviewWithSlugMatch[2] };
     }
     if (/^\/me\/pedidos\/[^/]+\/review\/?$/.test(path) || path === '/me/pedidos/review' || path === '/me/pedidos/review/' || path === '/order/review' || path === '/order/review/') return { view: 'order-review', slug: '' };
-    const orderStatusMatch = path.match(/^\/me\/pedidos\/([^/]+)\/([^/]+)\/?$/);
-    if (orderStatusMatch && orderStatusMatch[2] !== 'review') {
-      return { view: 'order-status', slug: '', restaurantId: orderStatusMatch[1], orderId: orderStatusMatch[2] };
-    }
     if (path === '/order') return { view: 'order', slug: '' };
     if (path === '/checkout') return { view: 'checkout', slug: '' };
     const whatsappMatch = path.match(/^\/pedido-whatsapp\/([^/]+)\/?$/);
@@ -161,34 +163,35 @@
   let selectedOrderForReview = $state<HistoricalOrder | null>(null);
   let reviewPathId = $state(extractReviewOrderId(window.location.pathname));
   let notificationTime = $state(Date.now());
-  let availableOrders = $derived($transactions.filter((o) => $account.isLoggedIn ? o.userId === $account.id : o.userId === null));
-  let pickupOrder = $derived(currentView === 'order-review' ? undefined : availableOrders.find((o) =>
-    (o.order.status === 'ready' || o.order.status === 'delivered') && !o.pickupAcknowledgedAt && !o.popupDismissed
+  let availableOrders = $derived($transactions.filter((o) => $account.isLoggedIn ? (o.userId === $account.id || o.userId == null) : true));
+  let pickupOrder = $derived(currentView === 'order-review' || currentView === 'orders' ? undefined : availableOrders.find((o) =>
+    (o.order?.status === 'ready' || o.order?.status === 'delivered') && !o.pickupAcknowledgedAt && !o.popupDismissed
   ));
   let preparingOrder = $derived(availableOrders.find((o) =>
-    isPaid(o.order) && (o.order.status === 'pending' || o.order.status === 'preparing')
+    o.order && isPaid(o.order) && (o.order.status === 'pending' || o.order.status === 'preparing')
   ));
-  let popupOrder = $derived(currentView === 'order-review' || pickupOrder || preparingOrder ? undefined : availableOrders.find((o) =>
-    o.order.status === 'delivered' && isPaid(o.order) && !o.popupDismissed &&
+  let popupOrder = $derived(currentView === 'order-review' || currentView === 'orders' || pickupOrder || preparingOrder ? undefined : availableOrders.find((o) =>
+    o.order?.status === 'delivered' && isPaid(o.order) && !o.popupDismissed &&
     !!o.pickupAcknowledgedAt && notificationTime >= o.pickupAcknowledgedAt + 20000
   ));
 
   function historical(saved: SavedOrder): HistoricalOrder {
-    const isDone = saved.order.status === 'delivered' || saved.order.status === 'ready' || !!saved.pickupAcknowledgedAt || isPaid(saved.order);
+    const isDone = saved.order?.status === 'delivered' || saved.order?.status === 'ready' || !!saved.pickupAcknowledgedAt || (saved.order ? isPaid(saved.order) : false);
     return {
-      id: String(saved.order.id), orderNumber: `#${saved.order.id}`,
-      date: new Date(saved.order.created_at).toLocaleString('pt-BR'),
-      restaurantName: saved.restaurantName,
-      status: saved.order.status === 'cancelled' ? 'Cancelado' : isDone ? 'Entregue' : '',
-      total: saved.order.total_cents / 100,
+      id: String(saved.order?.id ?? saved.paymentKey ?? 'order'), orderNumber: saved.order?.display_code || `#${saved.order?.id ?? '0'}`,
+      date: saved.order?.created_at ? new Date(saved.order.created_at).toLocaleString('pt-BR') : 'Hoje',
+      restaurantName: saved.restaurantName || 'Restaurante',
+      restaurantSlug: saved.slug || (saved.restaurantId ? String(saved.restaurantId) : (saved.restaurantName ? saved.restaurantName.toLowerCase().replace(/\s+/g, '-') : 'restaurante')),
+      status: saved.order?.status === 'cancelled' ? 'Cancelado' : isDone ? 'Entregue' : 'Em andamento',
+      total: (saved.order?.total_cents ?? 0) / 100,
       isReviewed: !!saved.isReviewed || !!saved.serviceReviewed,
-          items: (saved.order.items || [])
+          items: (saved.order?.items || [])
   .filter((item) => !item.voided_at)
   .map((item) => ({
     id: String(item.id),
     name: item.item_name,
     quantity: item.quantity,
-    price: item.unit_price_cents / 100,
+    price: (item.unit_price_cents ?? 0) / 100,
     imageUrl: saved.itemImages?.[item.item_id] ?? '',
   })),
     };
@@ -214,17 +217,27 @@
   });
 
   function goToOrders() {
+    slug = '';
+    activeRestaurantId = '';
+    activeOrderId = '';
+    selectedOrderForReview = null;
+    reviewPathId = '';
     currentView = 'orders';
-    window.history.pushState({}, '', '/me/pedidos');
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    if (typeof window !== 'undefined' && window.location.pathname !== '/me/pedidos') {
+      window.history.pushState({}, '', '/me/pedidos');
+    }
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
   }
 
   function goToOrderReview(order: HistoricalOrder, restaurantSlug?: string) {
     selectedOrderForReview = order;
     reviewPathId = order.id;
     currentView = 'order-review';
-    const targetSlug = restaurantSlug || slug || 'restaurante';
-    window.history.pushState({}, '', `/me/pedidos/${encodeURIComponent(targetSlug)}/${encodeURIComponent(order.id)}/review`);
+    const targetSlug = restaurantSlug || order.restaurantSlug || slug || 'restaurante';
+    slug = targetSlug;
+    window.history.pushState({}, '', `/me/pedidos/${encodeURIComponent(targetSlug)}/${encodeURIComponent(order.id)}`);
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
@@ -232,7 +245,7 @@
     activeRestaurantId = String(restaurantId);
     activeOrderId = String(orderId);
     currentView = 'order-status';
-    window.history.pushState({}, '', `/me/pedidos/${restaurantId}/${orderId}`);
+    window.history.pushState({}, '', `/me/pedidos/${restaurantId}/${orderId}/status`);
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
@@ -305,7 +318,6 @@ $effect(() => { if (slug) rememberSlug(slug); });
     currentView === 'my-restaurants' ||
     currentView === 'admin' ||
     currentView === 'menu-preview' ||
-    currentView === 'orders' ||
     currentView === 'order-review' ||
     currentView === 'order-status' ||
     currentView === 'order' ||

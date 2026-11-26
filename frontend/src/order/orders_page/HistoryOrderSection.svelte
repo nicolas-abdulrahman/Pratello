@@ -16,6 +16,7 @@
     orderNumber: string;
     date: string;
     restaurantName: string;
+    restaurantSlug?: string;
     status: 'Entregue' | 'Cancelado' | 'Em andamento' | '';
     items: OrderItem[];
     total: number;
@@ -35,6 +36,7 @@
       orderNumber: '#1042',
       date: 'Hoje, 12:45',
       restaurantName: 'Pratello Gourmet Burger',
+      restaurantSlug: 'joao-burger',
       status: 'Entregue',
       total: 54.9,
       items: [
@@ -61,6 +63,7 @@
       orderNumber: '#1028',
       date: '22 de Nov, 19:30',
       restaurantName: 'Pratello Smash & Fries',
+      restaurantSlug: 'joao-burger',
       status: 'Entregue',
       total: 48.0,
       items: [
@@ -87,6 +90,7 @@
       orderNumber: '#0985',
       date: '17 de Nov, 20:15',
       restaurantName: 'Pratello Burger',
+      restaurantSlug: 'joao-burger',
       status: 'Entregue',
       total: 62.5,
       items: [
@@ -110,23 +114,24 @@
     }
   ];
 
-  let visible = $derived($transactions.filter((o) => $account.isLoggedIn ? o.userId === $account.id : o.userId === null));
-  let mockOrders = $derived(visible.map(toHistoricalOrder));
+  let visible = $derived($transactions.filter((o) => $account.isLoggedIn ? (o.userId === $account.id || o.userId == null) : true));
+  let mockOrders = $derived(visible.length > 0 ? visible.map(toHistoricalOrder) : unusedMockOrders);
 
   export function toHistoricalOrder(saved: SavedOrder): HistoricalOrder {
-    const isDone = saved.order.status === 'delivered' || saved.order.status === 'ready' || !!saved.pickupAcknowledgedAt || isPaid(saved.order);
+    const isDone = saved.order?.status === 'delivered' || saved.order?.status === 'ready' || !!saved.pickupAcknowledgedAt || (saved.order ? isPaid(saved.order) : false);
     const isReviewed = !!saved.isReviewed || !!saved.serviceReviewed;
     return {
-      id: String(saved.order.id),
-      orderNumber: `#${saved.order.id}`,
-      date: new Date(saved.order.created_at).toLocaleString('pt-BR'),
-      restaurantName: saved.restaurantName,
-      status: saved.order.status === 'cancelled' ? 'Cancelado' : isDone ? 'Entregue' : '',
-      total: saved.order.total_cents / 100,
+      id: String(saved.order?.id ?? saved.paymentKey ?? 'order'),
+      orderNumber: saved.order?.display_code || `#${saved.order?.id ?? '0'}`,
+      date: saved.order?.created_at ? new Date(saved.order.created_at).toLocaleString('pt-BR') : 'Hoje',
+      restaurantName: saved.restaurantName || 'Restaurante',
+      restaurantSlug: saved.slug || (saved.restaurantId ? String(saved.restaurantId) : (saved.restaurantName ? saved.restaurantName.toLowerCase().replace(/\s+/g, '-') : 'restaurante')),
+      status: saved.order?.status === 'cancelled' ? 'Cancelado' : isDone ? 'Entregue' : 'Em andamento',
+      total: (saved.order?.total_cents ?? 0) / 100,
       isReviewed,
-      items: (saved.order.items || []).filter((item) => !item.voided_at).map((item) => ({
+      items: (saved.order?.items || []).filter((item) => !item.voided_at).map((item) => ({
         id: String(item.id), name: item.item_name, quantity: item.quantity,
-        price: item.unit_price_cents / 100, imageUrl: '',
+        price: (item.unit_price_cents ?? 0) / 100, imageUrl: saved.itemImages?.[item.item_id] ?? '',
       })),
     };
   }
@@ -135,8 +140,8 @@
     for (const saved of visible) void refreshOrder(saved).catch(() => {});
   });
 
-  function formatPrice(val: number) {
-    return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  function formatPrice(val?: number) {
+    return (val ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
 </script>
 
@@ -235,7 +240,7 @@
             {:else}
               {@const savedEntry = visible.find((entry) => String(entry.order.id) === order.id)}
               <a
-                href={`/me/pedidos/${savedEntry?.restaurantId || savedEntry?.slug || 'restaurante'}/${order.id}`}
+                href={`/me/pedidos/${savedEntry?.restaurantId || savedEntry?.slug || 'restaurante'}/${order.id}/status`}
                 class="text-primary hover:text-primary-hover font-bold text-xs flex items-center gap-1"
               >
                 Acompanhar pedido

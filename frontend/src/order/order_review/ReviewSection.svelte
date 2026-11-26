@@ -31,7 +31,7 @@
     }
   ];
 
-  let itemsToReview = $derived(order?.items ?? []);
+  let itemsToReview = $derived(order?.items && order.items.length > 0 ? order.items : defaultItems);
   let saved = $derived($transactions.find((entry) => String(entry.order.id) === order?.id));
   let serviceRating = $state(0);
   let hoverServiceRating = $state(0);

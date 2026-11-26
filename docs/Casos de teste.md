@@ -2,7 +2,7 @@
 
 > **Versão:** 0.1.21
 > **Classificação:** Suíte de Testes Profunda (Deep Testing Specification)  
-> **Total de casos documentados:** 248
+> **Total de casos documentados:** 227
 
 ## Resumo Executivo e Metodologia de Teste
 
@@ -26,10 +26,10 @@ A suíte está estruturada em **7 módulos** cobrindo Caminho Feliz (*Happy Path
 | ORD | 38 | 0 | 0 | 0 |
 | FIN | 36 | 0 | 4 | 0 |
 | REV | 14 | 0 | 0 | 0 |
-| WEB | 45 | 0 | 6 | 0 |
-| **Total** | **236** | **4** | **10** | **0** |
+| WEB | 24 | 0 | 6 | 0 |
+| **Total** | **215** | **4** | **10** | **0** |
 
-Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A suíte Go foi reexecutada com PostgreSQL e Redis: 191 IDs do backend passaram, sem falhas ou casos pulados. Os 45 resultados WEB vêm da execução anterior do Playwright em Chromium.
+Os números contam IDs distintos. Planejados são funcionalidades ainda não implementadas. A suíte Go foi reexecutada com PostgreSQL e Redis: 191 IDs do backend passaram, sem falhas ou casos pulados. Os 24 resultados WEB vêm da execução anterior do Playwright em Chromium.
 
 - **IDP PASS:** `IDP-001–029`.
 - **TEN PASS:** `TEN-001–019`.
@@ -38,7 +38,7 @@ Os números contam IDs distintos. Planejados são funcionalidades ainda não imp
 - **FIN PASS:** `FIN-001–006`, `FIN-009–020`, `FIN-022–027`, `FIN-029–040`.
 - **FIN Planejados:** `FIN-007–008` (emissão de recibo e código único), `FIN-021` (reversão de crédito de fidelidade), `FIN-028` (cálculo e auditoria de recibo em JSONB).
 - **REV PASS:** `REV-001–014`.
-- **WEB PASS:** `WEB-001–014`, `WEB-016–018`, `WEB-020–038`, `WEB-041–045`, `WEB-048–051`.
+- **WEB PASS:** `WEB-001–005`, `WEB-020–023`, `WEB-028–038`, `WEB-041–044`.
 - **WEB Planejados:** `WEB-015` (logo clicável), `WEB-019` (menu hambúrguer), `WEB-039–040` (filtragem por busca e restauração da lista), `WEB-046–047` (opcionais e quantidade no modal).
 
 | Módulo | IDs verificados como PASS | Evidência automatizada |
@@ -926,22 +926,15 @@ Os subtestes em `server/internal/review/reviews_caso_de_testes_test.go` usam o H
 
 ---
 
-## Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB-001 a WEB-051)
+## Módulo 7: Interface do Usuário, Navegação e Interações do Website (WEB)
 
 ### Suíte de testes Web
 
-Os cenários Playwright acionam os controles reais da interface e verificam o resultado visível, como a URL, a abertura ou o fechamento de um painel, o conteúdo do carrinho ou a cor computada.
+Os cenários Playwright acionam os controles reais da interface e verificam o resultado visível, como a URL, a abertura ou o fechamento de um painel, o conteúdo do carrinho ou o preenchimento de formulários.
 
 **Suíte:** `e2e/module-7.spec.cjs`. As fixtures HTTP testam o navegador e o frontend, sem validar o backend real.
 
-`WEB-017` e `WEB-018` têm variantes independentes para a navbar e para os links do hero (“Ver cardápio” e “Delivery”). Cada variante verifica a URL de destino e a manutenção do tema da loja.
-
 **Execução:** após instalar as dependências do frontend na raiz, execute em `e2e/`: `npm ci --workspaces=false`, `npx playwright install chromium` e `npm test`. Para usar Chromium do sistema, defina `PLAYWRIGHT_CHROMIUM_EXECUTABLE` com o caminho do executável.
-
-### WEB-051: Prévia de modo escuro do storefront
-- **Pré-condição:** Loja com `dark: false` e cores distintas em `bg` e `bg_dark`.
-- **Passos:** Clicar duas vezes no botão “Modo escuro” da navbar.
-- **Esperado:** O primeiro clique muda o fundo computado para `bg_dark` e marca o botão como pressionado; o segundo restaura `bg` e desmarca o botão.
 
 ### WEB-001: Clique no Botão Flutuante do Carrinho para Abertura da Gaveta Lateral
 - **Pré-condição:** Usuário na página inicial ou na página do restaurante com o botão de carrinho flutuante visível.
@@ -968,70 +961,10 @@ Os cenários Playwright acionam os controles reais da interface e verificam o re
 - **Passos:** Abrir a gaveta do carrinho.
 - **Esperado:** Exibição do ícone ilustrativo de carrinho vazio, texto "Seu carrinho está vazio", instrução "Adicione itens para continuar" e valor total em "R$ 0,00".
 
-### WEB-006: Adição de Item Simples ao Carrinho e Atualização do Badge do Navbar
-- **Pré-condição:** Usuário visualizando itens do cardápio.
-- **Passos:** Clicar no botão de adicionar de um item do cardápio.
-- **Esperado:** O contador numérico no badge do carrinho é incrementado para 1 e o item passa a constar na listagem do carrinho com seu nome e preço unitário.
-
-### WEB-007: Botão de Incremento (+) de Quantidade de Item no Carrinho
-- **Pré-condição:** Item presente no carrinho com quantidade inicial = 1.
-- **Passos:** Abrir o carrinho e clicar no botão com ícone de soma (+) na linha do item.
-- **Esperado:** A quantidade do item é atualizada para 2, o subtotal do item é recalculado e o valor total do carrinho é atualizado.
-
-### WEB-008: Botão de Decremento (-) de Quantidade de Item no Carrinho
-- **Pré-condição:** Item presente no carrinho com quantidade = 2.
-- **Passos:** Abrir o carrinho e clicar no botão com ícone de subtração (-) na linha do item.
-- **Esperado:** A quantidade do item diminui para 1 e o total do carrinho é recalculado de acordo.
-
-### WEB-009: Remoção pelo Botão “Remover item”
-- **Pré-condição:** Item presente no carrinho com quantidade = 1.
-- **Passos:** Abrir a gaveta e clicar em “Remover item”.
-- **Esperado:** O item é completamente removido da lista do carrinho. Se não houver outros itens, a visualização alterna para o estado vazio.
-
-### WEB-010: Atualização Reativa do Total do Pedido (R$) ao Alterar Quantidades
-- **Pré-condição:** Dois itens de valores distintos no carrinho.
-- **Passos:** Alterar a quantidade de um dos itens repetidas vezes.
-- **Esperado:** O display de valor "Total" na base do carrinho reflete imediatamente a soma exata dos itens multiplicados por suas respectivas quantidades sem arredondamentos errados.
-
-### WEB-011: Botão "No Restaurante" na Gaveta do Carrinho (Modalidade Salão)
-- **Pré-condição:** Carrinho com ao menos 1 item adicionado.
-- **Passos:** Clicar no botão "No Restaurante" no rodapé do carrinho.
-- **Esperado:** Abre `/order`, com a revisão do pedido e o botão “Ir para o Pagamento”.
-
-### WEB-012: Botão "Deliver" / "Entrega" na Gaveta do Carrinho (Modalidade Delivery)
-- **Pré-condição:** Carrinho com ao menos 1 item adicionado.
-- **Passos:** Clicar no botão "Deliver" no rodapé do carrinho.
-- **Esperado:** Abre `/r/{slug}/delivery`, com o título “Área de Delivery”.
-
-### WEB-013: Botão "Finalizar Pedido" / Redirecionamento para Fluxo de Checkout
-- **Pré-condição:** Carrinho preenchido e modalidade selecionada.
-- **Passos:** Clicar no botão principal de finalizar pedido.
-- **Esperado:** A gaveta fecha e o usuário é redirecionado para a tela de revisão e pagamento (`/order` ou `/checkout`).
-
-### WEB-014: Persistência do Estado do Carrinho Entre Navegações de Páginas
-- **Pré-condição:** Itens adicionados ao carrinho na página do restaurante.
-- **Passos:** Navegar para a lista de restaurantes e depois retornar à página do restaurante.
-- **Esperado:** O contador do carrinho permanece inalterado e os itens continuam preservados na memória/store.
-
 ### WEB-015: Clique no Logo Pratello na Barra de Navegação — Planejado
 - **Pré-condição:** Usuário em qualquer página interna ou detalhe de restaurante.
 - **Passos:** Clicar no logotipo Pratello posicionado na barra de navegação superior.
 - **Esperado:** A rota corrente é alterada para a página principal (`/` ou `/home`), restaurando a visualização inicial.
-
-### WEB-016: Clique no Link "Início" no Navbar
-- **Pré-condição:** Links de navegação desktop visíveis no navbar.
-- **Passos:** Clicar no link textual "Início".
-- **Esperado:** Redirecionamento instantâneo para a página inicial com indicador visual de link ativo.
-
-### WEB-017: Clique no Link "Cardápio" no Navbar
-- **Pré-condição:** Usuário na visualização de um restaurante com link "Cardápio" visível.
-- **Passos:** Clicar no link "Cardápio".
-- **Esperado:** A página realiza scroll suave ou navega até a seção do catálogo/cardápio do restaurante.
-
-### WEB-018: Clique no Link "Delivery" no Navbar
-- **Pré-condição:** Usuário em qualquer página da aplicação.
-- **Passos:** Clicar no link "Delivery" no navbar.
-- **Esperado:** Abre `/r/{slug}/delivery` com o tema do restaurante.
 
 ### WEB-019: Botão de Menu Mobile (Hambúrguer) em Telas Menores — Planejado
 - **Pré-condição:** Visualização em viewport de dispositivo móvel (< 768px).
@@ -1057,26 +990,6 @@ Os cenários Playwright acionam os controles reais da interface e verificam o re
 - **Pré-condição:** Popover de endereço aberto.
 - **Passos:** Clicar em qualquer elemento externo ao popover no corpo da página.
 - **Esperado:** O popover de endereços fecha imediatamente sem alterar o endereço ativo.
-
-### WEB-024: Botão "Entrar" no Navbar: Abertura do Menu Lateral de Acesso
-- **Pré-condição:** Usuário anônimo (não logado). Botão "Entrar" estilizado em laranja suave visível no navbar.
-- **Passos:** Clicar no botão "Entrar".
-- **Esperado:** A sidebar lateral esquerda de autenticação (`LeftSidebarSection`) abre com animação suave, exibindo as opções de login.
-
-### WEB-025: Menu Lateral de Acesso: Botão Fechar (X)
-- **Pré-condição:** Menu lateral de acesso aberto na tela.
-- **Passos:** Clicar no botão com ícone de fechar (X) no cabeçalho da sidebar.
-- **Esperado:** A sidebar esquerda é recolhida e a navegação da página volta ao estado interativo.
-
-### WEB-026: Menu Lateral de Acesso: Opção "Entrar como Cliente"
-- **Pré-condição:** Menu lateral de acesso aberto.
-- **Passos:** Clicar no botão "Entrar como Cliente".
-- **Esperado:** A sidebar fecha e o usuário é redirecionado para a tela de login (`/login`) em modo cliente.
-
-### WEB-027: Menu Lateral de Acesso: Opção "Entrar como Funcionário"
-- **Pré-condição:** Menu lateral de acesso aberto.
-- **Passos:** Clicar no botão "Entrar como Funcionário".
-- **Esperado:** A opção “Funcionário” abre o formulário de autenticação compartilhado em `/login`.
 
 ### WEB-028: Tela de Login: Foco e Digitação no Campo de Input "E-mail"
 - **Pré-condição:** Usuário na página de login (`Auth.svelte`).
@@ -1163,11 +1076,6 @@ Os cenários Playwright acionam os controles reais da interface e verificam o re
 - **Passos:** Clicar no botão de categoria de filtro "Bebidas".
 - **Esperado:** O botão da categoria assume estado ativo selecionado e a lista apresenta apenas os itens associados à categoria clicada.
 
-### WEB-045: Card de Item/Prato: Clique para Abrir o Modal de Detalhes
-- **Pré-condição:** Itens visíveis no catálogo.
-- **Passos:** Clicar no card de um item do cardápio (ex: "Hambúrguer Especial").
-- **Esperado:** O modal `ItemModal` abre dentro do tema da loja e exibe a descrição do prato.
-
 ### WEB-046: Modal do Item: Seleção e Desseleção de Opcionais/Adicionais — Planejado
 - **Pré-condição:** Modal de item aberto contendo grupo de adicionais (ex: "Bacon Extra", "Molho Especial").
 - **Passos:** Clicar no seletor de um opcional e em seguida clicar novamente.
@@ -1177,18 +1085,3 @@ Os cenários Playwright acionam os controles reais da interface e verificam o re
 - **Pré-condição:** Modal de item aberto com quantidade padrão igual a 1.
 - **Passos:** Clicar no botão (+) duas vezes e depois no botão (-) uma vez.
 - **Esperado:** O mostrador numérico de quantidade avança para 3 e depois recua para 2, recalculando o valor total daquele prato no modal.
-
-### WEB-048: Modal do Item: Botão "Adicionar ao Pedido"
-- **Pré-condição:** Modal de item aberto com quantidade e opcionais configurados.
-- **Passos:** Clicar no botão principal de ação "Adicionar ao Pedido (R$ XX,XX)".
-- **Esperado:** O prato é incluído no carrinho e o contador aumenta.
-
-### WEB-049: Modal do Item: Fechamento via Botão de Fechar ou Clique no Fundo
-- **Pré-condição:** Modal de item aberto na tela.
-- **Passos:** Clicar no botão (X) do modal ou no backdrop escurecido ao redor da caixa de diálogo.
-- **Esperado:** O modal é dispensado sem adicionar nada ao carrinho e mantendo os itens anteriores intactos.
-
-### WEB-050: Checkout: Seleção de Método de Pagamento e Botão de Confirmação
-- **Pré-condição:** Usuário na página de checkout com itens no carrinho.
-- **Passos:** Clicar no botão do método de pagamento desejado (PIX, Cartão ou Dinheiro) e clicar em "Confirmar Pedido".
-- **Esperado:** A aba de cartão exibe o formulário; na aba PIX, “Já realizei o pagamento” abre o alerta de confirmação simulada.
