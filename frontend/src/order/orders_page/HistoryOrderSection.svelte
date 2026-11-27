@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { account } from '../../lib/stores/account';
   import { transactions, refreshOrder, isPaid, type SavedOrder } from '../../lib/stores/Transaction';
+
   export interface OrderItem {
     id: string;
     name: string;
@@ -130,8 +131,11 @@
       total: (saved.order?.total_cents ?? 0) / 100,
       isReviewed,
       items: (saved.order?.items || []).filter((item) => !item.voided_at).map((item) => ({
-        id: String(item.id), name: item.item_name, quantity: item.quantity,
-        price: (item.unit_price_cents ?? 0) / 100, imageUrl: saved.itemImages?.[item.item_id] ?? '',
+        id: String(item.id),
+        name: item.item_name,
+        quantity: item.quantity,
+        price: (item.unit_price_cents ?? 0) / 100,
+        imageUrl: saved.itemImages?.[item.item_id] ?? '',
       })),
     };
   }
@@ -160,7 +164,7 @@
   </div>
 
   <div class="grid gap-5">
-    {#each mockOrders as order (order.id)}
+    {#each mockOrders as order, orderIndex (`${order.restaurantSlug ?? ''}-${order.id}-${orderIndex}`)}
       <div
         class="bg-surface rounded-2xl border border-border shadow-xs hover:shadow-md hover:border-primary transition-all duration-200 overflow-hidden group"
       >
@@ -200,7 +204,7 @@
 
         <!-- Itens do Pedido -->
         <div class="p-4 sm:p-5 divide-y divide-border">
-          {#each order.items as item (item.id)}
+          {#each order.items as item, itemIndex (`${item.id}-${itemIndex}`)}
             <div class="py-3 first:pt-0 last:pb-0 flex items-center gap-4">
               {#if item.imageUrl}<img
                 src={item.imageUrl}

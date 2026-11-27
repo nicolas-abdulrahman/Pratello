@@ -269,7 +269,7 @@
 
   let showOrderCart = $derived(showNavLinks);
 
-  type RestaurantBrand = { name: string; icon_url?: string | null; favicon_url?: string | null; cover_url?: string | null; description?: string | null };
+  type RestaurantBrand = { name: string; icon_url?: string | null; logo_icon_url?: string | null; favicon_url?: string | null; cover_url?: string | null; description?: string | null };
   let restaurantBrand = $state<RestaurantBrand | null>(null);
 $effect(() => { if (slug) rememberSlug(slug); });
   $effect(() => {
@@ -352,6 +352,8 @@ $effect(() => { if (slug) rememberSlug(slug); });
       onGoRestaurantes={goToRestaurantes}
       {showNavLinks}
       brand={brandTheme}
+      restaurantName={restaurantBrand?.name}
+      restaurantLogoIconUrl={restaurantBrand?.logo_icon_url}
     >
       {#snippet cartControls()}
         {#if showOrderCart}<OrderCart goToOrder={goToOrder} />{/if}

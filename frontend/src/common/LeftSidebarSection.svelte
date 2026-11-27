@@ -8,10 +8,21 @@
     onGoLogin = () => {},
     onGoHome = () => {},
     onGoAccount = undefined as (() => void) | undefined,
-    onGoOrders = undefined as (() => void) | undefined
+    onGoOrders = undefined as (() => void) | undefined,
+    restaurantSlug = '',
+    restaurantName = undefined as string | undefined,
+    restaurantLogoIconUrl = undefined as string | null | undefined
   } = $props();
 
   const close = () => onClose();
+
+  function navigateTo(path: string, event: MouseEvent) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    close();
+    window.history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }
 
   function handleLogin() {
     onGoLogin();
@@ -51,29 +62,52 @@
   <aside
     class="fixed top-0 left-0 bottom-0 w-80 max-w-full z-50 shadow-2xl p-5 sm:p-6 flex flex-col gap-6 overflow-y-auto border-r sidebar"
   >
-    <!-- ===== Header: Pratello logo ===== -->
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div
-          class="w-11 h-11 rounded-2xl flex items-center justify-center theme-accent shadow-inner"
+    <!-- ===== Header: Restaurant or Pratello logo ===== -->
+    <div class="flex items-center justify-between gap-2">
+      {#if restaurantSlug}
+        <a
+          href={`/r/${encodeURIComponent(restaurantSlug)}`}
+          onclick={(e) => navigateTo(`/r/${encodeURIComponent(restaurantSlug)}`, e)}
+          class="flex items-center gap-3 min-w-0 rounded-xl p-1 -ml-1 theme-hover transition-colors"
         >
-          <svg
-            class="w-7 h-7"
-            fill="none"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
+          {#if restaurantLogoIconUrl}
+            <img
+              src={restaurantLogoIconUrl}
+              alt={restaurantName || restaurantSlug}
+              class="w-11 h-11 object-contain shrink-0"
+            />
+          {:else}
+            <div class="w-11 h-11 rounded-2xl flex items-center justify-center theme-accent shadow-inner shrink-0">
+              <span class="text-lg font-black">{(restaurantName || restaurantSlug).charAt(0).toUpperCase()}</span>
+            </div>
+          {/if}
+          <span class="text-2xl font-black tracking-tight theme-text font-serif truncate">
+            {restaurantName || restaurantSlug}
+          </span>
+        </a>
+      {:else}
+        <div class="flex items-center gap-3">
+          <div
+            class="w-11 h-11 rounded-2xl flex items-center justify-center theme-accent shadow-inner"
           >
-            <path
-              d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"
-            ></path>
-            <line x1="6" x2="18" y1="17" y2="17"></line>
-          </svg>
+            <svg
+              class="w-7 h-7"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"
+              ></path>
+              <line x1="6" x2="18" y1="17" y2="17"></line>
+            </svg>
+          </div>
+          <span class="text-2xl font-black tracking-tight theme-text font-serif">Pratello</span>
         </div>
-        <span class="text-2xl font-black tracking-tight theme-text font-serif">Pratello</span>
-      </div>
+      {/if}
       <button
         onclick={close}
         class="w-8 h-8 rounded-full flex items-center justify-center theme-muted theme-hover transition"
@@ -229,6 +263,18 @@
       <h3 class="text-xs font-bold theme-muted uppercase tracking-wider mb-3">Mais opções</h3>
 
       <a
+        href="/"
+        onclick={(e) => navigateTo('/', e)}
+        class="flex items-center gap-3 p-3 theme-nav rounded-xl transition-colors font-medium"
+      >
+        <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        Marketplace
+      </a>
+
+      <a
         href="/me/pedidos"
         onclick={handleGoOrders}
         class="flex items-center gap-3 p-3 theme-nav rounded-xl transition-colors font-medium"
@@ -279,7 +325,7 @@
 <style>
   /* All colors follow the semantic variables of the parent theme. */
   .sidebar {
-    background-color: var(--color-background);
+    background-color: #ffffff;
     color: var(--color-text);
     border-color: var(--color-border);
   }

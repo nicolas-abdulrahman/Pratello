@@ -20,7 +20,9 @@
     onOpenCart = () => {},
     showNavLinks = false,
     cartControls = undefined as Snippet | undefined,
-    brand = false
+    brand = false,
+    restaurantName = undefined as string | undefined,
+    restaurantLogoIconUrl = undefined as string | null | undefined
   } = $props();
 
   let isSidebarOpen = $state(false);
@@ -206,6 +208,9 @@
   {onGoAccount}
   {onGoHome}
   {onGoOrders}
+  restaurantSlug={showNavLinks ? slug : ''}
+  {restaurantName}
+  {restaurantLogoIconUrl}
 />
 
 <style>

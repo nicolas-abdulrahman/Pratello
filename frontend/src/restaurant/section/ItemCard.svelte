@@ -47,7 +47,7 @@
   );
 
   const rating = $derived(item.rating ?? item.review?.rating ?? null);
-  const reviewCount = $derived(item.reviewCount ?? null);
+  const reviewCount = $derived(item.reviewCount ?? item.review?.count ?? (item as any).count ?? null);
   const isPopular = $derived(!!item.isPopular);
   const isCombo = $derived(item.type === 'combo');
 
@@ -153,9 +153,11 @@
 
     <!-- Reviews and pricing -->
     <div class="flex flex-col gap-1 mt-auto shrink-0">
-      <div class="min-w-0 overflow-hidden">
-        <ReviewProp {rating} count={reviewCount} />
-      </div>
+      {#if reviewCount && Number(reviewCount) > 0}
+        <div class="min-w-0 overflow-hidden">
+          <ReviewProp {rating} count={reviewCount} />
+        </div>
+      {/if}
 
       <div class="flex items-end justify-between gap-2 pr-1">
         <!-- Prices -->

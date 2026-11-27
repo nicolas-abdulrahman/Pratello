@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS restaurant (
     archived_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE restaurant ADD COLUMN IF NOT EXISTS icon_url TEXT;
+ALTER TABLE restaurant ADD COLUMN IF NOT EXISTS logo_icon_url TEXT;
 ALTER TABLE restaurant ADD COLUMN IF NOT EXISTS favicon_url TEXT;
 ALTER TABLE restaurant ADD COLUMN IF NOT EXISTS cover_url TEXT;
 CREATE TABLE IF NOT EXISTS account_restaurant (

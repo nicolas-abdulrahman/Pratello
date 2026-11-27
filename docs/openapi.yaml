@@ -3315,6 +3315,7 @@ components:
         name: { type: string }
         description: { type: string }
         icon_url: { type: string, nullable: true }
+        logo_icon_url: { type: string, nullable: true, description: Tiny logo/icon asset. }
         favicon_url: { type: string, nullable: true, description: Browser tab icon. A 48×48 SVG is recommended. }
         cover_url: { type: string, nullable: true }
         archived_at: { type: string, format: date-time, nullable: true }
@@ -3330,6 +3331,7 @@ components:
           description: Immutable after creation. Auto-generated if omitted.
         description: { type: string }
         icon_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. }
+        logo_icon_url: { type: string, maxLength: 2048, description: HTTP(S) or a local media path for the tiny logo/icon asset. }
         favicon_url: { type: string, maxLength: 2048, description: HTTP(S) or a local media path for the browser tab icon. }
         cover_url: { type: string, maxLength: 2048, description: HTTP(S) or a local /media/ URL. }
     UpdateRestaurantRequest:
@@ -3339,6 +3341,7 @@ components:
         name: { type: string }
         description: { type: string }
         icon_url: { type: string, maxLength: 2048, description: Omit to keep the current URL; send an empty string to clear it. }
+        logo_icon_url: { type: string, maxLength: 2048, description: Omit to keep the current URL; send an empty string to clear it. }
         favicon_url: { type: string, maxLength: 2048, description: Omit to keep the current favicon; send an empty string to clear it. }
         cover_url: { type: string, maxLength: 2048, description: Omit to keep the current URL; send an empty string to clear it. }
     MyRestaurant:

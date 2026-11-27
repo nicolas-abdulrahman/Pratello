@@ -1,7 +1,7 @@
 <script>
-  import { add_item} from '../lib/stores/Cart';
-  import ReviewProp from '../review/ReviewProp.svelte';
-  import { sectionText } from './section/section';
+  import { add_item } from '../../lib/stores/Cart';
+  import ReviewProp from '../../review/ReviewProp.svelte';
+  import { sectionText } from './section';
 
   let {
     image,
@@ -66,7 +66,9 @@
     
     <div class="flex items-end justify-between mt-auto pt-4 border-t border-gray-50 w-full">
       <div class="flex flex-col gap-1 items-start">
-        <ReviewProp {rating} {count} />
+        {#if count && Number(count) > 0}
+          <ReviewProp {rating} {count} />
+        {/if}
 
         {#if originalPrice}
           <span class="text-xs text-gray-400 line-through font-medium leading-none mb-1">{originalPrice}</span>

@@ -187,14 +187,14 @@ func TestJoaoBurgerHTTPFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	var org struct {
-		Name    string
-		Icon    string `json:"icon_url"`
-		Cover   string `json:"cover_url"`
-		Favicon string `json:"favicon_url"`
+		Name     string
+		Icon     string `json:"icon_url"`
+		LogoIcon string `json:"logo_icon_url"`
+		Cover    string `json:"cover_url"`
+		Favicon  string `json:"favicon_url"`
 	}
 	get(base, "", &org)
-	const joaoLogo = "https://static.vecteezy.com/system/resources/previews/048/115/352/non_2x/hamburger-food-icon-illustration-vector.jpg"
-	if org.Name != "João Burger" || org.Icon != joaoLogo || org.Cover != restaurantMedia+"brand/cover.png" {
+	if org.Name != "João Burger" || org.Icon != restaurantMedia+"brand/logo.png" || org.LogoIcon != restaurantMedia+"brand/logo_icon.png" || org.Cover != restaurantMedia+"brand/cover.png" {
 		t.Fatalf("wrong branding: %+v", org)
 	}
 	if org.Favicon != restaurantMedia+"brand/favicon.svg" {

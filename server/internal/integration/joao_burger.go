@@ -158,8 +158,7 @@ func seedJoaoBurger(ctx context.Context, client *http.Client, baseURL, bootstrap
 	if err := post("/api/administrators", f.Administrator.AccessToken, map[string]int{"account_id": f.Rogerio.ID}, nil); err != nil {
 		return f, err
 	}
-	const joaoLogo = "https://static.vecteezy.com/system/resources/previews/048/115/352/non_2x/hamburger-food-icon-illustration-vector.jpg"
-	if err := post("/api/restaurants", owner, map[string]any{"name": "João Burger", "slug": JoaoBurgerSlug, "description": "Smash burgers, fritas crocantes e combos para dividir.", "icon_url": joaoLogo, "cover_url": restaurantMedia + "brand/cover.png", "favicon_url": restaurantMedia + "brand/favicon.svg"}, nil); err != nil {
+	if err := post("/api/restaurants", owner, map[string]any{"name": "João Burger", "slug": JoaoBurgerSlug, "description": "Smash burgers, fritas crocantes e combos para dividir.", "icon_url": restaurantMedia + "brand/logo.png", "logo_icon_url": restaurantMedia + "brand/logo_icon.png", "cover_url": restaurantMedia + "brand/cover.png", "favicon_url": restaurantMedia + "brand/favicon.svg"}, nil); err != nil {
 		return f, err
 	}
 	root := "/api/restaurants/" + JoaoBurgerSlug

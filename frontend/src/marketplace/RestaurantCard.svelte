@@ -225,7 +225,7 @@
     background-color: var(--rc-cream);
   }
   .logo-img {
-    @apply h-full w-full object-contain p-space-md;
+    @apply h-full w-full object-cover;
     object-position: center;
   }
   .logo-inner-rule {

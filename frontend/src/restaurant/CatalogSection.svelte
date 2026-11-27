@@ -1,5 +1,5 @@
 <script>
-  import CombosCard from './CombosCard.svelte';
+  import LargeItemCard from './section/LargeItemCard.svelte';
   import SectionTitle from './section/SectionTitle.svelte';
   import { resolveItemColors, resolveSection } from './section/section';
   import { restaurantDarkOverride } from '../lib/stores/restaurant_style';
@@ -46,7 +46,7 @@
       : 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-space-sm'}>
       {#each items as item (item.id)}
         <div class={horizontal ? 'w-[300px] shrink-0 snap-start' : 'min-w-0'}>
-          <CombosCard
+          <LargeItemCard
             image={item.image || item.imageUrl || item.photo_url || item.image_url || '/media/default.png'}
             title={item.title || item.name || 'Item'}
             desc={item.description || ''}
